@@ -137,7 +137,6 @@ function(arken_add_wasm_capsule)
         COMMAND_EXPAND_LISTS
     )
     add_custom_target(${ARG_TARGET}
-        ALL
         DEPENDS
             "${_arken_wasm_js}"
             "${_arken_wasm_bin}"
