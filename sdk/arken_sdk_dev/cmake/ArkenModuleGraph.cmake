@@ -103,7 +103,7 @@ function(arken_resolve_enabled_capsules out_var)
     set_property(GLOBAL PROPERTY ARKEN_GRAPH_VISITED "")
     set_property(GLOBAL PROPERTY ARKEN_GRAPH_ENABLED_CAPSULE_DIRS "")
 
-    file(GLOB _capsule_manifests LIST_DIRECTORIES FALSE "${ARG_CAPSULE_ROOT}/*_dev/capsule.manifest.json")
+    file(GLOB _capsule_manifests LIST_DIRECTORIES FALSE "${ARG_CAPSULE_ROOT}/*/capsule.manifest.json")
     foreach(_manifest_path IN LISTS _capsule_manifests)
         _arken_register_module_manifest("${_manifest_path}" "capsule")
     endforeach()
