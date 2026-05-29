@@ -1,4 +1,5 @@
 function(arken_embed_text_file input_path output_path variable_name)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${input_path})
     file(READ ${input_path} _arken_embed_contents)
     string(REPLACE "\\" "\\\\" _arken_embed_contents "${_arken_embed_contents}")
     string(REPLACE "\"" "\\\"" _arken_embed_contents "${_arken_embed_contents}")
