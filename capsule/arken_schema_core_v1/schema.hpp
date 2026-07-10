@@ -108,6 +108,7 @@ enum class QueryOperator
     GreaterThan,
     GreaterThanOrEqual,
     Prefix,
+    Suffix,
     Contains,
     IsNull,
 };
@@ -250,6 +251,8 @@ const ModelSchema* FindModelById(const SchemaCatalog& catalog, std::string_view 
 const ModelSchema* FindModelByLogicalName(const SchemaCatalog& catalog, std::string_view logical_name);
 const ModelSchema* FindModelByStorageName(const SchemaCatalog& catalog, std::string_view storage_name);
 const FieldSchema* FindField(const ModelSchema& model, std::string_view field_name);
+const RelationSchema* FindRelationById(const ModelSchema& model, std::string_view relation_id);
+const JoinSchema* FindJoinById(const ModelSchema& model, std::string_view join_id);
 bool HasIndexPrefix(const ModelSchema& model, const std::vector<std::string>& fields);
 bool IsSingleFieldUnique(const ModelSchema& model, std::string_view field_name);
 ValidationResult ValidateCatalog(const SchemaCatalog& catalog);
