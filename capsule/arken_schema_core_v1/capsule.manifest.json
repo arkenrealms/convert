@@ -1,0 +1,9 @@
+{
+  "name": "Arken Schema Core V1",
+  "key": "arken_schema_core_v1",
+  "version": "1.0.0",
+  "public_dependencies": [],
+  "private_dependencies": [],
+  "test_dependencies": [],
+  "optional_features": {}
+}
