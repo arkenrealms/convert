@@ -76,14 +76,18 @@ bool IsTextKind(FieldKind kind)
     switch (kind)
     {
         case FieldKind::ObjectId:
-        case FieldKind::InternalId:
         case FieldKind::Text:
         case FieldKind::Slug:
         case FieldKind::DisplayName:
+        case FieldKind::Url:
+        case FieldKind::Email:
         case FieldKind::Enum:
         case FieldKind::EthereumAddress:
         case FieldKind::HashHex:
+        case FieldKind::TokenHash:
+        case FieldKind::KeyReference:
             return true;
+        case FieldKind::InternalId:
         case FieldKind::Bool:
         case FieldKind::TimestampMs:
         case FieldKind::JsonObject:
@@ -98,7 +102,7 @@ bool IsTextKind(FieldKind kind)
 
 bool IsOrderedKind(FieldKind kind)
 {
-    return IsTextKind(kind) || kind == FieldKind::Integer || kind == FieldKind::Real ||
+    return IsTextKind(kind) || kind == FieldKind::InternalId || kind == FieldKind::Integer || kind == FieldKind::Real ||
         kind == FieldKind::TimestampMs;
 }
 
@@ -148,19 +152,23 @@ bool IsLiteralDefaultCompatible(const FieldSchema& field)
         case FieldKind::Bool:
             return field.defaultValue.value == "true" || field.defaultValue.value == "false";
         case FieldKind::Integer:
+        case FieldKind::InternalId:
         case FieldKind::TimestampMs:
             return IsIntegerLiteral(field.defaultValue.value);
         case FieldKind::Secret:
         case FieldKind::Blob:
             return false;
         case FieldKind::ObjectId:
-        case FieldKind::InternalId:
         case FieldKind::Text:
         case FieldKind::Slug:
         case FieldKind::DisplayName:
+        case FieldKind::Url:
+        case FieldKind::Email:
         case FieldKind::JsonObject:
         case FieldKind::EthereumAddress:
         case FieldKind::HashHex:
+        case FieldKind::TokenHash:
+        case FieldKind::KeyReference:
         case FieldKind::Real:
             return true;
     }
@@ -173,7 +181,7 @@ bool IsCheckCompatible(FieldKind kind, CheckKind check_kind)
     {
         case CheckKind::MinimumInteger:
         case CheckKind::MaximumInteger:
-            return kind == FieldKind::Integer || kind == FieldKind::TimestampMs;
+            return kind == FieldKind::InternalId || kind == FieldKind::Integer || kind == FieldKind::TimestampMs;
         case CheckKind::MinimumLength:
         case CheckKind::MaximumLength:
         case CheckKind::Pattern:
@@ -256,6 +264,8 @@ void HashModel(std::uint64_t& hash, const ModelSchema& model)
     HashText(hash, model.ownerCapsule);
     HashText(hash, model.domain);
     HashText(hash, model.description);
+    HashText(hash, ModelKindName(model.kind));
+    HashText(hash, RetentionPolicyName(model.retention));
     for (const auto& field : model.fields)
     {
         HashText(hash, field.name);
@@ -264,6 +274,10 @@ void HashModel(std::uint64_t& hash, const ModelSchema& model)
         HashBool(hash, field.nullable);
         HashBool(hash, field.redacted);
         HashText(hash, field.sourceField);
+        HashBool(hash, field.immutable);
+        HashBool(hash, field.writeOnce);
+        HashText(hash, NormalizationKindName(field.normalization));
+        HashText(hash, field.importTransform);
         HashText(hash, DefaultKindName(field.defaultValue.kind));
         HashText(hash, field.defaultValue.value);
         HashStrings(hash, field.enumValues);
@@ -345,6 +359,10 @@ json FieldJson(const FieldSchema& field)
         {"nullable", field.nullable},
         {"redacted", field.redacted},
         {"sourceField", field.sourceField.empty() ? field.name : field.sourceField},
+        {"immutable", field.immutable},
+        {"writeOnce", field.writeOnce},
+        {"normalization", std::string(NormalizationKindName(field.normalization))},
+        {"importTransform", field.importTransform},
         {"default", {
             {"kind", std::string(DefaultKindName(field.defaultValue.kind))},
             {"value", field.defaultValue.value},
@@ -410,6 +428,8 @@ json ModelJson(const ModelSchema& model)
         {"ownerCapsule", model.ownerCapsule},
         {"domain", model.domain},
         {"description", model.description},
+        {"kind", std::string(ModelKindName(model.kind))},
+        {"retention", std::string(RetentionPolicyName(model.retention))},
         {"fields", std::move(fields)},
         {"keys", std::move(keys)},
         {"indexes", std::move(indexes)},
@@ -455,6 +475,8 @@ std::string_view FieldKindName(FieldKind kind)
         case FieldKind::Text: return "text";
         case FieldKind::Slug: return "slug";
         case FieldKind::DisplayName: return "displayName";
+        case FieldKind::Url: return "url";
+        case FieldKind::Email: return "email";
         case FieldKind::Enum: return "enum";
         case FieldKind::Bool: return "bool";
         case FieldKind::TimestampMs: return "timestampMs";
@@ -462,11 +484,54 @@ std::string_view FieldKindName(FieldKind kind)
         case FieldKind::Secret: return "secret";
         case FieldKind::EthereumAddress: return "ethereumAddress";
         case FieldKind::HashHex: return "hashHex";
+        case FieldKind::TokenHash: return "tokenHash";
+        case FieldKind::KeyReference: return "keyReference";
         case FieldKind::Integer: return "integer";
         case FieldKind::Real: return "real";
         case FieldKind::Blob: return "blob";
     }
     return "text";
+}
+
+std::string_view NormalizationKindName(NormalizationKind kind)
+{
+    switch (kind)
+    {
+        case NormalizationKind::None: return "none";
+        case NormalizationKind::Trim: return "trim";
+        case NormalizationKind::Lowercase: return "lowercase";
+        case NormalizationKind::LowercaseTrim: return "lowercaseTrim";
+        case NormalizationKind::EthereumAddress: return "ethereumAddress";
+        case NormalizationKind::Url: return "url";
+    }
+    return "none";
+}
+
+std::string_view ModelKindName(ModelKind kind)
+{
+    switch (kind)
+    {
+        case ModelKind::Entity: return "entity";
+        case ModelKind::Join: return "join";
+        case ModelKind::Credential: return "credential";
+        case ModelKind::Ephemeral: return "ephemeral";
+        case ModelKind::AuditLedger: return "auditLedger";
+        case ModelKind::Provenance: return "provenance";
+        case ModelKind::ImportLedger: return "importLedger";
+    }
+    return "entity";
+}
+
+std::string_view RetentionPolicyName(RetentionPolicy policy)
+{
+    switch (policy)
+    {
+        case RetentionPolicy::Durable: return "durable";
+        case RetentionPolicy::UntilExpiry: return "untilExpiry";
+        case RetentionPolicy::Immutable: return "immutable";
+        case RetentionPolicy::UntilPromotion: return "untilPromotion";
+    }
+    return "durable";
 }
 
 std::string_view DefaultKindName(DefaultKind kind)
@@ -706,6 +771,24 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
         {
             AddError(result, "model_fields_required", model.modelId, "fields", "At least one field is required.");
         }
+        if (model.kind == ModelKind::Ephemeral && model.retention != RetentionPolicy::UntilExpiry)
+        {
+            AddError(result, "ephemeral_retention_invalid", model.modelId, "retention", "Ephemeral models must expire explicitly.");
+        }
+        if (model.kind == ModelKind::AuditLedger && model.retention != RetentionPolicy::Immutable)
+        {
+            AddError(result, "audit_retention_invalid", model.modelId, "retention", "Audit ledgers must be immutable.");
+        }
+        if (model.kind == ModelKind::Provenance && model.retention != RetentionPolicy::Immutable)
+        {
+            AddError(result, "provenance_retention_invalid", model.modelId, "retention", "Provenance rows must be immutable.");
+        }
+        if (model.kind == ModelKind::ImportLedger &&
+            model.retention != RetentionPolicy::Immutable &&
+            model.retention != RetentionPolicy::UntilPromotion)
+        {
+            AddError(result, "import_retention_invalid", model.modelId, "retention", "Import ledgers must be immutable or retained through promotion.");
+        }
 
         std::set<std::string> field_names;
         std::set<std::string> field_storage_names;
@@ -743,6 +826,33 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             if (field.kind == FieldKind::Secret && !field.redacted)
             {
                 AddError(result, "secret_field_not_redacted", model.modelId, path, "Secret fields must be redacted.");
+            }
+            if (field.kind == FieldKind::TokenHash && !field.immutable)
+            {
+                AddError(result, "token_hash_mutable", model.modelId, path, "Token hashes are immutable; rotation creates a new credential or token row.");
+            }
+            if (field.writeOnce && field.immutable)
+            {
+                AddError(result, "write_once_immutable_conflict", model.modelId, path, "A field cannot be both immutable and write-once.");
+            }
+            if (field.writeOnce && !field.nullable)
+            {
+                AddError(result, "write_once_field_not_nullable", model.modelId, path, "Write-once fields must begin nullable so one later value can be recorded.");
+            }
+            if (field.normalization == NormalizationKind::EthereumAddress && field.kind != FieldKind::EthereumAddress)
+            {
+                AddError(result, "ethereum_normalization_kind_mismatch", model.modelId, path, "Ethereum normalization requires an Ethereum-address field.");
+            }
+            if (field.normalization == NormalizationKind::Url && field.kind != FieldKind::Url)
+            {
+                AddError(result, "url_normalization_kind_mismatch", model.modelId, path, "URL normalization requires a URL field.");
+            }
+            if ((field.normalization == NormalizationKind::Lowercase ||
+                 field.normalization == NormalizationKind::LowercaseTrim ||
+                 field.normalization == NormalizationKind::Trim) &&
+                !IsTextKind(field.kind))
+            {
+                AddError(result, "text_normalization_kind_mismatch", model.modelId, path, "Text normalization requires a semantic text field.");
             }
             if (field.redacted && (!field.query.filterOperators.empty() || field.query.sortable || field.query.cursor))
             {
@@ -857,6 +967,18 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
         for (const auto& relation : model.relations)
         {
             const std::string path = "relations." + relation.relationId;
+            if (model.retention == RetentionPolicy::Immutable &&
+                (relation.onDelete != ReferentialAction::Restrict ||
+                 relation.onUpdate != ReferentialAction::Restrict))
+            {
+                AddError(
+                    result,
+                    "immutable_relation_action_invalid",
+                    model.modelId,
+                    path,
+                    "Immutable rows cannot be changed or removed by referential actions."
+                );
+            }
             if (relation.relationId.empty() || relation.targetModel.empty() || relation.sourceFields.empty() ||
                 relation.targetFields.empty())
             {
@@ -898,6 +1020,24 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
                     if (const auto* field = FindField(model, field_name); field != nullptr && field->nullable)
                     {
                         AddError(result, "required_relation_nullable", model.modelId, path, "Required one-to-one relation fields cannot be nullable.");
+                    }
+                }
+            }
+            if (relation.onDelete == ReferentialAction::SetNull ||
+                relation.onUpdate != ReferentialAction::Restrict)
+            {
+                for (const auto& field_name : relation.sourceFields)
+                {
+                    if (const auto* field = FindField(model, field_name);
+                        field != nullptr && (field->immutable || field->writeOnce))
+                    {
+                        AddError(
+                            result,
+                            "immutable_relation_field_action_invalid",
+                            model.modelId,
+                            path,
+                            "Referential actions cannot rewrite immutable relation fields."
+                        );
                     }
                 }
             }

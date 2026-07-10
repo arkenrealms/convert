@@ -15,6 +15,8 @@ enum class FieldKind
     Text,
     Slug,
     DisplayName,
+    Url,
+    Email,
     Enum,
     Bool,
     TimestampMs,
@@ -22,9 +24,40 @@ enum class FieldKind
     Secret,
     EthereumAddress,
     HashHex,
+    TokenHash,
+    KeyReference,
     Integer,
     Real,
     Blob,
+};
+
+enum class NormalizationKind
+{
+    None,
+    Trim,
+    Lowercase,
+    LowercaseTrim,
+    EthereumAddress,
+    Url,
+};
+
+enum class ModelKind
+{
+    Entity,
+    Join,
+    Credential,
+    Ephemeral,
+    AuditLedger,
+    Provenance,
+    ImportLedger,
+};
+
+enum class RetentionPolicy
+{
+    Durable,
+    UntilExpiry,
+    Immutable,
+    UntilPromotion,
 };
 
 enum class DefaultKind
@@ -108,6 +141,10 @@ struct FieldSchema
     bool nullable = true;
     bool redacted = false;
     std::string sourceField;
+    bool immutable = false;
+    bool writeOnce = false;
+    NormalizationKind normalization = NormalizationKind::None;
+    std::string importTransform;
     DefaultSchema defaultValue;
     std::vector<std::string> enumValues;
     std::vector<CheckSchema> checks;
@@ -155,6 +192,8 @@ struct ModelSchema
     std::string ownerCapsule;
     std::string domain;
     std::string description;
+    ModelKind kind = ModelKind::Entity;
+    RetentionPolicy retention = RetentionPolicy::Durable;
     std::vector<FieldSchema> fields;
     std::vector<KeySchema> keys;
     std::vector<IndexSchema> indexes;
@@ -196,6 +235,9 @@ struct ValidationResult
 };
 
 std::string_view FieldKindName(FieldKind kind);
+std::string_view NormalizationKindName(NormalizationKind kind);
+std::string_view ModelKindName(ModelKind kind);
+std::string_view RetentionPolicyName(RetentionPolicy policy);
 std::string_view DefaultKindName(DefaultKind kind);
 std::string_view CheckKindName(CheckKind kind);
 std::string_view KeyKindName(KeyKind kind);
