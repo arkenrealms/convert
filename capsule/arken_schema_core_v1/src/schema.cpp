@@ -122,6 +122,7 @@ bool IsQueryOperatorCompatible(FieldKind kind, QueryOperator query_operator)
         case QueryOperator::GreaterThanOrEqual:
             return IsOrderedKind(kind);
         case QueryOperator::Prefix:
+        case QueryOperator::Suffix:
         case QueryOperator::Contains:
             return IsTextKind(kind);
     }
@@ -212,12 +213,17 @@ bool HasRepeatedField(const std::vector<std::string>& fields)
     return false;
 }
 
-const RelationSchema* FindRelation(const ModelSchema& model, std::string_view relation_id)
+bool IsUniqueFieldSet(const ModelSchema& model, const std::vector<std::string>& fields)
 {
-    const auto it = std::find_if(model.relations.begin(), model.relations.end(), [relation_id](const RelationSchema& relation) {
-        return relation.relationId == relation_id;
+    if (std::any_of(model.keys.begin(), model.keys.end(), [&fields](const KeySchema& key) {
+        return key.fields == fields;
+    }))
+    {
+        return true;
+    }
+    return std::any_of(model.indexes.begin(), model.indexes.end(), [&fields](const IndexSchema& index) {
+        return index.unique && index.fields == fields;
     });
-    return it == model.relations.end() ? nullptr : &*it;
 }
 
 bool IsPrefix(const std::vector<std::string>& candidate, const std::vector<std::string>& fields)
@@ -604,6 +610,7 @@ std::string_view QueryOperatorName(QueryOperator query_operator)
         case QueryOperator::GreaterThan: return "greaterThan";
         case QueryOperator::GreaterThanOrEqual: return "greaterThanOrEqual";
         case QueryOperator::Prefix: return "prefix";
+        case QueryOperator::Suffix: return "suffix";
         case QueryOperator::Contains: return "contains";
         case QueryOperator::IsNull: return "isNull";
     }
@@ -662,6 +669,22 @@ const FieldSchema* FindField(const ModelSchema& model, std::string_view field_na
         return field.name == field_name;
     });
     return it == model.fields.end() ? nullptr : &*it;
+}
+
+const RelationSchema* FindRelationById(const ModelSchema& model, std::string_view relation_id)
+{
+    const auto it = std::find_if(model.relations.begin(), model.relations.end(), [relation_id](const RelationSchema& relation) {
+        return relation.relationId == relation_id;
+    });
+    return it == model.relations.end() ? nullptr : &*it;
+}
+
+const JoinSchema* FindJoinById(const ModelSchema& model, std::string_view join_id)
+{
+    const auto it = std::find_if(model.joins.begin(), model.joins.end(), [join_id](const JoinSchema& join) {
+        return join.joinId == join_id;
+    });
+    return it == model.joins.end() ? nullptr : &*it;
 }
 
 bool HasIndexPrefix(const ModelSchema& model, const std::vector<std::string>& fields)
@@ -1009,6 +1032,11 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             {
                 AddError(result, "relation_target_not_keyed", model.modelId, path, "Relation target fields require a key or index prefix.");
             }
+            else if (relation.cardinality != RelationCardinality::Many &&
+                     !IsUniqueFieldSet(*target, relation.targetFields))
+            {
+                AddError(result, "singular_relation_target_not_unique", model.modelId, path, "Singular relation target fields must identify a unique row.");
+            }
             if (!HasIndexPrefix(model, relation.sourceFields))
             {
                 AddError(result, "relation_source_not_indexed", model.modelId, path, "Relation source fields require an index prefix.");
@@ -1065,6 +1093,10 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             {
                 AddError(result, "duplicate_join_id", model.modelId, path, "Join id must be unique within a model.");
             }
+            if (relation_ids.contains(join.joinId))
+            {
+                AddError(result, "relation_join_id_collision", model.modelId, path, "Relation and join ids share one include namespace and must be unique.");
+            }
             if (join.sourceRelation == join.targetRelation)
             {
                 AddError(result, "join_relations_must_differ", model.modelId, path, "Join source and target relations must differ.");
@@ -1075,8 +1107,8 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
                 AddError(result, "join_through_model_missing", model.modelId, path, "Join through model must exist.");
                 continue;
             }
-            const RelationSchema* source_relation = FindRelation(*through, join.sourceRelation);
-            const RelationSchema* target_relation = FindRelation(*through, join.targetRelation);
+            const RelationSchema* source_relation = FindRelationById(*through, join.sourceRelation);
+            const RelationSchema* target_relation = FindRelationById(*through, join.targetRelation);
             if (source_relation == nullptr || target_relation == nullptr)
             {
                 AddError(result, "join_relation_missing", model.modelId, path, "Join relations must exist on the through model.");
