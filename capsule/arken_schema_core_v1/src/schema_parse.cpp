@@ -121,6 +121,36 @@ const auto kModelKinds = std::to_array<std::pair<std::string_view, ModelKind>>({
     {"importLedger", ModelKind::ImportLedger},
 });
 
+const auto kModelRoles = std::to_array<std::pair<std::string_view, ModelRole>>({
+    {"unspecified", ModelRole::Unspecified},
+    {"universalSpine", ModelRole::UniversalSpine},
+    {"domainFacet", ModelRole::DomainFacet},
+    {"definition", ModelRole::Definition},
+    {"revision", ModelRole::Revision},
+    {"instance", ModelRole::Instance},
+    {"occurrence", ModelRole::Occurrence},
+    {"manifestation", ModelRole::Manifestation},
+    {"representation", ModelRole::Representation},
+    {"assertion", ModelRole::Assertion},
+    {"observation", ModelRole::Observation},
+    {"authoritativeAggregate", ModelRole::AuthoritativeAggregate},
+    {"ledger", ModelRole::Ledger},
+    {"registry", ModelRole::Registry},
+    {"projection", ModelRole::Projection},
+    {"importRecord", ModelRole::ImportRecord},
+    {"receipt", ModelRole::Receipt},
+    {"membership", ModelRole::Membership},
+    {"valueObject", ModelRole::ValueObject},
+});
+
+const auto kNameReviewStatuses =
+    std::to_array<std::pair<std::string_view, NameReviewStatus>>({
+        {"unspecified", NameReviewStatus::Unspecified},
+        {"canonical", NameReviewStatus::Canonical},
+        {"reviewRequired", NameReviewStatus::ReviewRequired},
+        {"approvedException", NameReviewStatus::ApprovedException},
+    });
+
 const auto kRetentions =
     std::to_array<std::pair<std::string_view, RetentionPolicy>>({
         {"durable", RetentionPolicy::Durable},
@@ -216,7 +246,9 @@ std::optional<FieldSchema> ParseField(const json &value,
       !import_transform) {
     return std::nullopt;
   }
+  field.registryKey = value.value("registryKey", std::string{});
   field.name = *name;
+  field.fieldId = value.value("fieldId", std::uint32_t{0});
   field.storageName = *storage_name;
   field.kind = *kind;
   field.semanticType = semantic_type;
@@ -309,6 +341,7 @@ std::optional<ModelSchema> ParseModel(const json &value,
       !description || !kind || !retention) {
     return std::nullopt;
   }
+  model.registryKey = value.value("registryKey", std::string{});
   model.modelId = *model_id;
   model.logicalName = *logical_name;
   model.storageName = *storage_name;
@@ -317,6 +350,30 @@ std::optional<ModelSchema> ParseModel(const json &value,
   model.description = *description;
   model.kind = *kind;
   model.retention = *retention;
+  model.typeId = value.value("typeId", std::uint32_t{0});
+  model.qualifiedName = value.value("qualifiedName", std::string{});
+  model.mutationAuthority = value.value("mutationAuthority", std::string{});
+  if (value.contains("role")) {
+    const auto role = ParseEnum(value, "role", path, kModelRoles, result);
+    if (!role) return std::nullopt;
+    model.role = *role;
+  }
+  if (value.contains("nameReview")) {
+    const auto name_review =
+        ParseEnum(value, "nameReview", path, kNameReviewStatuses, result);
+    if (!name_review) return std::nullopt;
+    model.nameReview = *name_review;
+  }
+  model.sourceAliases =
+      value.value("sourceAliases", std::vector<std::string>{});
+  model.retiredNames =
+      value.value("retiredNames", std::vector<std::string>{});
+  model.nameReviewRationale =
+      value.value("nameReviewRationale", std::string{});
+  model.retiredFieldIds =
+      value.value("retiredFieldIds", std::vector<std::uint32_t>{});
+  model.retiredFieldNames =
+      value.value("retiredFieldNames", std::vector<std::string>{});
 
   const auto &fields = value.value("fields", json::array());
   if (!fields.is_array()) {

@@ -11,9 +11,144 @@
 
 namespace arken::schema::core::v1
 {
+std::uint32_t StableRegistryId(std::string_view registry_namespace, std::string_view canonical_name)
+{
+    std::uint32_t hash = UINT32_C(2166136261);
+    const auto hash_text = [&hash](std::string_view text) {
+        for (const unsigned char ch : text)
+        {
+            hash ^= ch;
+            hash *= UINT32_C(16777619);
+        }
+    };
+    hash_text(registry_namespace);
+    hash ^= UINT8_C(0xff);
+    hash *= UINT32_C(16777619);
+    hash_text(canonical_name);
+    return hash == 0 ? UINT32_C(1) : hash;
+}
+
 namespace
 {
 using json = nlohmann::json;
+
+bool IsAmbiguousStorageName(std::string_view name)
+{
+    static const std::set<std::string_view> names = {
+        "acts",
+        "applications",
+        "areas",
+        "assets",
+        "collections",
+        "counters",
+        "data",
+        "events",
+        "files",
+        "groups",
+        "items",
+        "logs",
+        "markets",
+        "memory",
+        "messages",
+        "meta",
+        "metadata",
+        "models",
+        "nodes",
+        "objects",
+        "orders",
+        "products",
+        "profiles",
+        "projects",
+        "records",
+        "repositories",
+        "roles",
+        "services",
+        "sessions",
+        "sets",
+        "stock",
+        "tags",
+        "teams",
+        "users",
+        "worlds",
+    };
+    return names.contains(name);
+}
+
+bool HasForbiddenProductPrefix(std::string_view name)
+{
+    return name.starts_with("arken_") || name.starts_with("legacy_") || name.starts_with("oasis_") ||
+        name.starts_with("seer_");
+}
+
+ModelRole InferModelRole(ModelKind kind)
+{
+    switch (kind)
+    {
+        case ModelKind::Join: return ModelRole::Membership;
+        case ModelKind::Ephemeral: return ModelRole::Occurrence;
+        case ModelKind::AuditLedger: return ModelRole::Ledger;
+        case ModelKind::Provenance: return ModelRole::Assertion;
+        case ModelKind::ImportLedger: return ModelRole::ImportRecord;
+        case ModelKind::Entity:
+        case ModelKind::Credential: return ModelRole::AuthoritativeAggregate;
+    }
+    return ModelRole::AuthoritativeAggregate;
+}
+
+template <typename Value>
+void SortAndUnique(std::vector<Value>& values)
+{
+    std::sort(values.begin(), values.end());
+    values.erase(std::unique(values.begin(), values.end()), values.end());
+}
+
+void NormalizeModelRegistry(ModelSchema& model)
+{
+    if (model.qualifiedName.empty())
+    {
+        model.qualifiedName = model.domain + "." + model.modelId;
+    }
+    if (model.mutationAuthority.empty())
+    {
+        model.mutationAuthority = model.ownerCapsule;
+    }
+    if (model.registryKey.empty())
+    {
+        model.registryKey = model.qualifiedName;
+    }
+    if (model.role == ModelRole::Unspecified)
+    {
+        model.role = InferModelRole(model.kind);
+    }
+    if (model.nameReview == NameReviewStatus::Unspecified)
+    {
+        model.nameReview = IsAmbiguousStorageName(model.storageName)
+            ? NameReviewStatus::ReviewRequired
+            : NameReviewStatus::Canonical;
+    }
+    if (model.typeId == 0)
+    {
+        model.typeId = StableRegistryId("arken.schema.model.v1", model.qualifiedName);
+    }
+    for (auto& field : model.fields)
+    {
+        if (field.registryKey.empty())
+        {
+            const std::string_view field_identity = field.sourceField.empty()
+                ? std::string_view(field.name)
+                : std::string_view(field.sourceField);
+            field.registryKey = model.registryKey + "/field:" + std::string(field_identity);
+        }
+        if (field.fieldId == 0)
+        {
+            field.fieldId = StableRegistryId("arken.schema.field.v1." + model.qualifiedName, field.name);
+        }
+    }
+    SortAndUnique(model.sourceAliases);
+    SortAndUnique(model.retiredNames);
+    SortAndUnique(model.retiredFieldIds);
+    SortAndUnique(model.retiredFieldNames);
+}
 
 template <typename Value, typename Projection>
 bool HasDuplicate(const std::vector<Value>& values, Projection projection)
@@ -488,6 +623,8 @@ json FieldJson(const FieldSchema& field)
         });
     }
     return {
+        {"fieldId", field.fieldId},
+        {"registryKey", field.registryKey},
         {"name", field.name},
         {"storageName", field.storageName},
         {"kind", std::string(FieldKindName(field.kind))},
@@ -580,14 +717,25 @@ json ModelJson(const ModelSchema& model)
         });
     }
     return {
+        {"typeId", model.typeId},
+        {"registryKey", model.registryKey},
         {"modelId", model.modelId},
+        {"qualifiedName", model.qualifiedName},
         {"logicalName", model.logicalName},
         {"storageName", model.storageName},
         {"ownerCapsule", model.ownerCapsule},
+        {"mutationAuthority", model.mutationAuthority},
         {"domain", model.domain},
         {"description", model.description},
         {"kind", std::string(ModelKindName(model.kind))},
+        {"role", std::string(ModelRoleName(model.role))},
         {"retention", std::string(RetentionPolicyName(model.retention))},
+        {"sourceAliases", model.sourceAliases},
+        {"retiredNames", model.retiredNames},
+        {"nameReview", std::string(NameReviewStatusName(model.nameReview))},
+        {"nameReviewRationale", model.nameReviewRationale},
+        {"retiredFieldIds", model.retiredFieldIds},
+        {"retiredFieldNames", model.retiredFieldNames},
         {"fields", std::move(fields)},
         {"keys", std::move(keys)},
         {"indexes", std::move(indexes)},
@@ -595,6 +743,43 @@ json ModelJson(const ModelSchema& model)
         {"joins", std::move(joins)},
         {"oneOfs", std::move(one_ofs)},
     };
+}
+
+std::string NamingRegistryFingerprint(const SchemaCatalog& catalog)
+{
+    std::uint64_t hash = UINT64_C(14695981039346656037);
+    HashText(hash, "arken-schema-naming-registry-v1");
+    for (const auto& model : catalog.models)
+    {
+        HashText(hash, model.registryKey);
+        HashText(hash, std::to_string(model.typeId));
+        HashText(hash, model.qualifiedName);
+        HashText(hash, model.modelId);
+        HashText(hash, model.logicalName);
+        HashText(hash, model.storageName);
+        HashText(hash, model.ownerCapsule);
+        HashText(hash, model.mutationAuthority);
+        HashText(hash, ModelRoleName(model.role));
+        HashText(hash, NameReviewStatusName(model.nameReview));
+        HashText(hash, model.nameReviewRationale);
+        HashStrings(hash, model.sourceAliases);
+        HashStrings(hash, model.retiredNames);
+        for (const auto retired_field_id : model.retiredFieldIds)
+        {
+            HashText(hash, std::to_string(retired_field_id));
+        }
+        HashStrings(hash, model.retiredFieldNames);
+        for (const auto& field : model.fields)
+        {
+            HashText(hash, field.registryKey);
+            HashText(hash, std::to_string(field.fieldId));
+            HashText(hash, field.name);
+            HashText(hash, field.storageName);
+        }
+    }
+    std::ostringstream text;
+    text << std::hex << std::setfill('0') << std::setw(16) << hash;
+    return text.str();
 }
 } // namespace
 
@@ -718,6 +903,45 @@ std::string_view ModelKindName(ModelKind kind)
     return "entity";
 }
 
+std::string_view ModelRoleName(ModelRole role)
+{
+    switch (role)
+    {
+        case ModelRole::Unspecified: return "unspecified";
+        case ModelRole::UniversalSpine: return "universalSpine";
+        case ModelRole::DomainFacet: return "domainFacet";
+        case ModelRole::Definition: return "definition";
+        case ModelRole::Revision: return "revision";
+        case ModelRole::Instance: return "instance";
+        case ModelRole::Occurrence: return "occurrence";
+        case ModelRole::Manifestation: return "manifestation";
+        case ModelRole::Representation: return "representation";
+        case ModelRole::Assertion: return "assertion";
+        case ModelRole::Observation: return "observation";
+        case ModelRole::AuthoritativeAggregate: return "authoritativeAggregate";
+        case ModelRole::Ledger: return "ledger";
+        case ModelRole::Registry: return "registry";
+        case ModelRole::Projection: return "projection";
+        case ModelRole::ImportRecord: return "importRecord";
+        case ModelRole::Receipt: return "receipt";
+        case ModelRole::Membership: return "membership";
+        case ModelRole::ValueObject: return "valueObject";
+    }
+    return "unspecified";
+}
+
+std::string_view NameReviewStatusName(NameReviewStatus status)
+{
+    switch (status)
+    {
+        case NameReviewStatus::Unspecified: return "unspecified";
+        case NameReviewStatus::Canonical: return "canonical";
+        case NameReviewStatus::ReviewRequired: return "reviewRequired";
+        case NameReviewStatus::ApprovedException: return "approvedException";
+    }
+    return "unspecified";
+}
+
 std::string_view RetentionPolicyName(RetentionPolicy policy)
 {
     switch (policy)
@@ -822,6 +1046,10 @@ SchemaCatalog ComposeCatalog(std::string catalog_id, int version, std::vector<Sc
     };
     for (auto& fragment : catalog.fragments)
     {
+        for (auto& model : fragment.models)
+        {
+            NormalizeModelRegistry(model);
+        }
         std::sort(fragment.models.begin(), fragment.models.end(), [](const ModelSchema& lhs, const ModelSchema& rhs) {
             return std::tie(lhs.modelId, lhs.logicalName, lhs.storageName) <
                 std::tie(rhs.modelId, rhs.logicalName, rhs.storageName);
@@ -963,12 +1191,32 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
     std::set<std::string> model_ids;
     std::set<std::string> logical_names;
     std::set<std::string> storage_names;
+    std::set<std::string> qualified_names;
+    std::set<std::string> model_registry_keys;
+    std::set<std::uint32_t> type_ids;
+    std::set<std::string> active_model_names;
+    std::set<std::string> retired_model_names;
     for (const auto& model : catalog.models)
     {
-        if (model.modelId.empty() || model.logicalName.empty() || model.storageName.empty() ||
-            model.ownerCapsule.empty() || model.domain.empty())
+        if (model.registryKey.empty() || model.modelId.empty() || model.logicalName.empty() || model.storageName.empty() ||
+            model.ownerCapsule.empty() || model.domain.empty() || model.qualifiedName.empty() ||
+            model.mutationAuthority.empty() || model.typeId == 0 || model.role == ModelRole::Unspecified)
         {
-            AddError(result, "model_identity_required", model.modelId, "model", "Model id, names, owner capsule, and domain are required.");
+            AddError(
+                result,
+                "model_identity_required",
+                model.modelId,
+                "model",
+                "Model registry key, type id, names, owner capsule, mutation authority, domain, and semantic role are required."
+            );
+        }
+        if (!model_registry_keys.insert(model.registryKey).second)
+        {
+            AddError(result, "duplicate_model_registry_key", model.modelId, "registryKey", "Model registry keys must be globally unique and durable across renames.");
+        }
+        if (!type_ids.insert(model.typeId).second)
+        {
+            AddError(result, "duplicate_model_type_id", model.modelId, "typeId", "Model type id must be globally unique.");
         }
         if (!model_ids.insert(model.modelId).second)
         {
@@ -982,6 +1230,50 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
         {
             AddError(result, "duplicate_storage_name", model.modelId, "storageName", "Storage name must be unique.");
         }
+        if (!qualified_names.insert(model.qualifiedName).second)
+        {
+            AddError(result, "duplicate_qualified_name", model.modelId, "qualifiedName", "Qualified model name must be unique.");
+        }
+        if (model.qualifiedName.find('.') == std::string::npos)
+        {
+            AddError(result, "qualified_name_invalid", model.modelId, "qualifiedName", "Qualified model names require a domain namespace.");
+        }
+        if (HasForbiddenProductPrefix(model.storageName) &&
+            (model.role != ModelRole::ImportRecord || model.nameReview != NameReviewStatus::ApprovedException))
+        {
+            AddError(result, "product_prefixed_storage_name", model.modelId, "storageName", "Product or legacy prefixes are reserved for explicitly approved import evidence.");
+        }
+        if (model.storageName == "sets" || model.logicalName == "Set" || model.logicalName == "sets")
+        {
+            AddError(result, "unqualified_set_model_name", model.modelId, "storageName", "Unqualified Set/sets is not a canonical domain concept.");
+        }
+        if (IsAmbiguousStorageName(model.storageName) && model.nameReview == NameReviewStatus::Canonical)
+        {
+            AddError(result, "ambiguous_name_not_reviewed", model.modelId, "nameReview", "Ambiguous storage names require review or an approved exception.");
+        }
+        if (model.nameReview == NameReviewStatus::ApprovedException && model.nameReviewRationale.empty())
+        {
+            AddError(result, "name_exception_rationale_required", model.modelId, "nameReviewRationale", "Approved naming exceptions require a rationale.");
+        }
+        if (model.nameReview == NameReviewStatus::ReviewRequired)
+        {
+            AddWarning(result, "ambiguous_name_review_required", model.modelId, "storageName", "Canonical naming review remains required for this model.");
+        }
+        if (HasDuplicate(model.sourceAliases, [](const std::string& value) -> std::string_view { return value; }) ||
+            HasDuplicate(model.retiredNames, [](const std::string& value) -> std::string_view { return value; }))
+        {
+            AddError(result, "duplicate_model_name_alias", model.modelId, "sourceAliases", "Source aliases and retired names must be unique within their lists.");
+        }
+        if (std::any_of(model.sourceAliases.begin(), model.sourceAliases.end(), [](const std::string& value) { return value.empty(); }) ||
+            std::any_of(model.retiredNames.begin(), model.retiredNames.end(), [](const std::string& value) { return value.empty(); }))
+        {
+            AddError(result, "empty_model_name_alias", model.modelId, "sourceAliases", "Source aliases and retired names cannot be empty.");
+        }
+        active_model_names.insert(model.modelId);
+        active_model_names.insert(model.logicalName);
+        active_model_names.insert(model.storageName);
+        active_model_names.insert(model.qualifiedName);
+        retired_model_names.insert(model.retiredNames.begin(), model.retiredNames.end());
         if (model.fields.empty())
         {
             AddError(result, "model_fields_required", model.modelId, "fields", "At least one field is required.");
@@ -1007,9 +1299,27 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
 
         std::set<std::string> field_names;
         std::set<std::string> field_storage_names;
+        std::set<std::uint32_t> field_ids;
+        std::set<std::string> field_registry_keys;
         for (const auto& field : model.fields)
         {
             const std::string path = "fields." + field.name;
+            if (field.fieldId == 0)
+            {
+                AddError(result, "field_id_required", model.modelId, path, "Every field requires a nonzero stable u32 field id.");
+            }
+            else if (!field_ids.insert(field.fieldId).second)
+            {
+                AddError(result, "duplicate_field_id", model.modelId, path, "Field ids must be unique within a model.");
+            }
+            if (field.registryKey.empty())
+            {
+                AddError(result, "field_registry_key_required", model.modelId, path, "Every field requires a durable registry key independent of its canonical name.");
+            }
+            else if (!field_registry_keys.insert(field.registryKey).second)
+            {
+                AddError(result, "duplicate_field_registry_key", model.modelId, path, "Field registry keys must be unique within a model.");
+            }
             if (field.name.empty() || field.storageName.empty())
             {
                 AddError(result, "field_identity_required", model.modelId, path, "Field name and storage name are required.");
@@ -1170,6 +1480,24 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             if ((field.query.sortable || field.query.cursor) && !HasIndexPrefix(model, {field.name}))
             {
                 AddError(result, "ordered_query_field_not_indexed", model.modelId, path, "Sortable and cursor fields require an index or key prefix.");
+            }
+        }
+        if (HasDuplicate(model.retiredFieldNames, [](const std::string& value) -> std::string_view { return value; }))
+        {
+            AddError(result, "duplicate_retired_field_name", model.modelId, "retiredFieldNames", "Retired field names must be unique.");
+        }
+        if (std::any_of(model.retiredFieldNames.begin(), model.retiredFieldNames.end(), [&field_names](const std::string& name) {
+            return name.empty() || field_names.contains(name);
+        }))
+        {
+            AddError(result, "retired_field_name_reused", model.modelId, "retiredFieldNames", "Retired field names cannot be empty or reused by active fields.");
+        }
+        std::set<std::uint32_t> retired_field_ids;
+        for (const auto retired_id : model.retiredFieldIds)
+        {
+            if (retired_id == 0 || !retired_field_ids.insert(retired_id).second || field_ids.contains(retired_id))
+            {
+                AddError(result, "retired_field_id_reused", model.modelId, "retiredFieldIds", "Retired field ids must be nonzero, unique, and absent from active fields.");
             }
         }
 
@@ -1425,6 +1753,13 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             }
         }
     }
+    for (const auto& retired_name : retired_model_names)
+    {
+        if (active_model_names.contains(retired_name))
+        {
+            AddError(result, "retired_model_name_reused", {}, "retiredNames", "Retired model names cannot be reused by an active canonical name.");
+        }
+    }
     return result;
 }
 
@@ -1450,6 +1785,80 @@ std::string FingerprintCatalog(const SchemaCatalog& catalog)
     std::ostringstream text;
     text << std::hex << std::setfill('0') << std::setw(16) << hash;
     return text.str();
+}
+
+nlohmann::json BuildNamingRegistryManifest(const SchemaCatalog& catalog)
+{
+    json models = json::array();
+    json review_required = json::array();
+    json resolved_names = json::array();
+    std::size_t field_count = 0;
+    for (const auto& model : catalog.models)
+    {
+        json fields = json::array();
+        for (const auto& field : model.fields)
+        {
+            ++field_count;
+            fields.push_back({
+                {"fieldId", field.fieldId},
+                {"registryKey", field.registryKey},
+                {"name", field.name},
+                {"storageName", field.storageName},
+                {"semanticType", field.semanticType},
+            });
+        }
+        models.push_back({
+            {"typeId", model.typeId},
+            {"registryKey", model.registryKey},
+            {"modelId", model.modelId},
+            {"qualifiedName", model.qualifiedName},
+            {"logicalName", model.logicalName},
+            {"storageName", model.storageName},
+            {"ownerCapsule", model.ownerCapsule},
+            {"mutationAuthority", model.mutationAuthority},
+            {"role", std::string(ModelRoleName(model.role))},
+            {"sourceAliases", model.sourceAliases},
+            {"retiredNames", model.retiredNames},
+            {"nameReview", std::string(NameReviewStatusName(model.nameReview))},
+            {"nameReviewRationale", model.nameReviewRationale},
+            {"retiredFieldIds", model.retiredFieldIds},
+            {"retiredFieldNames", model.retiredFieldNames},
+            {"fields", std::move(fields)},
+        });
+        if (model.nameReview == NameReviewStatus::ReviewRequired)
+        {
+            review_required.push_back({
+                {"typeId", model.typeId},
+                {"modelId", model.modelId},
+                {"storageName", model.storageName},
+            });
+        }
+        for (const auto& retired_name : model.retiredNames)
+        {
+            resolved_names.push_back({
+                {"retiredName", retired_name},
+                {"typeId", model.typeId},
+                {"modelId", model.modelId},
+                {"qualifiedName", model.qualifiedName},
+                {"storageName", model.storageName},
+            });
+        }
+    }
+    return {
+        {"mode", "arken-schema-naming-registry"},
+        {"version", 1},
+        {"modelIdType", "u32"},
+        {"fieldIdType", "u32"},
+        {"allocation", "persisted-u32-registry-v1"},
+        {"fingerprint", NamingRegistryFingerprint(catalog)},
+        {"modelCount", catalog.models.size()},
+        {"fieldCount", field_count},
+        {"reviewRequiredCount", review_required.size()},
+        {"resolvedRetiredNameCount", resolved_names.size()},
+        {"models", std::move(models)},
+        {"reviewRequired", std::move(review_required)},
+        {"resolvedNames", std::move(resolved_names)},
+    };
 }
 
 nlohmann::json BuildSchemaManifest(const SchemaCatalog& catalog)
@@ -1484,6 +1893,7 @@ nlohmann::json BuildSchemaManifest(const SchemaCatalog& catalog)
         {"modelCount", catalog.models.size()},
         {"fragments", std::move(fragments)},
         {"models", std::move(models)},
+        {"namingRegistry", BuildNamingRegistryManifest(catalog)},
         {"validation", validation.ToJson()},
     };
 }
