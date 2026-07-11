@@ -100,6 +100,68 @@ bool IsTextKind(FieldKind kind)
     return false;
 }
 
+bool IsIntegerWireType(WireType type)
+{
+    switch (type)
+    {
+        case WireType::U8:
+        case WireType::U16:
+        case WireType::U32:
+        case WireType::U64:
+        case WireType::I8:
+        case WireType::I16:
+        case WireType::I32:
+        case WireType::I64:
+            return true;
+        case WireType::None:
+        case WireType::Bool:
+        case WireType::F32:
+        case WireType::F64:
+        case WireType::Utf8:
+        case WireType::Bytes:
+        case WireType::FixedBytes:
+            return false;
+    }
+    return false;
+}
+
+bool IsWireTypeCompatible(FieldKind kind, WireType type)
+{
+    if (type == WireType::None)
+    {
+        return true;
+    }
+    switch (kind)
+    {
+        case FieldKind::Bool:
+            return type == WireType::Bool;
+        case FieldKind::InternalId:
+        case FieldKind::Integer:
+        case FieldKind::TimestampMs:
+            return IsIntegerWireType(type);
+        case FieldKind::Real:
+            return type == WireType::F32 || type == WireType::F64;
+        case FieldKind::Blob:
+            return type == WireType::Bytes || type == WireType::FixedBytes;
+        case FieldKind::ObjectId:
+        case FieldKind::EthereumAddress:
+        case FieldKind::HashHex:
+        case FieldKind::TokenHash:
+            return type == WireType::Utf8 || type == WireType::FixedBytes;
+        case FieldKind::Text:
+        case FieldKind::Slug:
+        case FieldKind::DisplayName:
+        case FieldKind::Url:
+        case FieldKind::Email:
+        case FieldKind::Enum:
+        case FieldKind::JsonObject:
+        case FieldKind::Secret:
+        case FieldKind::KeyReference:
+            return type == WireType::Utf8;
+    }
+    return false;
+}
+
 bool IsOrderedKind(FieldKind kind)
 {
     return IsTextKind(kind) || kind == FieldKind::InternalId || kind == FieldKind::Integer || kind == FieldKind::Real ||
@@ -183,6 +245,9 @@ bool IsCheckCompatible(FieldKind kind, CheckKind check_kind)
         case CheckKind::MinimumInteger:
         case CheckKind::MaximumInteger:
             return kind == FieldKind::InternalId || kind == FieldKind::Integer || kind == FieldKind::TimestampMs;
+        case CheckKind::MinimumReal:
+        case CheckKind::MaximumReal:
+            return kind == FieldKind::Real;
         case CheckKind::MinimumLength:
         case CheckKind::MaximumLength:
         case CheckKind::Pattern:
@@ -277,6 +342,12 @@ void HashModel(std::uint64_t& hash, const ModelSchema& model)
         HashText(hash, field.name);
         HashText(hash, field.storageName);
         HashText(hash, FieldKindName(field.kind));
+        if (field.wireType != WireType::None)
+        {
+            HashText(hash, "wireType");
+            HashText(hash, WireTypeName(field.wireType));
+            HashText(hash, std::to_string(field.wireSize));
+        }
         HashBool(hash, field.nullable);
         HashBool(hash, field.redacted);
         HashText(hash, field.sourceField);
@@ -330,6 +401,17 @@ void HashModel(std::uint64_t& hash, const ModelSchema& model)
         HashText(hash, join.sourceRelation);
         HashText(hash, join.targetRelation);
     }
+    for (const auto& one_of : model.oneOfs)
+    {
+        HashText(hash, one_of.oneOfId);
+        HashText(hash, one_of.discriminatorField);
+        for (const auto& variant : one_of.variants)
+        {
+            HashText(hash, variant.tag);
+            HashStrings(hash, variant.fields);
+            HashStrings(hash, variant.optionalFields);
+        }
+    }
 }
 
 json QueryPolicyJson(const QueryPolicy& query)
@@ -362,6 +444,8 @@ json FieldJson(const FieldSchema& field)
         {"name", field.name},
         {"storageName", field.storageName},
         {"kind", std::string(FieldKindName(field.kind))},
+        {"wireType", std::string(WireTypeName(field.wireType))},
+        {"wireSize", field.wireSize},
         {"nullable", field.nullable},
         {"redacted", field.redacted},
         {"sourceField", field.sourceField.empty() ? field.name : field.sourceField},
@@ -386,6 +470,7 @@ json ModelJson(const ModelSchema& model)
     json indexes = json::array();
     json relations = json::array();
     json joins = json::array();
+    json one_ofs = json::array();
     for (const auto& field : model.fields)
     {
         fields.push_back(FieldJson(field));
@@ -427,6 +512,23 @@ json ModelJson(const ModelSchema& model)
             {"targetRelation", join.targetRelation},
         });
     }
+    for (const auto& one_of : model.oneOfs)
+    {
+        json variants = json::array();
+        for (const auto& variant : one_of.variants)
+        {
+            variants.push_back({
+                {"tag", variant.tag},
+                {"fields", variant.fields},
+                {"optionalFields", variant.optionalFields},
+            });
+        }
+        one_ofs.push_back({
+            {"oneOfId", one_of.oneOfId},
+            {"discriminatorField", one_of.discriminatorField},
+            {"variants", std::move(variants)},
+        });
+    }
     return {
         {"modelId", model.modelId},
         {"logicalName", model.logicalName},
@@ -441,6 +543,7 @@ json ModelJson(const ModelSchema& model)
         {"indexes", std::move(indexes)},
         {"relations", std::move(relations)},
         {"joins", std::move(joins)},
+        {"oneOfs", std::move(one_ofs)},
     };
 }
 } // namespace
@@ -497,6 +600,29 @@ std::string_view FieldKindName(FieldKind kind)
         case FieldKind::Blob: return "blob";
     }
     return "text";
+}
+
+std::string_view WireTypeName(WireType type)
+{
+    switch (type)
+    {
+        case WireType::None: return "none";
+        case WireType::Bool: return "bool";
+        case WireType::U8: return "u8";
+        case WireType::U16: return "u16";
+        case WireType::U32: return "u32";
+        case WireType::U64: return "u64";
+        case WireType::I8: return "i8";
+        case WireType::I16: return "i16";
+        case WireType::I32: return "i32";
+        case WireType::I64: return "i64";
+        case WireType::F32: return "f32";
+        case WireType::F64: return "f64";
+        case WireType::Utf8: return "utf8";
+        case WireType::Bytes: return "bytes";
+        case WireType::FixedBytes: return "fixedBytes";
+    }
+    return "none";
 }
 
 std::string_view NormalizationKindName(NormalizationKind kind)
@@ -557,6 +683,8 @@ std::string_view CheckKindName(CheckKind kind)
     {
         case CheckKind::MinimumInteger: return "minimumInteger";
         case CheckKind::MaximumInteger: return "maximumInteger";
+        case CheckKind::MinimumReal: return "minimumReal";
+        case CheckKind::MaximumReal: return "maximumReal";
         case CheckKind::MinimumLength: return "minimumLength";
         case CheckKind::MaximumLength: return "maximumLength";
         case CheckKind::Pattern: return "pattern";
@@ -830,6 +958,31 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             {
                 AddError(result, "duplicate_field_storage_name", model.modelId, path, "Field storage name must be unique within a model.");
             }
+            if (!IsWireTypeCompatible(field.kind, field.wireType))
+            {
+                AddError(result, "wire_type_kind_mismatch", model.modelId, path, "Wire type is incompatible with the semantic field kind.");
+            }
+            if (field.wireType == WireType::FixedBytes && field.wireSize <= 0)
+            {
+                AddError(result, "fixed_wire_size_required", model.modelId, path, "Fixed-byte wire fields require a positive byte width.");
+            }
+            if (field.wireType == WireType::FixedBytes &&
+                ((field.kind == FieldKind::ObjectId && field.wireSize != 12) ||
+                 (field.kind == FieldKind::EthereumAddress && field.wireSize != 20) ||
+                 (field.kind == FieldKind::TokenHash && field.wireSize != 32)))
+            {
+                AddError(
+                    result,
+                    "semantic_wire_size_mismatch",
+                    model.modelId,
+                    path,
+                    "Fixed-byte wire width does not match the semantic field codec."
+                );
+            }
+            if (field.wireType != WireType::FixedBytes && field.wireSize != 0)
+            {
+                AddError(result, "wire_size_not_applicable", model.modelId, path, "Only fixed-byte wire fields declare a byte width.");
+            }
             if (field.kind == FieldKind::Enum && field.enumValues.empty())
             {
                 AddError(result, "enum_values_required", model.modelId, path, "Enum fields require a model-specific value domain.");
@@ -931,6 +1084,58 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             if ((field.query.sortable || field.query.cursor) && !HasIndexPrefix(model, {field.name}))
             {
                 AddError(result, "ordered_query_field_not_indexed", model.modelId, path, "Sortable and cursor fields require an index or key prefix.");
+            }
+        }
+
+        std::set<std::string> one_of_ids;
+        for (const auto& one_of : model.oneOfs)
+        {
+            const std::string path = "oneOfs." + one_of.oneOfId;
+            const auto* discriminator = FindField(model, one_of.discriminatorField);
+            if (one_of.oneOfId.empty() || discriminator == nullptr || discriminator->kind != FieldKind::Enum)
+            {
+                AddError(result, "one_of_identity_invalid", model.modelId, path, "One-of contracts require an id and enum discriminator field.");
+                continue;
+            }
+            if (!one_of_ids.insert(one_of.oneOfId).second)
+            {
+                AddError(result, "duplicate_one_of_id", model.modelId, path, "One-of ids must be unique within a model.");
+            }
+            std::set<std::string> tags;
+            for (const auto& variant : one_of.variants)
+            {
+                if (variant.tag.empty() || !tags.insert(variant.tag).second ||
+                    std::find(discriminator->enumValues.begin(), discriminator->enumValues.end(), variant.tag) == discriminator->enumValues.end())
+                {
+                    AddError(result, "one_of_variant_tag_invalid", model.modelId, path, "One-of variant tags must be unique values from the discriminator enum.");
+                }
+                if (HasRepeatedField(variant.fields) || !FieldsExist(model, variant.fields) ||
+                    std::find(variant.fields.begin(), variant.fields.end(), one_of.discriminatorField) != variant.fields.end())
+                {
+                    AddError(result, "one_of_variant_field_invalid", model.modelId, path, "One-of payload fields must exist, be unique, and exclude the discriminator.");
+                }
+                if (HasRepeatedField(variant.optionalFields) || !FieldsExist(model, variant.optionalFields) ||
+                    std::find(variant.optionalFields.begin(), variant.optionalFields.end(), one_of.discriminatorField) != variant.optionalFields.end() ||
+                    std::any_of(variant.optionalFields.begin(), variant.optionalFields.end(), [&variant](const std::string& field_name) {
+                        return std::find(variant.fields.begin(), variant.fields.end(), field_name) != variant.fields.end();
+                    }))
+                {
+                    AddError(result, "one_of_optional_field_invalid", model.modelId, path, "Optional one-of payload fields must exist, be unique, exclude the discriminator, and not also be required.");
+                }
+                std::vector<std::string> payload_fields = variant.fields;
+                payload_fields.insert(payload_fields.end(), variant.optionalFields.begin(), variant.optionalFields.end());
+                for (const auto& field_name : payload_fields)
+                {
+                    const auto* payload = FindField(model, field_name);
+                    if (payload != nullptr && !payload->nullable)
+                    {
+                        AddError(result, "one_of_payload_not_nullable", model.modelId, path, "One-of payload fields must be nullable outside their active variant.");
+                    }
+                }
+            }
+            if (tags.size() != discriminator->enumValues.size())
+            {
+                AddError(result, "one_of_variant_coverage_incomplete", model.modelId, path, "Every discriminator value requires exactly one variant contract.");
             }
         }
 
