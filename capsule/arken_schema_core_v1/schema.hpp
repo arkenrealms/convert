@@ -20,7 +20,7 @@ enum class FieldKind
     Enum,
     Bool,
     TimestampMs,
-    JsonObject,
+    JsonText,
     Secret,
     EthereumAddress,
     HashHex,

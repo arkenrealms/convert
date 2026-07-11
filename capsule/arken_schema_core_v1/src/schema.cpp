@@ -90,7 +90,7 @@ bool IsTextKind(FieldKind kind)
         case FieldKind::InternalId:
         case FieldKind::Bool:
         case FieldKind::TimestampMs:
-        case FieldKind::JsonObject:
+        case FieldKind::JsonText:
         case FieldKind::Secret:
         case FieldKind::Integer:
         case FieldKind::Real:
@@ -154,7 +154,7 @@ bool IsWireTypeCompatible(FieldKind kind, WireType type)
         case FieldKind::Url:
         case FieldKind::Email:
         case FieldKind::Enum:
-        case FieldKind::JsonObject:
+        case FieldKind::JsonText:
         case FieldKind::Secret:
         case FieldKind::KeyReference:
             return type == WireType::Utf8;
@@ -186,7 +186,7 @@ bool IsStorageCodecCompatible(FieldKind kind, StorageCodec codec)
         case FieldKind::Url:
         case FieldKind::Email:
         case FieldKind::Enum:
-        case FieldKind::JsonObject:
+        case FieldKind::JsonText:
         case FieldKind::Secret:
         case FieldKind::EthereumAddress:
         case FieldKind::HashHex:
@@ -262,13 +262,14 @@ bool IsLiteralDefaultCompatible(const FieldSchema& field)
         case FieldKind::DisplayName:
         case FieldKind::Url:
         case FieldKind::Email:
-        case FieldKind::JsonObject:
         case FieldKind::EthereumAddress:
         case FieldKind::HashHex:
         case FieldKind::TokenHash:
         case FieldKind::KeyReference:
         case FieldKind::Real:
             return true;
+        case FieldKind::JsonText:
+            return !json::parse(field.defaultValue.value, nullptr, false).is_discarded();
     }
     return false;
 }
@@ -638,7 +639,7 @@ std::string_view FieldKindName(FieldKind kind)
         case FieldKind::Enum: return "enum";
         case FieldKind::Bool: return "bool";
         case FieldKind::TimestampMs: return "timestampMs";
-        case FieldKind::JsonObject: return "jsonObject";
+        case FieldKind::JsonText: return "jsonText";
         case FieldKind::Secret: return "secret";
         case FieldKind::EthereumAddress: return "ethereumAddress";
         case FieldKind::HashHex: return "hashHex";

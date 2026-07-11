@@ -62,7 +62,7 @@ const auto kFieldKinds = std::to_array<std::pair<std::string_view, FieldKind>>({
     {"enum", FieldKind::Enum},
     {"bool", FieldKind::Bool},
     {"timestampMs", FieldKind::TimestampMs},
-    {"jsonObject", FieldKind::JsonObject},
+    {"jsonText", FieldKind::JsonText},
     {"secret", FieldKind::Secret},
     {"ethereumAddress", FieldKind::EthereumAddress},
     {"hashHex", FieldKind::HashHex},
