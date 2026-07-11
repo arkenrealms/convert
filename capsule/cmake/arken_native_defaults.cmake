@@ -122,7 +122,7 @@ function(arken_add_wasm_capsule)
             -s ENVIRONMENT=web,worker,node
             -s ALLOW_MEMORY_GROWTH=1
             -s FILESYSTEM=0
-            -s DISABLE_EXCEPTION_CATCHING=0
+            -s DISABLE_EXCEPTION_CATCHING=1
             -s EXPORTED_FUNCTIONS=${_arken_exports_json}
             -s EXPORTED_RUNTIME_METHODS=${_arken_runtime_methods_json}
             ${ARG_LINK_OPTIONS}

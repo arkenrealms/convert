@@ -100,6 +100,103 @@ bool IsTextKind(FieldKind kind)
     return false;
 }
 
+bool IsIntegerWireType(WireType type)
+{
+    switch (type)
+    {
+        case WireType::U8:
+        case WireType::U16:
+        case WireType::U32:
+        case WireType::U64:
+        case WireType::I8:
+        case WireType::I16:
+        case WireType::I32:
+        case WireType::I64:
+            return true;
+        case WireType::None:
+        case WireType::Bool:
+        case WireType::F32:
+        case WireType::F64:
+        case WireType::Utf8:
+        case WireType::Bytes:
+        case WireType::FixedBytes:
+            return false;
+    }
+    return false;
+}
+
+bool IsWireTypeCompatible(FieldKind kind, WireType type)
+{
+    if (type == WireType::None)
+    {
+        return true;
+    }
+    switch (kind)
+    {
+        case FieldKind::Bool:
+            return type == WireType::Bool;
+        case FieldKind::InternalId:
+        case FieldKind::Integer:
+        case FieldKind::TimestampMs:
+            return IsIntegerWireType(type);
+        case FieldKind::Real:
+            return type == WireType::F32 || type == WireType::F64;
+        case FieldKind::Blob:
+            return type == WireType::Bytes || type == WireType::FixedBytes;
+        case FieldKind::ObjectId:
+        case FieldKind::EthereumAddress:
+        case FieldKind::HashHex:
+        case FieldKind::TokenHash:
+            return type == WireType::Utf8 || type == WireType::FixedBytes;
+        case FieldKind::Text:
+        case FieldKind::Slug:
+        case FieldKind::DisplayName:
+        case FieldKind::Url:
+        case FieldKind::Email:
+        case FieldKind::Enum:
+        case FieldKind::JsonObject:
+        case FieldKind::Secret:
+        case FieldKind::KeyReference:
+            return type == WireType::Utf8;
+    }
+    return false;
+}
+
+bool IsStorageCodecCompatible(FieldKind kind, StorageCodec codec)
+{
+    if (codec == StorageCodec::None)
+    {
+        return true;
+    }
+    switch (kind)
+    {
+        case FieldKind::InternalId:
+        case FieldKind::Bool:
+        case FieldKind::TimestampMs:
+        case FieldKind::Integer:
+            return codec == StorageCodec::SqliteInteger;
+        case FieldKind::Real:
+            return codec == StorageCodec::SqliteReal;
+        case FieldKind::Blob:
+            return codec == StorageCodec::SqliteBlob || codec == StorageCodec::SqliteFixedBlob;
+        case FieldKind::ObjectId:
+        case FieldKind::Text:
+        case FieldKind::Slug:
+        case FieldKind::DisplayName:
+        case FieldKind::Url:
+        case FieldKind::Email:
+        case FieldKind::Enum:
+        case FieldKind::JsonObject:
+        case FieldKind::Secret:
+        case FieldKind::EthereumAddress:
+        case FieldKind::HashHex:
+        case FieldKind::TokenHash:
+        case FieldKind::KeyReference:
+            return codec == StorageCodec::SqliteText;
+    }
+    return false;
+}
+
 bool IsOrderedKind(FieldKind kind)
 {
     return IsTextKind(kind) || kind == FieldKind::InternalId || kind == FieldKind::Integer || kind == FieldKind::Real ||
@@ -115,13 +212,14 @@ bool IsQueryOperatorCompatible(FieldKind kind, QueryOperator query_operator)
         case QueryOperator::In:
         case QueryOperator::NotIn:
         case QueryOperator::IsNull:
-            return kind != FieldKind::Blob && kind != FieldKind::Secret;
+            return kind != FieldKind::Secret;
         case QueryOperator::LessThan:
         case QueryOperator::LessThanOrEqual:
         case QueryOperator::GreaterThan:
         case QueryOperator::GreaterThanOrEqual:
             return IsOrderedKind(kind);
         case QueryOperator::Prefix:
+        case QueryOperator::Suffix:
         case QueryOperator::Contains:
             return IsTextKind(kind);
     }
@@ -182,6 +280,9 @@ bool IsCheckCompatible(FieldKind kind, CheckKind check_kind)
         case CheckKind::MinimumInteger:
         case CheckKind::MaximumInteger:
             return kind == FieldKind::InternalId || kind == FieldKind::Integer || kind == FieldKind::TimestampMs;
+        case CheckKind::MinimumReal:
+        case CheckKind::MaximumReal:
+            return kind == FieldKind::Real;
         case CheckKind::MinimumLength:
         case CheckKind::MaximumLength:
         case CheckKind::Pattern:
@@ -212,12 +313,17 @@ bool HasRepeatedField(const std::vector<std::string>& fields)
     return false;
 }
 
-const RelationSchema* FindRelation(const ModelSchema& model, std::string_view relation_id)
+bool IsUniqueFieldSet(const ModelSchema& model, const std::vector<std::string>& fields)
 {
-    const auto it = std::find_if(model.relations.begin(), model.relations.end(), [relation_id](const RelationSchema& relation) {
-        return relation.relationId == relation_id;
+    if (std::any_of(model.keys.begin(), model.keys.end(), [&fields](const KeySchema& key) {
+        return key.fields == fields;
+    }))
+    {
+        return true;
+    }
+    return std::any_of(model.indexes.begin(), model.indexes.end(), [&fields](const IndexSchema& index) {
+        return index.unique && index.fields == fields;
     });
-    return it == model.relations.end() ? nullptr : &*it;
 }
 
 bool IsPrefix(const std::vector<std::string>& candidate, const std::vector<std::string>& fields)
@@ -271,6 +377,23 @@ void HashModel(std::uint64_t& hash, const ModelSchema& model)
         HashText(hash, field.name);
         HashText(hash, field.storageName);
         HashText(hash, FieldKindName(field.kind));
+        if (!field.semanticType.empty())
+        {
+            HashText(hash, "semanticType");
+            HashText(hash, field.semanticType);
+        }
+        if (field.wireType != WireType::None)
+        {
+            HashText(hash, "wireType");
+            HashText(hash, WireTypeName(field.wireType));
+            HashText(hash, std::to_string(field.wireSize));
+        }
+        if (field.storageCodec != StorageCodec::None)
+        {
+            HashText(hash, "storageCodec");
+            HashText(hash, StorageCodecName(field.storageCodec));
+            HashText(hash, std::to_string(field.storageSize));
+        }
         HashBool(hash, field.nullable);
         HashBool(hash, field.redacted);
         HashText(hash, field.sourceField);
@@ -324,6 +447,17 @@ void HashModel(std::uint64_t& hash, const ModelSchema& model)
         HashText(hash, join.sourceRelation);
         HashText(hash, join.targetRelation);
     }
+    for (const auto& one_of : model.oneOfs)
+    {
+        HashText(hash, one_of.oneOfId);
+        HashText(hash, one_of.discriminatorField);
+        for (const auto& variant : one_of.variants)
+        {
+            HashText(hash, variant.tag);
+            HashStrings(hash, variant.fields);
+            HashStrings(hash, variant.optionalFields);
+        }
+    }
 }
 
 json QueryPolicyJson(const QueryPolicy& query)
@@ -356,6 +490,11 @@ json FieldJson(const FieldSchema& field)
         {"name", field.name},
         {"storageName", field.storageName},
         {"kind", std::string(FieldKindName(field.kind))},
+        {"semanticType", field.semanticType},
+        {"wireType", std::string(WireTypeName(field.wireType))},
+        {"wireSize", field.wireSize},
+        {"storageCodec", std::string(StorageCodecName(field.storageCodec))},
+        {"storageSize", field.storageSize},
         {"nullable", field.nullable},
         {"redacted", field.redacted},
         {"sourceField", field.sourceField.empty() ? field.name : field.sourceField},
@@ -380,6 +519,7 @@ json ModelJson(const ModelSchema& model)
     json indexes = json::array();
     json relations = json::array();
     json joins = json::array();
+    json one_ofs = json::array();
     for (const auto& field : model.fields)
     {
         fields.push_back(FieldJson(field));
@@ -421,6 +561,23 @@ json ModelJson(const ModelSchema& model)
             {"targetRelation", join.targetRelation},
         });
     }
+    for (const auto& one_of : model.oneOfs)
+    {
+        json variants = json::array();
+        for (const auto& variant : one_of.variants)
+        {
+            variants.push_back({
+                {"tag", variant.tag},
+                {"fields", variant.fields},
+                {"optionalFields", variant.optionalFields},
+            });
+        }
+        one_ofs.push_back({
+            {"oneOfId", one_of.oneOfId},
+            {"discriminatorField", one_of.discriminatorField},
+            {"variants", std::move(variants)},
+        });
+    }
     return {
         {"modelId", model.modelId},
         {"logicalName", model.logicalName},
@@ -435,6 +592,7 @@ json ModelJson(const ModelSchema& model)
         {"indexes", std::move(indexes)},
         {"relations", std::move(relations)},
         {"joins", std::move(joins)},
+        {"oneOfs", std::move(one_ofs)},
     };
 }
 } // namespace
@@ -491,6 +649,43 @@ std::string_view FieldKindName(FieldKind kind)
         case FieldKind::Blob: return "blob";
     }
     return "text";
+}
+
+std::string_view WireTypeName(WireType type)
+{
+    switch (type)
+    {
+        case WireType::None: return "none";
+        case WireType::Bool: return "bool";
+        case WireType::U8: return "u8";
+        case WireType::U16: return "u16";
+        case WireType::U32: return "u32";
+        case WireType::U64: return "u64";
+        case WireType::I8: return "i8";
+        case WireType::I16: return "i16";
+        case WireType::I32: return "i32";
+        case WireType::I64: return "i64";
+        case WireType::F32: return "f32";
+        case WireType::F64: return "f64";
+        case WireType::Utf8: return "utf8";
+        case WireType::Bytes: return "bytes";
+        case WireType::FixedBytes: return "fixedBytes";
+    }
+    return "none";
+}
+
+std::string_view StorageCodecName(StorageCodec codec)
+{
+    switch (codec)
+    {
+        case StorageCodec::None: return "none";
+        case StorageCodec::SqliteInteger: return "sqliteInteger";
+        case StorageCodec::SqliteReal: return "sqliteReal";
+        case StorageCodec::SqliteText: return "sqliteText";
+        case StorageCodec::SqliteBlob: return "sqliteBlob";
+        case StorageCodec::SqliteFixedBlob: return "sqliteFixedBlob";
+    }
+    return "none";
 }
 
 std::string_view NormalizationKindName(NormalizationKind kind)
@@ -551,6 +746,8 @@ std::string_view CheckKindName(CheckKind kind)
     {
         case CheckKind::MinimumInteger: return "minimumInteger";
         case CheckKind::MaximumInteger: return "maximumInteger";
+        case CheckKind::MinimumReal: return "minimumReal";
+        case CheckKind::MaximumReal: return "maximumReal";
         case CheckKind::MinimumLength: return "minimumLength";
         case CheckKind::MaximumLength: return "maximumLength";
         case CheckKind::Pattern: return "pattern";
@@ -604,6 +801,7 @@ std::string_view QueryOperatorName(QueryOperator query_operator)
         case QueryOperator::GreaterThan: return "greaterThan";
         case QueryOperator::GreaterThanOrEqual: return "greaterThanOrEqual";
         case QueryOperator::Prefix: return "prefix";
+        case QueryOperator::Suffix: return "suffix";
         case QueryOperator::Contains: return "contains";
         case QueryOperator::IsNull: return "isNull";
     }
@@ -662,6 +860,22 @@ const FieldSchema* FindField(const ModelSchema& model, std::string_view field_na
         return field.name == field_name;
     });
     return it == model.fields.end() ? nullptr : &*it;
+}
+
+const RelationSchema* FindRelationById(const ModelSchema& model, std::string_view relation_id)
+{
+    const auto it = std::find_if(model.relations.begin(), model.relations.end(), [relation_id](const RelationSchema& relation) {
+        return relation.relationId == relation_id;
+    });
+    return it == model.relations.end() ? nullptr : &*it;
+}
+
+const JoinSchema* FindJoinById(const ModelSchema& model, std::string_view join_id)
+{
+    const auto it = std::find_if(model.joins.begin(), model.joins.end(), [join_id](const JoinSchema& join) {
+        return join.joinId == join_id;
+    });
+    return it == model.joins.end() ? nullptr : &*it;
 }
 
 bool HasIndexPrefix(const ModelSchema& model, const std::vector<std::string>& fields)
@@ -807,6 +1021,53 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             {
                 AddError(result, "duplicate_field_storage_name", model.modelId, path, "Field storage name must be unique within a model.");
             }
+            if (!IsWireTypeCompatible(field.kind, field.wireType))
+            {
+                AddError(result, "wire_type_kind_mismatch", model.modelId, path, "Wire type is incompatible with the semantic field kind.");
+            }
+            if (!IsStorageCodecCompatible(field.kind, field.storageCodec))
+            {
+                AddError(result, "storage_codec_kind_mismatch", model.modelId, path, "Storage codec is incompatible with the semantic field kind.");
+            }
+            if ((!field.semanticType.empty() || field.storageCodec != StorageCodec::None) &&
+                (field.semanticType.empty() || field.wireType == WireType::None || field.storageCodec == StorageCodec::None))
+            {
+                AddError(result, "strict_type_contract_incomplete", model.modelId, path, "Semantic type, wire type, and storage codec must be declared together.");
+            }
+            if (field.wireType == WireType::FixedBytes && field.wireSize <= 0)
+            {
+                AddError(result, "fixed_wire_size_required", model.modelId, path, "Fixed-byte wire fields require a positive byte width.");
+            }
+            if (field.wireType == WireType::FixedBytes &&
+                ((field.kind == FieldKind::ObjectId && field.wireSize != 12) ||
+                 (field.kind == FieldKind::EthereumAddress && field.wireSize != 20) ||
+                 (field.kind == FieldKind::TokenHash && field.wireSize != 32)))
+            {
+                AddError(
+                    result,
+                    "semantic_wire_size_mismatch",
+                    model.modelId,
+                    path,
+                    "Fixed-byte wire width does not match the semantic field codec."
+                );
+            }
+            if (field.wireType != WireType::FixedBytes && field.wireSize != 0)
+            {
+                AddError(result, "wire_size_not_applicable", model.modelId, path, "Only fixed-byte wire fields declare a byte width.");
+            }
+            if (field.storageCodec == StorageCodec::SqliteFixedBlob && field.storageSize <= 0)
+            {
+                AddError(result, "fixed_storage_size_required", model.modelId, path, "Fixed-blob storage fields require a positive byte width.");
+            }
+            if (field.storageCodec == StorageCodec::SqliteFixedBlob &&
+                (field.wireType != WireType::FixedBytes || field.storageSize != field.wireSize))
+            {
+                AddError(result, "fixed_storage_wire_size_mismatch", model.modelId, path, "Fixed wire and storage widths must match.");
+            }
+            if (field.storageCodec != StorageCodec::SqliteFixedBlob && field.storageSize != 0)
+            {
+                AddError(result, "storage_size_not_applicable", model.modelId, path, "Only fixed-blob storage fields declare a byte width.");
+            }
             if (field.kind == FieldKind::Enum && field.enumValues.empty())
             {
                 AddError(result, "enum_values_required", model.modelId, path, "Enum fields require a model-specific value domain.");
@@ -911,6 +1172,58 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             }
         }
 
+        std::set<std::string> one_of_ids;
+        for (const auto& one_of : model.oneOfs)
+        {
+            const std::string path = "oneOfs." + one_of.oneOfId;
+            const auto* discriminator = FindField(model, one_of.discriminatorField);
+            if (one_of.oneOfId.empty() || discriminator == nullptr || discriminator->kind != FieldKind::Enum)
+            {
+                AddError(result, "one_of_identity_invalid", model.modelId, path, "One-of contracts require an id and enum discriminator field.");
+                continue;
+            }
+            if (!one_of_ids.insert(one_of.oneOfId).second)
+            {
+                AddError(result, "duplicate_one_of_id", model.modelId, path, "One-of ids must be unique within a model.");
+            }
+            std::set<std::string> tags;
+            for (const auto& variant : one_of.variants)
+            {
+                if (variant.tag.empty() || !tags.insert(variant.tag).second ||
+                    std::find(discriminator->enumValues.begin(), discriminator->enumValues.end(), variant.tag) == discriminator->enumValues.end())
+                {
+                    AddError(result, "one_of_variant_tag_invalid", model.modelId, path, "One-of variant tags must be unique values from the discriminator enum.");
+                }
+                if (HasRepeatedField(variant.fields) || !FieldsExist(model, variant.fields) ||
+                    std::find(variant.fields.begin(), variant.fields.end(), one_of.discriminatorField) != variant.fields.end())
+                {
+                    AddError(result, "one_of_variant_field_invalid", model.modelId, path, "One-of payload fields must exist, be unique, and exclude the discriminator.");
+                }
+                if (HasRepeatedField(variant.optionalFields) || !FieldsExist(model, variant.optionalFields) ||
+                    std::find(variant.optionalFields.begin(), variant.optionalFields.end(), one_of.discriminatorField) != variant.optionalFields.end() ||
+                    std::any_of(variant.optionalFields.begin(), variant.optionalFields.end(), [&variant](const std::string& field_name) {
+                        return std::find(variant.fields.begin(), variant.fields.end(), field_name) != variant.fields.end();
+                    }))
+                {
+                    AddError(result, "one_of_optional_field_invalid", model.modelId, path, "Optional one-of payload fields must exist, be unique, exclude the discriminator, and not also be required.");
+                }
+                std::vector<std::string> payload_fields = variant.fields;
+                payload_fields.insert(payload_fields.end(), variant.optionalFields.begin(), variant.optionalFields.end());
+                for (const auto& field_name : payload_fields)
+                {
+                    const auto* payload = FindField(model, field_name);
+                    if (payload != nullptr && !payload->nullable)
+                    {
+                        AddError(result, "one_of_payload_not_nullable", model.modelId, path, "One-of payload fields must be nullable outside their active variant.");
+                    }
+                }
+            }
+            if (tags.size() != discriminator->enumValues.size())
+            {
+                AddError(result, "one_of_variant_coverage_incomplete", model.modelId, path, "Every discriminator value requires exactly one variant contract.");
+            }
+        }
+
         std::set<std::string> key_ids;
         int primary_key_count = 0;
         for (const auto& key : model.keys)
@@ -1009,6 +1322,11 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             {
                 AddError(result, "relation_target_not_keyed", model.modelId, path, "Relation target fields require a key or index prefix.");
             }
+            else if (relation.cardinality != RelationCardinality::Many &&
+                     !IsUniqueFieldSet(*target, relation.targetFields))
+            {
+                AddError(result, "singular_relation_target_not_unique", model.modelId, path, "Singular relation target fields must identify a unique row.");
+            }
             if (!HasIndexPrefix(model, relation.sourceFields))
             {
                 AddError(result, "relation_source_not_indexed", model.modelId, path, "Relation source fields require an index prefix.");
@@ -1041,13 +1359,28 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
                     }
                 }
             }
-            if (relation.cardinality == RelationCardinality::OptionalOne || relation.onDelete == ReferentialAction::SetNull)
+            if (relation.cardinality == RelationCardinality::OptionalOne)
+            {
+                bool has_nullable_source = false;
+                for (const auto& field_name : relation.sourceFields)
+                {
+                    if (const auto* field = FindField(model, field_name); field != nullptr && field->nullable)
+                    {
+                        has_nullable_source = true;
+                    }
+                }
+                if (!has_nullable_source)
+                {
+                    AddError(result, "nullable_relation_field_required", model.modelId, path, "Optional relations require at least one nullable source field.");
+                }
+            }
+            if (relation.onDelete == ReferentialAction::SetNull || relation.onUpdate == ReferentialAction::SetNull)
             {
                 for (const auto& field_name : relation.sourceFields)
                 {
                     if (const auto* field = FindField(model, field_name); field != nullptr && !field->nullable)
                     {
-                        AddError(result, "nullable_relation_field_required", model.modelId, path, "Optional or set-null relation fields must be nullable.");
+                        AddError(result, "set_null_relation_field_required", model.modelId, path, "Set-null actions require every source field to be nullable.");
                     }
                 }
             }
@@ -1065,6 +1398,10 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             {
                 AddError(result, "duplicate_join_id", model.modelId, path, "Join id must be unique within a model.");
             }
+            if (relation_ids.contains(join.joinId))
+            {
+                AddError(result, "relation_join_id_collision", model.modelId, path, "Relation and join ids share one include namespace and must be unique.");
+            }
             if (join.sourceRelation == join.targetRelation)
             {
                 AddError(result, "join_relations_must_differ", model.modelId, path, "Join source and target relations must differ.");
@@ -1075,8 +1412,8 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
                 AddError(result, "join_through_model_missing", model.modelId, path, "Join through model must exist.");
                 continue;
             }
-            const RelationSchema* source_relation = FindRelation(*through, join.sourceRelation);
-            const RelationSchema* target_relation = FindRelation(*through, join.targetRelation);
+            const RelationSchema* source_relation = FindRelationById(*through, join.sourceRelation);
+            const RelationSchema* target_relation = FindRelationById(*through, join.targetRelation);
             if (source_relation == nullptr || target_relation == nullptr)
             {
                 AddError(result, "join_relation_missing", model.modelId, path, "Join relations must exist on the through model.");
