@@ -1069,13 +1069,28 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
                     }
                 }
             }
-            if (relation.cardinality == RelationCardinality::OptionalOne || relation.onDelete == ReferentialAction::SetNull)
+            if (relation.cardinality == RelationCardinality::OptionalOne)
+            {
+                bool has_nullable_source = false;
+                for (const auto& field_name : relation.sourceFields)
+                {
+                    if (const auto* field = FindField(model, field_name); field != nullptr && field->nullable)
+                    {
+                        has_nullable_source = true;
+                    }
+                }
+                if (!has_nullable_source)
+                {
+                    AddError(result, "nullable_relation_field_required", model.modelId, path, "Optional relations require at least one nullable source field.");
+                }
+            }
+            if (relation.onDelete == ReferentialAction::SetNull || relation.onUpdate == ReferentialAction::SetNull)
             {
                 for (const auto& field_name : relation.sourceFields)
                 {
                     if (const auto* field = FindField(model, field_name); field != nullptr && !field->nullable)
                     {
-                        AddError(result, "nullable_relation_field_required", model.modelId, path, "Optional or set-null relation fields must be nullable.");
+                        AddError(result, "set_null_relation_field_required", model.modelId, path, "Set-null actions require every source field to be nullable.");
                     }
                 }
             }
