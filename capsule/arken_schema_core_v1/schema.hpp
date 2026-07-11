@@ -31,25 +31,6 @@ enum class FieldKind
     Blob,
 };
 
-enum class WireType
-{
-    None,
-    Bool,
-    U8,
-    U16,
-    U32,
-    U64,
-    I8,
-    I16,
-    I32,
-    I64,
-    F32,
-    F64,
-    Utf8,
-    Bytes,
-    FixedBytes,
-};
-
 enum class NormalizationKind
 {
     None,
@@ -90,8 +71,6 @@ enum class CheckKind
 {
     MinimumInteger,
     MaximumInteger,
-    MinimumReal,
-    MaximumReal,
     MinimumLength,
     MaximumLength,
     Pattern,
@@ -129,7 +108,6 @@ enum class QueryOperator
     GreaterThan,
     GreaterThanOrEqual,
     Prefix,
-    Suffix,
     Contains,
     IsNull,
 };
@@ -160,8 +138,6 @@ struct FieldSchema
     std::string name;
     std::string storageName;
     FieldKind kind = FieldKind::Text;
-    WireType wireType = WireType::None;
-    int wireSize = 0;
     bool nullable = true;
     bool redacted = false;
     std::string sourceField;
@@ -173,20 +149,6 @@ struct FieldSchema
     std::vector<std::string> enumValues;
     std::vector<CheckSchema> checks;
     QueryPolicy query;
-};
-
-struct OneOfVariantSchema
-{
-    std::string tag;
-    std::vector<std::string> fields;
-    std::vector<std::string> optionalFields;
-};
-
-struct OneOfSchema
-{
-    std::string oneOfId;
-    std::string discriminatorField;
-    std::vector<OneOfVariantSchema> variants;
 };
 
 struct KeySchema
@@ -237,7 +199,6 @@ struct ModelSchema
     std::vector<IndexSchema> indexes;
     std::vector<RelationSchema> relations;
     std::vector<JoinSchema> joins;
-    std::vector<OneOfSchema> oneOfs;
 };
 
 struct SchemaFragment
@@ -273,22 +234,7 @@ struct ValidationResult
     [[nodiscard]] nlohmann::json ToJson() const;
 };
 
-struct ParseDiagnostic
-{
-    std::string path;
-    std::string message;
-};
-
-struct FragmentManifestParseResult
-{
-    std::vector<SchemaFragment> fragments;
-    std::vector<ParseDiagnostic> errors;
-
-    [[nodiscard]] bool ok() const;
-};
-
 std::string_view FieldKindName(FieldKind kind);
-std::string_view WireTypeName(WireType type);
 std::string_view NormalizationKindName(NormalizationKind kind);
 std::string_view ModelKindName(ModelKind kind);
 std::string_view RetentionPolicyName(RetentionPolicy policy);
@@ -304,12 +250,9 @@ const ModelSchema* FindModelById(const SchemaCatalog& catalog, std::string_view 
 const ModelSchema* FindModelByLogicalName(const SchemaCatalog& catalog, std::string_view logical_name);
 const ModelSchema* FindModelByStorageName(const SchemaCatalog& catalog, std::string_view storage_name);
 const FieldSchema* FindField(const ModelSchema& model, std::string_view field_name);
-const RelationSchema* FindRelationById(const ModelSchema& model, std::string_view relation_id);
-const JoinSchema* FindJoinById(const ModelSchema& model, std::string_view join_id);
 bool HasIndexPrefix(const ModelSchema& model, const std::vector<std::string>& fields);
 bool IsSingleFieldUnique(const ModelSchema& model, std::string_view field_name);
 ValidationResult ValidateCatalog(const SchemaCatalog& catalog);
 std::string FingerprintCatalog(const SchemaCatalog& catalog);
 nlohmann::json BuildSchemaManifest(const SchemaCatalog& catalog);
-FragmentManifestParseResult ParseSchemaFragmentManifest(const nlohmann::json& manifest);
 } // namespace arken::schema::core::v1

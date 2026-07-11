@@ -10,7 +10,6 @@ arken_embed_text_file(
 add_library(arken_schema_core_v1 STATIC
     src/manifest.cpp
     src/schema.cpp
-    src/schema_parse.cpp
 )
 
 target_include_directories(arken_schema_core_v1
