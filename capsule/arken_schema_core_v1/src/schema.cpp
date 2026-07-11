@@ -638,7 +638,7 @@ json FieldJson(const FieldSchema& field)
         {"storageSize", field.storageSize},
         {"nullable", field.nullable},
         {"redacted", field.redacted},
-        {"sourceField", field.sourceField.empty() ? field.name : field.sourceField},
+        {"sourceField", field.sourceField},
         {"immutable", field.immutable},
         {"writeOnce", field.writeOnce},
         {"normalization", std::string(NormalizationKindName(field.normalization))},
