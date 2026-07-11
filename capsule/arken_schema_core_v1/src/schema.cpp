@@ -49,6 +49,7 @@ bool IsAmbiguousStorageName(std::string_view name)
         "logs",
         "markets",
         "memory",
+        "memories",
         "messages",
         "meta",
         "metadata",
@@ -70,6 +71,8 @@ bool IsAmbiguousStorageName(std::string_view name)
         "teams",
         "users",
         "worlds",
+        "world_objects",
+        "world_records",
     };
     return names.contains(name);
 }
