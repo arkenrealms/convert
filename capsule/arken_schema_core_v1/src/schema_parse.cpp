@@ -70,6 +70,7 @@ const auto kFieldKinds = std::to_array<std::pair<std::string_view, FieldKind>>({
     {"keyReference", FieldKind::KeyReference},
     {"integer", FieldKind::Integer},
     {"real", FieldKind::Real},
+    {"decimal", FieldKind::Decimal},
     {"blob", FieldKind::Blob},
 });
 
@@ -89,6 +90,7 @@ const auto kWireTypes = std::to_array<std::pair<std::string_view, WireType>>({
     {"utf8", WireType::Utf8},
     {"bytes", WireType::Bytes},
     {"fixedBytes", WireType::FixedBytes},
+    {"decimal128", WireType::Decimal128},
 });
 
 const auto kStorageCodecs =
@@ -99,6 +101,8 @@ const auto kStorageCodecs =
         {"sqliteText", StorageCodec::SqliteText},
         {"sqliteBlob", StorageCodec::SqliteBlob},
         {"sqliteFixedBlob", StorageCodec::SqliteFixedBlob},
+        {"sqliteOrderedU64", StorageCodec::SqliteOrderedU64},
+        {"sqliteOrderedDecimal128", StorageCodec::SqliteOrderedDecimal128},
     });
 
 const auto kNormalizations =
@@ -221,6 +225,7 @@ std::optional<FieldSchema> ParseField(const json &value,
       Read<std::string>(value, "storageName", path, result);
   const auto kind = ParseEnum(value, "kind", path, kFieldKinds, result);
   const auto semantic_type = value.value("semanticType", std::string{});
+  const auto semantic_type_key = value.value("semanticTypeKey", std::string{});
   const auto wire_type = ParseEnum(value, "wireType", path, kWireTypes, result);
   const auto wire_size = Read<int>(value, "wireSize", path, result);
   StorageCodec storage_codec = StorageCodec::None;
@@ -231,6 +236,8 @@ std::optional<FieldSchema> ParseField(const json &value,
     storage_codec = *parsed;
   }
   const int storage_size = value.value("storageSize", 0);
+  const int decimal_precision = value.value("decimalPrecision", 0);
+  const int decimal_scale = value.value("decimalScale", 0);
   const auto nullable = Read<bool>(value, "nullable", path, result);
   const auto redacted = Read<bool>(value, "redacted", path, result);
   const auto source_field =
@@ -252,10 +259,13 @@ std::optional<FieldSchema> ParseField(const json &value,
   field.storageName = *storage_name;
   field.kind = *kind;
   field.semanticType = semantic_type;
+  field.semanticTypeKey = semantic_type_key;
   field.wireType = *wire_type;
   field.wireSize = *wire_size;
   field.storageCodec = storage_codec;
   field.storageSize = storage_size;
+  field.decimalPrecision = decimal_precision;
+  field.decimalScale = decimal_scale;
   field.nullable = *nullable;
   field.redacted = *redacted;
   field.sourceField = *source_field;
@@ -263,6 +273,9 @@ std::optional<FieldSchema> ParseField(const json &value,
   field.writeOnce = *write_once;
   field.normalization = *normalization;
   field.importTransform = *import_transform;
+  field.semanticTypeId = {value.value("semanticTypeId", std::uint32_t{0})};
+  field.wireTypeId = {value.value("wireTypeId", std::uint32_t{0})};
+  field.storageCodecId = {value.value("storageCodecId", std::uint32_t{0})};
   const auto &default_value = value.value("default", json::object());
   const auto default_kind = ParseEnum(default_value, "kind", path + ".default",
                                       kDefaultKinds, result);

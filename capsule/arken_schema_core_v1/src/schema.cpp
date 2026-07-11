@@ -4,6 +4,7 @@
 #include <charconv>
 #include <cstdint>
 #include <iomanip>
+#include <map>
 #include <set>
 #include <sstream>
 #include <tuple>
@@ -26,6 +27,51 @@ std::uint32_t StableRegistryId(std::string_view registry_namespace, std::string_
     hash *= UINT32_C(16777619);
     hash_text(canonical_name);
     return hash == 0 ? UINT32_C(1) : hash;
+}
+
+SemanticTypeId SemanticTypeRegistryId(std::string_view registry_key)
+{
+    return {StableRegistryId("arken.schema.semantic-type.v1", registry_key)};
+}
+
+WireTypeId WireTypeRegistryId(WireType type)
+{
+    switch (type)
+    {
+        case WireType::None: return {};
+        case WireType::Bool: return {1};
+        case WireType::U8: return {2};
+        case WireType::U16: return {3};
+        case WireType::U32: return {4};
+        case WireType::U64: return {5};
+        case WireType::I8: return {6};
+        case WireType::I16: return {7};
+        case WireType::I32: return {8};
+        case WireType::I64: return {9};
+        case WireType::F32: return {10};
+        case WireType::F64: return {11};
+        case WireType::Utf8: return {12};
+        case WireType::Bytes: return {13};
+        case WireType::FixedBytes: return {14};
+        case WireType::Decimal128: return {15};
+    }
+    return {};
+}
+
+StorageCodecId StorageCodecRegistryId(StorageCodec codec)
+{
+    switch (codec)
+    {
+        case StorageCodec::None: return {};
+        case StorageCodec::SqliteInteger: return {1};
+        case StorageCodec::SqliteReal: return {2};
+        case StorageCodec::SqliteText: return {3};
+        case StorageCodec::SqliteBlob: return {4};
+        case StorageCodec::SqliteFixedBlob: return {5};
+        case StorageCodec::SqliteOrderedU64: return {6};
+        case StorageCodec::SqliteOrderedDecimal128: return {7};
+    }
+    return {};
 }
 
 namespace
@@ -146,6 +192,14 @@ void NormalizeModelRegistry(ModelSchema& model)
         {
             field.fieldId = StableRegistryId("arken.schema.field.v1." + model.qualifiedName, field.name);
         }
+        if (!field.semanticType.empty() && field.wireType != WireType::None &&
+            field.storageCodec != StorageCodec::None)
+        {
+            if (field.semanticTypeKey.empty()) field.semanticTypeKey = "arken.semantic.v1/" + field.semanticType;
+            if (field.semanticTypeId.value == 0) field.semanticTypeId = SemanticTypeRegistryId(field.semanticTypeKey);
+            if (field.wireTypeId.value == 0) field.wireTypeId = WireTypeRegistryId(field.wireType);
+            if (field.storageCodecId.value == 0) field.storageCodecId = StorageCodecRegistryId(field.storageCodec);
+        }
     }
     SortAndUnique(model.sourceAliases);
     SortAndUnique(model.retiredNames);
@@ -232,6 +286,7 @@ bool IsTextKind(FieldKind kind)
         case FieldKind::Secret:
         case FieldKind::Integer:
         case FieldKind::Real:
+        case FieldKind::Decimal:
         case FieldKind::Blob:
             return false;
     }
@@ -258,6 +313,7 @@ bool IsIntegerWireType(WireType type)
         case WireType::Utf8:
         case WireType::Bytes:
         case WireType::FixedBytes:
+        case WireType::Decimal128:
             return false;
     }
     return false;
@@ -279,6 +335,8 @@ bool IsWireTypeCompatible(FieldKind kind, WireType type)
             return IsIntegerWireType(type);
         case FieldKind::Real:
             return type == WireType::F32 || type == WireType::F64;
+        case FieldKind::Decimal:
+            return type == WireType::Decimal128;
         case FieldKind::Blob:
             return type == WireType::Bytes || type == WireType::FixedBytes;
         case FieldKind::ObjectId:
@@ -311,10 +369,13 @@ bool IsStorageCodecCompatible(FieldKind kind, StorageCodec codec)
         case FieldKind::InternalId:
         case FieldKind::Bool:
         case FieldKind::TimestampMs:
-        case FieldKind::Integer:
             return codec == StorageCodec::SqliteInteger;
+        case FieldKind::Integer:
+            return codec == StorageCodec::SqliteInteger || codec == StorageCodec::SqliteOrderedU64;
         case FieldKind::Real:
             return codec == StorageCodec::SqliteReal;
+        case FieldKind::Decimal:
+            return codec == StorageCodec::SqliteOrderedDecimal128;
         case FieldKind::Blob:
             return codec == StorageCodec::SqliteBlob || codec == StorageCodec::SqliteFixedBlob;
         case FieldKind::ObjectId:
@@ -338,7 +399,7 @@ bool IsStorageCodecCompatible(FieldKind kind, StorageCodec codec)
 bool IsOrderedKind(FieldKind kind)
 {
     return IsTextKind(kind) || kind == FieldKind::InternalId || kind == FieldKind::Integer || kind == FieldKind::Real ||
-        kind == FieldKind::TimestampMs;
+        kind == FieldKind::Decimal || kind == FieldKind::TimestampMs;
 }
 
 bool IsQueryOperatorCompatible(FieldKind kind, QueryOperator query_operator)
@@ -392,6 +453,7 @@ bool IsLiteralDefaultCompatible(const FieldSchema& field)
         case FieldKind::TimestampMs:
             return IsIntegerLiteral(field.defaultValue.value);
         case FieldKind::Secret:
+        case FieldKind::Decimal:
         case FieldKind::Blob:
             return false;
         case FieldKind::ObjectId:
@@ -520,18 +582,28 @@ void HashModel(std::uint64_t& hash, const ModelSchema& model)
         {
             HashText(hash, "semanticType");
             HashText(hash, field.semanticType);
+            HashText(hash, field.semanticTypeKey);
+            HashText(hash, std::to_string(field.semanticTypeId.value));
         }
         if (field.wireType != WireType::None)
         {
             HashText(hash, "wireType");
             HashText(hash, WireTypeName(field.wireType));
+            HashText(hash, std::to_string(field.wireTypeId.value));
             HashText(hash, std::to_string(field.wireSize));
         }
         if (field.storageCodec != StorageCodec::None)
         {
             HashText(hash, "storageCodec");
             HashText(hash, StorageCodecName(field.storageCodec));
+            HashText(hash, std::to_string(field.storageCodecId.value));
             HashText(hash, std::to_string(field.storageSize));
+        }
+        if (field.kind == FieldKind::Decimal || field.decimalPrecision != 0 || field.decimalScale != 0)
+        {
+            HashText(hash, "decimalContract");
+            HashText(hash, std::to_string(field.decimalPrecision));
+            HashText(hash, std::to_string(field.decimalScale));
         }
         HashBool(hash, field.nullable);
         HashBool(hash, field.redacted);
@@ -632,10 +704,16 @@ json FieldJson(const FieldSchema& field)
         {"storageName", field.storageName},
         {"kind", std::string(FieldKindName(field.kind))},
         {"semanticType", field.semanticType},
+        {"semanticTypeKey", field.semanticTypeKey},
+        {"semanticTypeId", field.semanticTypeId.value},
         {"wireType", std::string(WireTypeName(field.wireType))},
+        {"wireTypeId", field.wireTypeId.value},
         {"wireSize", field.wireSize},
         {"storageCodec", std::string(StorageCodecName(field.storageCodec))},
+        {"storageCodecId", field.storageCodecId.value},
         {"storageSize", field.storageSize},
+        {"decimalPrecision", field.decimalPrecision},
+        {"decimalScale", field.decimalScale},
         {"nullable", field.nullable},
         {"redacted", field.redacted},
         {"sourceField", field.sourceField},
@@ -835,6 +913,7 @@ std::string_view FieldKindName(FieldKind kind)
         case FieldKind::KeyReference: return "keyReference";
         case FieldKind::Integer: return "integer";
         case FieldKind::Real: return "real";
+        case FieldKind::Decimal: return "decimal";
         case FieldKind::Blob: return "blob";
     }
     return "text";
@@ -859,6 +938,7 @@ std::string_view WireTypeName(WireType type)
         case WireType::Utf8: return "utf8";
         case WireType::Bytes: return "bytes";
         case WireType::FixedBytes: return "fixedBytes";
+        case WireType::Decimal128: return "decimal128";
     }
     return "none";
 }
@@ -873,6 +953,8 @@ std::string_view StorageCodecName(StorageCodec codec)
         case StorageCodec::SqliteText: return "sqliteText";
         case StorageCodec::SqliteBlob: return "sqliteBlob";
         case StorageCodec::SqliteFixedBlob: return "sqliteFixedBlob";
+        case StorageCodec::SqliteOrderedU64: return "sqliteOrderedU64";
+        case StorageCodec::SqliteOrderedDecimal128: return "sqliteOrderedDecimal128";
     }
     return "none";
 }
@@ -1034,6 +1116,206 @@ std::string_view QueryOperatorName(QueryOperator query_operator)
         case QueryOperator::IsNull: return "isNull";
     }
     return "equal";
+}
+
+TypeRegistry BuildTypeRegistry(const SchemaCatalog& catalog)
+{
+    TypeRegistry registry;
+    std::map<std::string, SemanticTypeDefinition> semantic_types;
+    using BindingKey = std::tuple<std::uint32_t, FieldKind, std::uint32_t, std::uint32_t, int, int, int, int>;
+    std::map<BindingKey, TypeBindingDefinition> bindings;
+    for (const auto& model : catalog.models)
+    {
+        for (const auto& field : model.fields)
+        {
+            if (field.semanticType.empty()) continue;
+            auto [found, inserted] = semantic_types.try_emplace(field.semanticTypeKey, SemanticTypeDefinition{
+                .typeId = field.semanticTypeId,
+                .registryKey = field.semanticTypeKey,
+                .name = field.semanticType,
+                .fieldCount = 0,
+            });
+            static_cast<void>(inserted);
+            ++found->second.fieldCount;
+            const BindingKey binding_key{
+                field.semanticTypeId.value,
+                field.kind,
+                field.wireTypeId.value,
+                field.storageCodecId.value,
+                field.wireSize,
+                field.storageSize,
+                field.decimalPrecision,
+                field.decimalScale,
+            };
+            auto [binding, binding_inserted] = bindings.try_emplace(binding_key, TypeBindingDefinition{
+                .semanticTypeId = field.semanticTypeId,
+                .fieldKind = field.kind,
+                .wireTypeId = field.wireTypeId,
+                .storageCodecId = field.storageCodecId,
+                .wireSize = field.wireSize,
+                .storageSize = field.storageSize,
+                .decimalPrecision = field.decimalPrecision,
+                .decimalScale = field.decimalScale,
+                .fieldCount = 0,
+            });
+            static_cast<void>(binding_inserted);
+            ++binding->second.fieldCount;
+        }
+    }
+    for (auto& [key, definition] : semantic_types)
+    {
+        static_cast<void>(key);
+        registry.semanticTypes.push_back(std::move(definition));
+    }
+    for (auto& [key, definition] : bindings)
+    {
+        static_cast<void>(key);
+        registry.bindings.push_back(std::move(definition));
+    }
+    registry.wireTypes = {
+        {{1}, WireType::Bool, 1, false, true},
+        {{2}, WireType::U8, 8, false, true},
+        {{3}, WireType::U16, 16, false, true},
+        {{4}, WireType::U32, 32, false, true},
+        {{5}, WireType::U64, 64, false, true},
+        {{6}, WireType::I8, 8, true, true},
+        {{7}, WireType::I16, 16, true, true},
+        {{8}, WireType::I32, 32, true, true},
+        {{9}, WireType::I64, 64, true, true},
+        {{10}, WireType::F32, 32, true, true},
+        {{11}, WireType::F64, 64, true, true},
+        {{12}, WireType::Utf8, 0, false, false},
+        {{13}, WireType::Bytes, 0, false, false},
+        {{14}, WireType::FixedBytes, 0, false, true},
+        {{15}, WireType::Decimal128, 128, true, true},
+    };
+    registry.storageCodecs = {
+        {{1}, StorageCodec::SqliteInteger, "INTEGER", 0, true, true},
+        {{2}, StorageCodec::SqliteReal, "REAL", 0, true, true},
+        {{3}, StorageCodec::SqliteText, "TEXT", 0, true, true},
+        {{4}, StorageCodec::SqliteBlob, "BLOB", 0, true, false},
+        {{5}, StorageCodec::SqliteFixedBlob, "BLOB", 0, true, false},
+        {{6}, StorageCodec::SqliteOrderedU64, "BLOB", 8, true, true},
+        {{7}, StorageCodec::SqliteOrderedDecimal128, "BLOB", 16, true, true},
+    };
+    return registry;
+}
+
+std::string FingerprintTypeRegistry(const SchemaCatalog& catalog)
+{
+    const auto registry = BuildTypeRegistry(catalog);
+    std::uint64_t hash = UINT64_C(14695981039346656037);
+    HashText(hash, "arken-schema-type-registry-v1");
+    for (const auto& type : registry.semanticTypes)
+    {
+        HashText(hash, std::to_string(type.typeId.value));
+        HashText(hash, type.registryKey);
+        HashText(hash, type.name);
+    }
+    for (const auto& binding : registry.bindings)
+    {
+        HashText(hash, std::to_string(binding.semanticTypeId.value));
+        HashText(hash, FieldKindName(binding.fieldKind));
+        HashText(hash, std::to_string(binding.wireTypeId.value));
+        HashText(hash, std::to_string(binding.storageCodecId.value));
+        HashText(hash, std::to_string(binding.wireSize));
+        HashText(hash, std::to_string(binding.storageSize));
+        HashText(hash, std::to_string(binding.decimalPrecision));
+        HashText(hash, std::to_string(binding.decimalScale));
+    }
+    for (const auto& type : registry.wireTypes)
+    {
+        HashText(hash, std::to_string(type.typeId.value));
+        HashText(hash, WireTypeName(type.type));
+        HashText(hash, std::to_string(type.bitWidth));
+        HashBool(hash, type.signedInteger);
+        HashBool(hash, type.fixedWidth);
+    }
+    for (const auto& codec : registry.storageCodecs)
+    {
+        HashText(hash, std::to_string(codec.codecId.value));
+        HashText(hash, StorageCodecName(codec.codec));
+        HashText(hash, codec.sqliteStorageClass);
+        HashText(hash, std::to_string(codec.fixedSize));
+        HashBool(hash, codec.exact);
+        HashBool(hash, codec.orderPreserving);
+    }
+    std::ostringstream text;
+    text << std::hex << std::setfill('0') << std::setw(16) << hash;
+    return text.str();
+}
+
+nlohmann::json BuildTypeRegistryManifest(const SchemaCatalog& catalog)
+{
+    const auto registry = BuildTypeRegistry(catalog);
+    json semantic_types = json::array();
+    json bindings = json::array();
+    json wire_types = json::array();
+    json storage_codecs = json::array();
+    for (const auto& type : registry.semanticTypes)
+    {
+        semantic_types.push_back({
+            {"typeId", type.typeId.value},
+            {"registryKey", type.registryKey},
+            {"name", type.name},
+            {"fieldCount", type.fieldCount},
+        });
+    }
+    for (const auto& binding : registry.bindings)
+    {
+        bindings.push_back({
+            {"semanticTypeId", binding.semanticTypeId.value},
+            {"fieldKind", std::string(FieldKindName(binding.fieldKind))},
+            {"wireTypeId", binding.wireTypeId.value},
+            {"storageCodecId", binding.storageCodecId.value},
+            {"wireSize", binding.wireSize},
+            {"storageSize", binding.storageSize},
+            {"decimalPrecision", binding.decimalPrecision},
+            {"decimalScale", binding.decimalScale},
+            {"fieldCount", binding.fieldCount},
+        });
+    }
+    for (const auto& type : registry.wireTypes)
+    {
+        wire_types.push_back({
+            {"typeId", type.typeId.value},
+            {"name", std::string(WireTypeName(type.type))},
+            {"bitWidth", type.bitWidth},
+            {"signedInteger", type.signedInteger},
+            {"fixedWidth", type.fixedWidth},
+        });
+    }
+    for (const auto& codec : registry.storageCodecs)
+    {
+        storage_codecs.push_back({
+            {"codecId", codec.codecId.value},
+            {"name", std::string(StorageCodecName(codec.codec))},
+            {"sqliteStorageClass", codec.sqliteStorageClass},
+            {"fixedSize", codec.fixedSize},
+            {"exact", codec.exact},
+            {"orderPreserving", codec.orderPreserving},
+        });
+    }
+    return {
+        {"mode", "arken-schema-type-registry"},
+        {"version", registry.version},
+        {"idType", "u32"},
+        {"allocation", "persisted-u32-registry-v1"},
+        {"fingerprint", FingerprintTypeRegistry(catalog)},
+        {"semanticTypeCount", semantic_types.size()},
+        {"bindingCount", bindings.size()},
+        {"wireTypeCount", wire_types.size()},
+        {"storageCodecCount", storage_codecs.size()},
+        {"semanticTypes", std::move(semantic_types)},
+        {"bindings", std::move(bindings)},
+        {"wireTypes", std::move(wire_types)},
+        {"storageCodecs", std::move(storage_codecs)},
+        {"retiredSemanticTypeIds", registry.retiredSemanticTypeIds},
+        {"retiredWireTypeIds", registry.retiredWireTypeIds},
+        {"retiredStorageCodecIds", registry.retiredStorageCodecIds},
+        {"reservedWireTypeRange", {{"first", 16}, {"last", 31}}},
+        {"reservedStorageCodecRange", {{"first", 8}, {"last", 31}}},
+    };
 }
 
 SchemaCatalog ComposeCatalog(std::string catalog_id, int version, std::vector<SchemaFragment> fragments)
@@ -1199,6 +1481,8 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
     std::set<std::uint32_t> type_ids;
     std::set<std::string> active_model_names;
     std::set<std::string> retired_model_names;
+    std::map<std::uint32_t, std::string> semantic_type_ids;
+    std::map<std::string, std::string> semantic_type_names;
     for (const auto& model : catalog.models)
     {
         if (model.registryKey.empty() || model.modelId.empty() || model.logicalName.empty() || model.storageName.empty() ||
@@ -1348,9 +1632,46 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             {
                 AddError(result, "strict_type_contract_incomplete", model.modelId, path, "Semantic type, wire type, and storage codec must be declared together.");
             }
-            if (field.wireType == WireType::FixedBytes && field.wireSize <= 0)
+            const bool strict_type_contract = !field.semanticType.empty() && field.wireType != WireType::None &&
+                field.storageCodec != StorageCodec::None;
+            if (!strict_type_contract && (!field.semanticTypeKey.empty() || field.semanticTypeId.value != 0 ||
+                field.wireTypeId.value != 0 || field.storageCodecId.value != 0))
             {
-                AddError(result, "fixed_wire_size_required", model.modelId, path, "Fixed-byte wire fields require a positive byte width.");
+                AddError(result, "type_registry_id_without_contract", model.modelId, path, "Type registry keys and ids require a complete strict type contract.");
+            }
+            if (strict_type_contract)
+            {
+                if (field.semanticTypeKey.empty() || field.semanticTypeId.value == 0 || field.wireTypeId.value == 0 ||
+                    field.storageCodecId.value == 0)
+                {
+                    AddError(result, "type_registry_identity_required", model.modelId, path, "Complete type contracts require nonzero semantic, wire, and storage registry identities.");
+                }
+                if (field.semanticTypeId != SemanticTypeRegistryId(field.semanticTypeKey))
+                {
+                    AddError(result, "semantic_type_id_mismatch", model.modelId, path, "Semantic type id does not match its durable registry key.");
+                }
+                if (field.wireTypeId != WireTypeRegistryId(field.wireType))
+                {
+                    AddError(result, "wire_type_id_mismatch", model.modelId, path, "Wire type id does not match the canonical wire registry.");
+                }
+                if (field.storageCodecId != StorageCodecRegistryId(field.storageCodec))
+                {
+                    AddError(result, "storage_codec_id_mismatch", model.modelId, path, "Storage codec id does not match the canonical storage registry.");
+                }
+                const auto prior_id = semantic_type_ids.emplace(field.semanticTypeId.value, field.semanticTypeKey);
+                if (!prior_id.second && prior_id.first->second != field.semanticTypeKey)
+                {
+                    AddError(result, "semantic_type_id_collision", model.modelId, path, "Semantic type ids must be globally unique across durable registry keys.");
+                }
+                const auto prior_name = semantic_type_names.emplace(field.semanticTypeKey, field.semanticType);
+                if (!prior_name.second && prior_name.first->second != field.semanticType)
+                {
+                    AddError(result, "semantic_type_name_conflict", model.modelId, path, "One semantic registry key cannot resolve to multiple semantic names.");
+                }
+            }
+            if ((field.wireType == WireType::FixedBytes || field.wireType == WireType::Decimal128) && field.wireSize <= 0)
+            {
+                AddError(result, "fixed_wire_size_required", model.modelId, path, "Fixed-width wire fields require a positive byte width.");
             }
             if (field.wireType == WireType::FixedBytes &&
                 ((field.kind == FieldKind::ObjectId && field.wireSize != 12) ||
@@ -1365,9 +1686,13 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
                     "Fixed-byte wire width does not match the semantic field codec."
                 );
             }
-            if (field.wireType != WireType::FixedBytes && field.wireSize != 0)
+            if (field.wireType == WireType::Decimal128 && field.wireSize != 16)
             {
-                AddError(result, "wire_size_not_applicable", model.modelId, path, "Only fixed-byte wire fields declare a byte width.");
+                AddError(result, "decimal_wire_size_mismatch", model.modelId, path, "Decimal128 wire fields require a 16-byte coefficient.");
+            }
+            if (field.wireType != WireType::FixedBytes && field.wireType != WireType::Decimal128 && field.wireSize != 0)
+            {
+                AddError(result, "wire_size_not_applicable", model.modelId, path, "Only fixed-width wire fields declare a byte width.");
             }
             if (field.storageCodec == StorageCodec::SqliteFixedBlob && field.storageSize <= 0)
             {
@@ -1378,9 +1703,39 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             {
                 AddError(result, "fixed_storage_wire_size_mismatch", model.modelId, path, "Fixed wire and storage widths must match.");
             }
-            if (field.storageCodec != StorageCodec::SqliteFixedBlob && field.storageSize != 0)
+            if (field.storageCodec == StorageCodec::SqliteOrderedU64 && field.storageSize != 8)
             {
-                AddError(result, "storage_size_not_applicable", model.modelId, path, "Only fixed-blob storage fields declare a byte width.");
+                AddError(result, "ordered_u64_storage_size_mismatch", model.modelId, path, "Ordered u64 storage requires exactly 8 bytes.");
+            }
+            if (field.storageCodec == StorageCodec::SqliteOrderedDecimal128 && field.storageSize != 16)
+            {
+                AddError(result, "ordered_decimal_storage_size_mismatch", model.modelId, path, "Ordered Decimal128 storage requires exactly 16 bytes.");
+            }
+            if (field.storageCodec != StorageCodec::SqliteFixedBlob &&
+                field.storageCodec != StorageCodec::SqliteOrderedU64 &&
+                field.storageCodec != StorageCodec::SqliteOrderedDecimal128 && field.storageSize != 0)
+            {
+                AddError(result, "storage_size_not_applicable", model.modelId, path, "Only fixed-width storage codecs declare a byte width.");
+            }
+            if ((field.wireType == WireType::U64) != (field.storageCodec == StorageCodec::SqliteOrderedU64))
+            {
+                AddError(result, "u64_storage_codec_mismatch", model.modelId, path, "Full-range u64 fields require the ordered eight-byte SQLite codec, and that codec is reserved for u64.");
+            }
+            if (field.kind == FieldKind::Decimal)
+            {
+                if (field.wireType != WireType::Decimal128 ||
+                    field.storageCodec != StorageCodec::SqliteOrderedDecimal128 ||
+                    field.decimalPrecision < 1 || field.decimalPrecision > 38 ||
+                    field.decimalScale < 0 || field.decimalScale > field.decimalPrecision)
+                {
+                    AddError(result, "decimal_contract_invalid", model.modelId, path, "Decimal fields require Decimal128, ordered 16-byte storage, precision 1..38, and scale within precision.");
+                }
+            }
+            else if (field.wireType == WireType::Decimal128 ||
+                     field.storageCodec == StorageCodec::SqliteOrderedDecimal128 ||
+                     field.decimalPrecision != 0 || field.decimalScale != 0)
+            {
+                AddError(result, "decimal_contract_on_non_decimal", model.modelId, path, "Decimal wire, storage, precision, and scale metadata are reserved for decimal fields.");
             }
             if (field.kind == FieldKind::Enum && field.enumValues.empty())
             {
@@ -1659,6 +2014,21 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             {
                 AddError(result, "singular_relation_target_not_unique", model.modelId, path, "Singular relation target fields must identify a unique row.");
             }
+            if (target != nullptr && relation.sourceFields.size() == relation.targetFields.size())
+            {
+                for (std::size_t field_index = 0; field_index < relation.sourceFields.size(); ++field_index)
+                {
+                    const auto* source_field = FindField(model, relation.sourceFields[field_index]);
+                    const auto* target_field = FindField(*target, relation.targetFields[field_index]);
+                    if (source_field != nullptr && target_field != nullptr &&
+                        source_field->semanticTypeId.value != 0 && target_field->semanticTypeId.value != 0 &&
+                        source_field->semanticTypeId != target_field->semanticTypeId)
+                    {
+                        AddError(result, "relation_semantic_type_mismatch", model.modelId, path,
+                                 "Relation source and target fields must share the same semantic type id.");
+                    }
+                }
+            }
             if (!HasIndexPrefix(model, relation.sourceFields))
             {
                 AddError(result, "relation_source_not_indexed", model.modelId, path, "Relation source fields require an index prefix.");
@@ -1808,6 +2178,10 @@ nlohmann::json BuildNamingRegistryManifest(const SchemaCatalog& catalog)
                 {"name", field.name},
                 {"storageName", field.storageName},
                 {"semanticType", field.semanticType},
+                {"semanticTypeKey", field.semanticTypeKey},
+                {"semanticTypeId", field.semanticTypeId.value},
+                {"wireTypeId", field.wireTypeId.value},
+                {"storageCodecId", field.storageCodecId.value},
             });
         }
         models.push_back({
@@ -1897,6 +2271,7 @@ nlohmann::json BuildSchemaManifest(const SchemaCatalog& catalog)
         {"fragments", std::move(fragments)},
         {"models", std::move(models)},
         {"namingRegistry", BuildNamingRegistryManifest(catalog)},
+        {"typeRegistry", BuildTypeRegistryManifest(catalog)},
         {"validation", validation.ToJson()},
     };
 }

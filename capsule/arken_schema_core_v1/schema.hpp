@@ -1,11 +1,14 @@
 #pragma once
 
+#include <compare>
 #include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <nlohmann/json.hpp>
+
+#include "arken_schema_core_v1/value.hpp"
 
 namespace arken::schema::core::v1
 {
@@ -29,6 +32,7 @@ enum class FieldKind
     KeyReference,
     Integer,
     Real,
+    Decimal,
     Blob,
 };
 
@@ -49,6 +53,7 @@ enum class WireType
     Utf8,
     Bytes,
     FixedBytes,
+    Decimal128,
 };
 
 enum class StorageCodec
@@ -59,6 +64,26 @@ enum class StorageCodec
     SqliteText,
     SqliteBlob,
     SqliteFixedBlob,
+    SqliteOrderedU64,
+    SqliteOrderedDecimal128,
+};
+
+struct SemanticTypeId
+{
+    std::uint32_t value = 0;
+    [[nodiscard]] auto operator<=>(const SemanticTypeId&) const = default;
+};
+
+struct WireTypeId
+{
+    std::uint32_t value = 0;
+    [[nodiscard]] auto operator<=>(const WireTypeId&) const = default;
+};
+
+struct StorageCodecId
+{
+    std::uint32_t value = 0;
+    [[nodiscard]] auto operator<=>(const StorageCodecId&) const = default;
 };
 
 enum class NormalizationKind
@@ -204,10 +229,13 @@ struct FieldSchema
     std::string storageName;
     FieldKind kind = FieldKind::Text;
     std::string semanticType;
+    std::string semanticTypeKey;
     WireType wireType = WireType::None;
     int wireSize = 0;
     StorageCodec storageCodec = StorageCodec::None;
     int storageSize = 0;
+    int decimalPrecision = 0;
+    int decimalScale = 0;
     bool nullable = true;
     bool redacted = false;
     std::string sourceField;
@@ -220,6 +248,9 @@ struct FieldSchema
     std::vector<CheckSchema> checks;
     QueryPolicy query;
     std::uint32_t fieldId = 0;
+    SemanticTypeId semanticTypeId;
+    WireTypeId wireTypeId;
+    StorageCodecId storageCodecId;
 };
 
 struct OneOfVariantSchema
@@ -314,6 +345,58 @@ struct SchemaCatalog
     std::vector<ModelSchema> models;
 };
 
+struct SemanticTypeDefinition
+{
+    SemanticTypeId typeId;
+    std::string registryKey;
+    std::string name;
+    std::size_t fieldCount = 0;
+};
+
+struct TypeBindingDefinition
+{
+    SemanticTypeId semanticTypeId;
+    FieldKind fieldKind = FieldKind::Text;
+    WireTypeId wireTypeId;
+    StorageCodecId storageCodecId;
+    int wireSize = 0;
+    int storageSize = 0;
+    int decimalPrecision = 0;
+    int decimalScale = 0;
+    std::size_t fieldCount = 0;
+};
+
+struct WireTypeDefinition
+{
+    WireTypeId typeId;
+    WireType type = WireType::None;
+    int bitWidth = 0;
+    bool signedInteger = false;
+    bool fixedWidth = false;
+};
+
+struct StorageCodecDefinition
+{
+    StorageCodecId codecId;
+    StorageCodec codec = StorageCodec::None;
+    std::string sqliteStorageClass;
+    int fixedSize = 0;
+    bool exact = false;
+    bool orderPreserving = false;
+};
+
+struct TypeRegistry
+{
+    int version = 1;
+    std::vector<SemanticTypeDefinition> semanticTypes;
+    std::vector<TypeBindingDefinition> bindings;
+    std::vector<WireTypeDefinition> wireTypes;
+    std::vector<StorageCodecDefinition> storageCodecs;
+    std::vector<std::uint32_t> retiredSemanticTypeIds;
+    std::vector<std::uint32_t> retiredWireTypeIds;
+    std::vector<std::uint32_t> retiredStorageCodecIds;
+};
+
 struct ValidationDiagnostic
 {
     std::string code;
@@ -361,6 +444,12 @@ std::string_view ReferentialActionName(ReferentialAction action);
 std::string_view QueryOperatorName(QueryOperator query_operator);
 
 std::uint32_t StableRegistryId(std::string_view registry_namespace, std::string_view canonical_name);
+SemanticTypeId SemanticTypeRegistryId(std::string_view registry_key);
+WireTypeId WireTypeRegistryId(WireType type);
+StorageCodecId StorageCodecRegistryId(StorageCodec codec);
+TypeRegistry BuildTypeRegistry(const SchemaCatalog& catalog);
+std::string FingerprintTypeRegistry(const SchemaCatalog& catalog);
+nlohmann::json BuildTypeRegistryManifest(const SchemaCatalog& catalog);
 
 SchemaCatalog ComposeCatalog(std::string catalog_id, int version, std::vector<SchemaFragment> fragments);
 const ModelSchema* FindModelById(const SchemaCatalog& catalog, std::string_view model_id);
