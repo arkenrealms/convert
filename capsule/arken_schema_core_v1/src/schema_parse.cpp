@@ -62,7 +62,7 @@ const auto kFieldKinds = std::to_array<std::pair<std::string_view, FieldKind>>({
     {"enum", FieldKind::Enum},
     {"bool", FieldKind::Bool},
     {"timestampMs", FieldKind::TimestampMs},
-    {"jsonObject", FieldKind::JsonObject},
+    {"jsonText", FieldKind::JsonText},
     {"secret", FieldKind::Secret},
     {"ethereumAddress", FieldKind::EthereumAddress},
     {"hashHex", FieldKind::HashHex},
@@ -70,6 +70,7 @@ const auto kFieldKinds = std::to_array<std::pair<std::string_view, FieldKind>>({
     {"keyReference", FieldKind::KeyReference},
     {"integer", FieldKind::Integer},
     {"real", FieldKind::Real},
+    {"decimal", FieldKind::Decimal},
     {"blob", FieldKind::Blob},
 });
 
@@ -89,7 +90,20 @@ const auto kWireTypes = std::to_array<std::pair<std::string_view, WireType>>({
     {"utf8", WireType::Utf8},
     {"bytes", WireType::Bytes},
     {"fixedBytes", WireType::FixedBytes},
+    {"decimal128", WireType::Decimal128},
 });
+
+const auto kStorageCodecs =
+    std::to_array<std::pair<std::string_view, StorageCodec>>({
+        {"none", StorageCodec::None},
+        {"sqliteInteger", StorageCodec::SqliteInteger},
+        {"sqliteReal", StorageCodec::SqliteReal},
+        {"sqliteText", StorageCodec::SqliteText},
+        {"sqliteBlob", StorageCodec::SqliteBlob},
+        {"sqliteFixedBlob", StorageCodec::SqliteFixedBlob},
+        {"sqliteOrderedU64", StorageCodec::SqliteOrderedU64},
+        {"sqliteOrderedDecimal128", StorageCodec::SqliteOrderedDecimal128},
+    });
 
 const auto kNormalizations =
     std::to_array<std::pair<std::string_view, NormalizationKind>>({
@@ -110,6 +124,36 @@ const auto kModelKinds = std::to_array<std::pair<std::string_view, ModelKind>>({
     {"provenance", ModelKind::Provenance},
     {"importLedger", ModelKind::ImportLedger},
 });
+
+const auto kModelRoles = std::to_array<std::pair<std::string_view, ModelRole>>({
+    {"unspecified", ModelRole::Unspecified},
+    {"universalSpine", ModelRole::UniversalSpine},
+    {"domainFacet", ModelRole::DomainFacet},
+    {"definition", ModelRole::Definition},
+    {"revision", ModelRole::Revision},
+    {"instance", ModelRole::Instance},
+    {"occurrence", ModelRole::Occurrence},
+    {"manifestation", ModelRole::Manifestation},
+    {"representation", ModelRole::Representation},
+    {"assertion", ModelRole::Assertion},
+    {"observation", ModelRole::Observation},
+    {"authoritativeAggregate", ModelRole::AuthoritativeAggregate},
+    {"ledger", ModelRole::Ledger},
+    {"registry", ModelRole::Registry},
+    {"projection", ModelRole::Projection},
+    {"importRecord", ModelRole::ImportRecord},
+    {"receipt", ModelRole::Receipt},
+    {"membership", ModelRole::Membership},
+    {"valueObject", ModelRole::ValueObject},
+});
+
+const auto kNameReviewStatuses =
+    std::to_array<std::pair<std::string_view, NameReviewStatus>>({
+        {"unspecified", NameReviewStatus::Unspecified},
+        {"canonical", NameReviewStatus::Canonical},
+        {"reviewRequired", NameReviewStatus::ReviewRequired},
+        {"approvedException", NameReviewStatus::ApprovedException},
+    });
 
 const auto kRetentions =
     std::to_array<std::pair<std::string_view, RetentionPolicy>>({
@@ -180,8 +224,20 @@ std::optional<FieldSchema> ParseField(const json &value,
   const auto storage_name =
       Read<std::string>(value, "storageName", path, result);
   const auto kind = ParseEnum(value, "kind", path, kFieldKinds, result);
+  const auto semantic_type = value.value("semanticType", std::string{});
+  const auto semantic_type_key = value.value("semanticTypeKey", std::string{});
   const auto wire_type = ParseEnum(value, "wireType", path, kWireTypes, result);
   const auto wire_size = Read<int>(value, "wireSize", path, result);
+  StorageCodec storage_codec = StorageCodec::None;
+  if (value.contains("storageCodec")) {
+    const auto parsed =
+        ParseEnum(value, "storageCodec", path, kStorageCodecs, result);
+    if (!parsed) return std::nullopt;
+    storage_codec = *parsed;
+  }
+  const int storage_size = value.value("storageSize", 0);
+  const int decimal_precision = value.value("decimalPrecision", 0);
+  const int decimal_scale = value.value("decimalScale", 0);
   const auto nullable = Read<bool>(value, "nullable", path, result);
   const auto redacted = Read<bool>(value, "redacted", path, result);
   const auto source_field =
@@ -197,11 +253,19 @@ std::optional<FieldSchema> ParseField(const json &value,
       !import_transform) {
     return std::nullopt;
   }
+  field.registryKey = value.value("registryKey", std::string{});
   field.name = *name;
+  field.fieldId = value.value("fieldId", std::uint32_t{0});
   field.storageName = *storage_name;
   field.kind = *kind;
+  field.semanticType = semantic_type;
+  field.semanticTypeKey = semantic_type_key;
   field.wireType = *wire_type;
   field.wireSize = *wire_size;
+  field.storageCodec = storage_codec;
+  field.storageSize = storage_size;
+  field.decimalPrecision = decimal_precision;
+  field.decimalScale = decimal_scale;
   field.nullable = *nullable;
   field.redacted = *redacted;
   field.sourceField = *source_field;
@@ -209,6 +273,9 @@ std::optional<FieldSchema> ParseField(const json &value,
   field.writeOnce = *write_once;
   field.normalization = *normalization;
   field.importTransform = *import_transform;
+  field.semanticTypeId = {value.value("semanticTypeId", std::uint32_t{0})};
+  field.wireTypeId = {value.value("wireTypeId", std::uint32_t{0})};
+  field.storageCodecId = {value.value("storageCodecId", std::uint32_t{0})};
   const auto &default_value = value.value("default", json::object());
   const auto default_kind = ParseEnum(default_value, "kind", path + ".default",
                                       kDefaultKinds, result);
@@ -287,6 +354,7 @@ std::optional<ModelSchema> ParseModel(const json &value,
       !description || !kind || !retention) {
     return std::nullopt;
   }
+  model.registryKey = value.value("registryKey", std::string{});
   model.modelId = *model_id;
   model.logicalName = *logical_name;
   model.storageName = *storage_name;
@@ -295,6 +363,30 @@ std::optional<ModelSchema> ParseModel(const json &value,
   model.description = *description;
   model.kind = *kind;
   model.retention = *retention;
+  model.typeId = value.value("typeId", std::uint32_t{0});
+  model.qualifiedName = value.value("qualifiedName", std::string{});
+  model.mutationAuthority = value.value("mutationAuthority", std::string{});
+  if (value.contains("role")) {
+    const auto role = ParseEnum(value, "role", path, kModelRoles, result);
+    if (!role) return std::nullopt;
+    model.role = *role;
+  }
+  if (value.contains("nameReview")) {
+    const auto name_review =
+        ParseEnum(value, "nameReview", path, kNameReviewStatuses, result);
+    if (!name_review) return std::nullopt;
+    model.nameReview = *name_review;
+  }
+  model.sourceAliases =
+      value.value("sourceAliases", std::vector<std::string>{});
+  model.retiredNames =
+      value.value("retiredNames", std::vector<std::string>{});
+  model.nameReviewRationale =
+      value.value("nameReviewRationale", std::string{});
+  model.retiredFieldIds =
+      value.value("retiredFieldIds", std::vector<std::uint32_t>{});
+  model.retiredFieldNames =
+      value.value("retiredFieldNames", std::vector<std::string>{});
 
   const auto &fields = value.value("fields", json::array());
   if (!fields.is_array()) {
