@@ -11,7 +11,6 @@ add_library(arken_schema_core_v1 STATIC
     src/manifest.cpp
     src/schema.cpp
     src/schema_parse.cpp
-    src/value.cpp
 )
 
 target_include_directories(arken_schema_core_v1
