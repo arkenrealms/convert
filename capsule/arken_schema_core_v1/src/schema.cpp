@@ -4,6 +4,7 @@
 #include <charconv>
 #include <cstdint>
 #include <iomanip>
+#include <map>
 #include <set>
 #include <sstream>
 #include <tuple>
@@ -11,9 +12,200 @@
 
 namespace arken::schema::core::v1
 {
+std::uint32_t StableRegistryId(std::string_view registry_namespace, std::string_view canonical_name)
+{
+    std::uint32_t hash = UINT32_C(2166136261);
+    const auto hash_text = [&hash](std::string_view text) {
+        for (const unsigned char ch : text)
+        {
+            hash ^= ch;
+            hash *= UINT32_C(16777619);
+        }
+    };
+    hash_text(registry_namespace);
+    hash ^= UINT8_C(0xff);
+    hash *= UINT32_C(16777619);
+    hash_text(canonical_name);
+    return hash == 0 ? UINT32_C(1) : hash;
+}
+
+SemanticTypeId SemanticTypeRegistryId(std::string_view registry_key)
+{
+    return {StableRegistryId("arken.schema.semantic-type.v1", registry_key)};
+}
+
+WireTypeId WireTypeRegistryId(WireType type)
+{
+    switch (type)
+    {
+        case WireType::None: return {};
+        case WireType::Bool: return {1};
+        case WireType::U8: return {2};
+        case WireType::U16: return {3};
+        case WireType::U32: return {4};
+        case WireType::U64: return {5};
+        case WireType::I8: return {6};
+        case WireType::I16: return {7};
+        case WireType::I32: return {8};
+        case WireType::I64: return {9};
+        case WireType::F32: return {10};
+        case WireType::F64: return {11};
+        case WireType::Utf8: return {12};
+        case WireType::Bytes: return {13};
+        case WireType::FixedBytes: return {14};
+        case WireType::Decimal128: return {15};
+    }
+    return {};
+}
+
+StorageCodecId StorageCodecRegistryId(StorageCodec codec)
+{
+    switch (codec)
+    {
+        case StorageCodec::None: return {};
+        case StorageCodec::SqliteInteger: return {1};
+        case StorageCodec::SqliteReal: return {2};
+        case StorageCodec::SqliteText: return {3};
+        case StorageCodec::SqliteBlob: return {4};
+        case StorageCodec::SqliteFixedBlob: return {5};
+        case StorageCodec::SqliteOrderedU64: return {6};
+        case StorageCodec::SqliteOrderedDecimal128: return {7};
+    }
+    return {};
+}
+
 namespace
 {
 using json = nlohmann::json;
+
+bool IsAmbiguousStorageName(std::string_view name)
+{
+    static const std::set<std::string_view> names = {
+        "acts",
+        "applications",
+        "areas",
+        "assets",
+        "collections",
+        "counters",
+        "data",
+        "events",
+        "files",
+        "groups",
+        "items",
+        "logs",
+        "markets",
+        "memory",
+        "memories",
+        "messages",
+        "meta",
+        "metadata",
+        "models",
+        "nodes",
+        "objects",
+        "orders",
+        "products",
+        "profiles",
+        "projects",
+        "records",
+        "repositories",
+        "roles",
+        "services",
+        "sessions",
+        "sets",
+        "stock",
+        "tags",
+        "teams",
+        "users",
+        "worlds",
+        "world_objects",
+        "world_records",
+    };
+    return names.contains(name);
+}
+
+bool HasForbiddenProductPrefix(std::string_view name)
+{
+    return name.starts_with("arken_") || name.starts_with("legacy_") || name.starts_with("oasis_") ||
+        name.starts_with("seer_");
+}
+
+ModelRole InferModelRole(ModelKind kind)
+{
+    switch (kind)
+    {
+        case ModelKind::Join: return ModelRole::Membership;
+        case ModelKind::Ephemeral: return ModelRole::Occurrence;
+        case ModelKind::AuditLedger: return ModelRole::Ledger;
+        case ModelKind::Provenance: return ModelRole::Assertion;
+        case ModelKind::ImportLedger: return ModelRole::ImportRecord;
+        case ModelKind::Entity:
+        case ModelKind::Credential: return ModelRole::AuthoritativeAggregate;
+    }
+    return ModelRole::AuthoritativeAggregate;
+}
+
+template <typename Value>
+void SortAndUnique(std::vector<Value>& values)
+{
+    std::sort(values.begin(), values.end());
+    values.erase(std::unique(values.begin(), values.end()), values.end());
+}
+
+void NormalizeModelRegistry(ModelSchema& model)
+{
+    if (model.qualifiedName.empty())
+    {
+        model.qualifiedName = model.domain + "." + model.modelId;
+    }
+    if (model.mutationAuthority.empty())
+    {
+        model.mutationAuthority = model.ownerCapsule;
+    }
+    if (model.registryKey.empty())
+    {
+        model.registryKey = model.qualifiedName;
+    }
+    if (model.role == ModelRole::Unspecified)
+    {
+        model.role = InferModelRole(model.kind);
+    }
+    if (model.nameReview == NameReviewStatus::Unspecified)
+    {
+        model.nameReview = IsAmbiguousStorageName(model.storageName)
+            ? NameReviewStatus::ReviewRequired
+            : NameReviewStatus::Canonical;
+    }
+    if (model.typeId == 0)
+    {
+        model.typeId = StableRegistryId("arken.schema.model.v1", model.qualifiedName);
+    }
+    for (auto& field : model.fields)
+    {
+        if (field.registryKey.empty())
+        {
+            const std::string_view field_identity = field.sourceField.empty()
+                ? std::string_view(field.name)
+                : std::string_view(field.sourceField);
+            field.registryKey = model.registryKey + "/field:" + std::string(field_identity);
+        }
+        if (field.fieldId == 0)
+        {
+            field.fieldId = StableRegistryId("arken.schema.field.v1." + model.qualifiedName, field.name);
+        }
+        if (!field.semanticType.empty() && field.wireType != WireType::None &&
+            field.storageCodec != StorageCodec::None)
+        {
+            if (field.semanticTypeKey.empty()) field.semanticTypeKey = "arken.semantic.v1/" + field.semanticType;
+            if (field.semanticTypeId.value == 0) field.semanticTypeId = SemanticTypeRegistryId(field.semanticTypeKey);
+            if (field.wireTypeId.value == 0) field.wireTypeId = WireTypeRegistryId(field.wireType);
+            if (field.storageCodecId.value == 0) field.storageCodecId = StorageCodecRegistryId(field.storageCodec);
+        }
+    }
+    SortAndUnique(model.sourceAliases);
+    SortAndUnique(model.retiredNames);
+    SortAndUnique(model.retiredFieldIds);
+    SortAndUnique(model.retiredFieldNames);
+}
 
 template <typename Value, typename Projection>
 bool HasDuplicate(const std::vector<Value>& values, Projection projection)
@@ -90,10 +282,11 @@ bool IsTextKind(FieldKind kind)
         case FieldKind::InternalId:
         case FieldKind::Bool:
         case FieldKind::TimestampMs:
-        case FieldKind::JsonObject:
+        case FieldKind::JsonText:
         case FieldKind::Secret:
         case FieldKind::Integer:
         case FieldKind::Real:
+        case FieldKind::Decimal:
         case FieldKind::Blob:
             return false;
     }
@@ -120,6 +313,7 @@ bool IsIntegerWireType(WireType type)
         case WireType::Utf8:
         case WireType::Bytes:
         case WireType::FixedBytes:
+        case WireType::Decimal128:
             return false;
     }
     return false;
@@ -141,6 +335,8 @@ bool IsWireTypeCompatible(FieldKind kind, WireType type)
             return IsIntegerWireType(type);
         case FieldKind::Real:
             return type == WireType::F32 || type == WireType::F64;
+        case FieldKind::Decimal:
+            return type == WireType::Decimal128;
         case FieldKind::Blob:
             return type == WireType::Bytes || type == WireType::FixedBytes;
         case FieldKind::ObjectId:
@@ -154,7 +350,7 @@ bool IsWireTypeCompatible(FieldKind kind, WireType type)
         case FieldKind::Url:
         case FieldKind::Email:
         case FieldKind::Enum:
-        case FieldKind::JsonObject:
+        case FieldKind::JsonText:
         case FieldKind::Secret:
         case FieldKind::KeyReference:
             return type == WireType::Utf8;
@@ -162,10 +358,48 @@ bool IsWireTypeCompatible(FieldKind kind, WireType type)
     return false;
 }
 
+bool IsStorageCodecCompatible(FieldKind kind, StorageCodec codec)
+{
+    if (codec == StorageCodec::None)
+    {
+        return true;
+    }
+    switch (kind)
+    {
+        case FieldKind::InternalId:
+        case FieldKind::Bool:
+        case FieldKind::TimestampMs:
+            return codec == StorageCodec::SqliteInteger;
+        case FieldKind::Integer:
+            return codec == StorageCodec::SqliteInteger || codec == StorageCodec::SqliteOrderedU64;
+        case FieldKind::Real:
+            return codec == StorageCodec::SqliteReal;
+        case FieldKind::Decimal:
+            return codec == StorageCodec::SqliteOrderedDecimal128;
+        case FieldKind::Blob:
+            return codec == StorageCodec::SqliteBlob || codec == StorageCodec::SqliteFixedBlob;
+        case FieldKind::ObjectId:
+        case FieldKind::Text:
+        case FieldKind::Slug:
+        case FieldKind::DisplayName:
+        case FieldKind::Url:
+        case FieldKind::Email:
+        case FieldKind::Enum:
+        case FieldKind::JsonText:
+        case FieldKind::Secret:
+        case FieldKind::EthereumAddress:
+        case FieldKind::HashHex:
+        case FieldKind::TokenHash:
+        case FieldKind::KeyReference:
+            return codec == StorageCodec::SqliteText;
+    }
+    return false;
+}
+
 bool IsOrderedKind(FieldKind kind)
 {
     return IsTextKind(kind) || kind == FieldKind::InternalId || kind == FieldKind::Integer || kind == FieldKind::Real ||
-        kind == FieldKind::TimestampMs;
+        kind == FieldKind::Decimal || kind == FieldKind::TimestampMs;
 }
 
 bool IsQueryOperatorCompatible(FieldKind kind, QueryOperator query_operator)
@@ -177,7 +411,7 @@ bool IsQueryOperatorCompatible(FieldKind kind, QueryOperator query_operator)
         case QueryOperator::In:
         case QueryOperator::NotIn:
         case QueryOperator::IsNull:
-            return kind != FieldKind::Blob && kind != FieldKind::Secret;
+            return kind != FieldKind::Secret;
         case QueryOperator::LessThan:
         case QueryOperator::LessThanOrEqual:
         case QueryOperator::GreaterThan:
@@ -219,6 +453,7 @@ bool IsLiteralDefaultCompatible(const FieldSchema& field)
         case FieldKind::TimestampMs:
             return IsIntegerLiteral(field.defaultValue.value);
         case FieldKind::Secret:
+        case FieldKind::Decimal:
         case FieldKind::Blob:
             return false;
         case FieldKind::ObjectId:
@@ -227,13 +462,14 @@ bool IsLiteralDefaultCompatible(const FieldSchema& field)
         case FieldKind::DisplayName:
         case FieldKind::Url:
         case FieldKind::Email:
-        case FieldKind::JsonObject:
         case FieldKind::EthereumAddress:
         case FieldKind::HashHex:
         case FieldKind::TokenHash:
         case FieldKind::KeyReference:
         case FieldKind::Real:
             return true;
+        case FieldKind::JsonText:
+            return !json::parse(field.defaultValue.value, nullptr, false).is_discarded();
     }
     return false;
 }
@@ -342,11 +578,32 @@ void HashModel(std::uint64_t& hash, const ModelSchema& model)
         HashText(hash, field.name);
         HashText(hash, field.storageName);
         HashText(hash, FieldKindName(field.kind));
+        if (!field.semanticType.empty())
+        {
+            HashText(hash, "semanticType");
+            HashText(hash, field.semanticType);
+            HashText(hash, field.semanticTypeKey);
+            HashText(hash, std::to_string(field.semanticTypeId.value));
+        }
         if (field.wireType != WireType::None)
         {
             HashText(hash, "wireType");
             HashText(hash, WireTypeName(field.wireType));
+            HashText(hash, std::to_string(field.wireTypeId.value));
             HashText(hash, std::to_string(field.wireSize));
+        }
+        if (field.storageCodec != StorageCodec::None)
+        {
+            HashText(hash, "storageCodec");
+            HashText(hash, StorageCodecName(field.storageCodec));
+            HashText(hash, std::to_string(field.storageCodecId.value));
+            HashText(hash, std::to_string(field.storageSize));
+        }
+        if (field.kind == FieldKind::Decimal || field.decimalPrecision != 0 || field.decimalScale != 0)
+        {
+            HashText(hash, "decimalContract");
+            HashText(hash, std::to_string(field.decimalPrecision));
+            HashText(hash, std::to_string(field.decimalScale));
         }
         HashBool(hash, field.nullable);
         HashBool(hash, field.redacted);
@@ -441,14 +698,25 @@ json FieldJson(const FieldSchema& field)
         });
     }
     return {
+        {"fieldId", field.fieldId},
+        {"registryKey", field.registryKey},
         {"name", field.name},
         {"storageName", field.storageName},
         {"kind", std::string(FieldKindName(field.kind))},
+        {"semanticType", field.semanticType},
+        {"semanticTypeKey", field.semanticTypeKey},
+        {"semanticTypeId", field.semanticTypeId.value},
         {"wireType", std::string(WireTypeName(field.wireType))},
+        {"wireTypeId", field.wireTypeId.value},
         {"wireSize", field.wireSize},
+        {"storageCodec", std::string(StorageCodecName(field.storageCodec))},
+        {"storageCodecId", field.storageCodecId.value},
+        {"storageSize", field.storageSize},
+        {"decimalPrecision", field.decimalPrecision},
+        {"decimalScale", field.decimalScale},
         {"nullable", field.nullable},
         {"redacted", field.redacted},
-        {"sourceField", field.sourceField.empty() ? field.name : field.sourceField},
+        {"sourceField", field.sourceField},
         {"immutable", field.immutable},
         {"writeOnce", field.writeOnce},
         {"normalization", std::string(NormalizationKindName(field.normalization))},
@@ -530,14 +798,25 @@ json ModelJson(const ModelSchema& model)
         });
     }
     return {
+        {"typeId", model.typeId},
+        {"registryKey", model.registryKey},
         {"modelId", model.modelId},
+        {"qualifiedName", model.qualifiedName},
         {"logicalName", model.logicalName},
         {"storageName", model.storageName},
         {"ownerCapsule", model.ownerCapsule},
+        {"mutationAuthority", model.mutationAuthority},
         {"domain", model.domain},
         {"description", model.description},
         {"kind", std::string(ModelKindName(model.kind))},
+        {"role", std::string(ModelRoleName(model.role))},
         {"retention", std::string(RetentionPolicyName(model.retention))},
+        {"sourceAliases", model.sourceAliases},
+        {"retiredNames", model.retiredNames},
+        {"nameReview", std::string(NameReviewStatusName(model.nameReview))},
+        {"nameReviewRationale", model.nameReviewRationale},
+        {"retiredFieldIds", model.retiredFieldIds},
+        {"retiredFieldNames", model.retiredFieldNames},
         {"fields", std::move(fields)},
         {"keys", std::move(keys)},
         {"indexes", std::move(indexes)},
@@ -545,6 +824,43 @@ json ModelJson(const ModelSchema& model)
         {"joins", std::move(joins)},
         {"oneOfs", std::move(one_ofs)},
     };
+}
+
+std::string NamingRegistryFingerprint(const SchemaCatalog& catalog)
+{
+    std::uint64_t hash = UINT64_C(14695981039346656037);
+    HashText(hash, "arken-schema-naming-registry-v1");
+    for (const auto& model : catalog.models)
+    {
+        HashText(hash, model.registryKey);
+        HashText(hash, std::to_string(model.typeId));
+        HashText(hash, model.qualifiedName);
+        HashText(hash, model.modelId);
+        HashText(hash, model.logicalName);
+        HashText(hash, model.storageName);
+        HashText(hash, model.ownerCapsule);
+        HashText(hash, model.mutationAuthority);
+        HashText(hash, ModelRoleName(model.role));
+        HashText(hash, NameReviewStatusName(model.nameReview));
+        HashText(hash, model.nameReviewRationale);
+        HashStrings(hash, model.sourceAliases);
+        HashStrings(hash, model.retiredNames);
+        for (const auto retired_field_id : model.retiredFieldIds)
+        {
+            HashText(hash, std::to_string(retired_field_id));
+        }
+        HashStrings(hash, model.retiredFieldNames);
+        for (const auto& field : model.fields)
+        {
+            HashText(hash, field.registryKey);
+            HashText(hash, std::to_string(field.fieldId));
+            HashText(hash, field.name);
+            HashText(hash, field.storageName);
+        }
+    }
+    std::ostringstream text;
+    text << std::hex << std::setfill('0') << std::setw(16) << hash;
+    return text.str();
 }
 } // namespace
 
@@ -589,7 +905,7 @@ std::string_view FieldKindName(FieldKind kind)
         case FieldKind::Enum: return "enum";
         case FieldKind::Bool: return "bool";
         case FieldKind::TimestampMs: return "timestampMs";
-        case FieldKind::JsonObject: return "jsonObject";
+        case FieldKind::JsonText: return "jsonText";
         case FieldKind::Secret: return "secret";
         case FieldKind::EthereumAddress: return "ethereumAddress";
         case FieldKind::HashHex: return "hashHex";
@@ -597,6 +913,7 @@ std::string_view FieldKindName(FieldKind kind)
         case FieldKind::KeyReference: return "keyReference";
         case FieldKind::Integer: return "integer";
         case FieldKind::Real: return "real";
+        case FieldKind::Decimal: return "decimal";
         case FieldKind::Blob: return "blob";
     }
     return "text";
@@ -621,6 +938,23 @@ std::string_view WireTypeName(WireType type)
         case WireType::Utf8: return "utf8";
         case WireType::Bytes: return "bytes";
         case WireType::FixedBytes: return "fixedBytes";
+        case WireType::Decimal128: return "decimal128";
+    }
+    return "none";
+}
+
+std::string_view StorageCodecName(StorageCodec codec)
+{
+    switch (codec)
+    {
+        case StorageCodec::None: return "none";
+        case StorageCodec::SqliteInteger: return "sqliteInteger";
+        case StorageCodec::SqliteReal: return "sqliteReal";
+        case StorageCodec::SqliteText: return "sqliteText";
+        case StorageCodec::SqliteBlob: return "sqliteBlob";
+        case StorageCodec::SqliteFixedBlob: return "sqliteFixedBlob";
+        case StorageCodec::SqliteOrderedU64: return "sqliteOrderedU64";
+        case StorageCodec::SqliteOrderedDecimal128: return "sqliteOrderedDecimal128";
     }
     return "none";
 }
@@ -652,6 +986,45 @@ std::string_view ModelKindName(ModelKind kind)
         case ModelKind::ImportLedger: return "importLedger";
     }
     return "entity";
+}
+
+std::string_view ModelRoleName(ModelRole role)
+{
+    switch (role)
+    {
+        case ModelRole::Unspecified: return "unspecified";
+        case ModelRole::UniversalSpine: return "universalSpine";
+        case ModelRole::DomainFacet: return "domainFacet";
+        case ModelRole::Definition: return "definition";
+        case ModelRole::Revision: return "revision";
+        case ModelRole::Instance: return "instance";
+        case ModelRole::Occurrence: return "occurrence";
+        case ModelRole::Manifestation: return "manifestation";
+        case ModelRole::Representation: return "representation";
+        case ModelRole::Assertion: return "assertion";
+        case ModelRole::Observation: return "observation";
+        case ModelRole::AuthoritativeAggregate: return "authoritativeAggregate";
+        case ModelRole::Ledger: return "ledger";
+        case ModelRole::Registry: return "registry";
+        case ModelRole::Projection: return "projection";
+        case ModelRole::ImportRecord: return "importRecord";
+        case ModelRole::Receipt: return "receipt";
+        case ModelRole::Membership: return "membership";
+        case ModelRole::ValueObject: return "valueObject";
+    }
+    return "unspecified";
+}
+
+std::string_view NameReviewStatusName(NameReviewStatus status)
+{
+    switch (status)
+    {
+        case NameReviewStatus::Unspecified: return "unspecified";
+        case NameReviewStatus::Canonical: return "canonical";
+        case NameReviewStatus::ReviewRequired: return "reviewRequired";
+        case NameReviewStatus::ApprovedException: return "approvedException";
+    }
+    return "unspecified";
 }
 
 std::string_view RetentionPolicyName(RetentionPolicy policy)
@@ -745,6 +1118,206 @@ std::string_view QueryOperatorName(QueryOperator query_operator)
     return "equal";
 }
 
+TypeRegistry BuildTypeRegistry(const SchemaCatalog& catalog)
+{
+    TypeRegistry registry;
+    std::map<std::string, SemanticTypeDefinition> semantic_types;
+    using BindingKey = std::tuple<std::uint32_t, FieldKind, std::uint32_t, std::uint32_t, int, int, int, int>;
+    std::map<BindingKey, TypeBindingDefinition> bindings;
+    for (const auto& model : catalog.models)
+    {
+        for (const auto& field : model.fields)
+        {
+            if (field.semanticType.empty()) continue;
+            auto [found, inserted] = semantic_types.try_emplace(field.semanticTypeKey, SemanticTypeDefinition{
+                .typeId = field.semanticTypeId,
+                .registryKey = field.semanticTypeKey,
+                .name = field.semanticType,
+                .fieldCount = 0,
+            });
+            static_cast<void>(inserted);
+            ++found->second.fieldCount;
+            const BindingKey binding_key{
+                field.semanticTypeId.value,
+                field.kind,
+                field.wireTypeId.value,
+                field.storageCodecId.value,
+                field.wireSize,
+                field.storageSize,
+                field.decimalPrecision,
+                field.decimalScale,
+            };
+            auto [binding, binding_inserted] = bindings.try_emplace(binding_key, TypeBindingDefinition{
+                .semanticTypeId = field.semanticTypeId,
+                .fieldKind = field.kind,
+                .wireTypeId = field.wireTypeId,
+                .storageCodecId = field.storageCodecId,
+                .wireSize = field.wireSize,
+                .storageSize = field.storageSize,
+                .decimalPrecision = field.decimalPrecision,
+                .decimalScale = field.decimalScale,
+                .fieldCount = 0,
+            });
+            static_cast<void>(binding_inserted);
+            ++binding->second.fieldCount;
+        }
+    }
+    for (auto& [key, definition] : semantic_types)
+    {
+        static_cast<void>(key);
+        registry.semanticTypes.push_back(std::move(definition));
+    }
+    for (auto& [key, definition] : bindings)
+    {
+        static_cast<void>(key);
+        registry.bindings.push_back(std::move(definition));
+    }
+    registry.wireTypes = {
+        {{1}, WireType::Bool, 1, false, true},
+        {{2}, WireType::U8, 8, false, true},
+        {{3}, WireType::U16, 16, false, true},
+        {{4}, WireType::U32, 32, false, true},
+        {{5}, WireType::U64, 64, false, true},
+        {{6}, WireType::I8, 8, true, true},
+        {{7}, WireType::I16, 16, true, true},
+        {{8}, WireType::I32, 32, true, true},
+        {{9}, WireType::I64, 64, true, true},
+        {{10}, WireType::F32, 32, true, true},
+        {{11}, WireType::F64, 64, true, true},
+        {{12}, WireType::Utf8, 0, false, false},
+        {{13}, WireType::Bytes, 0, false, false},
+        {{14}, WireType::FixedBytes, 0, false, true},
+        {{15}, WireType::Decimal128, 128, true, true},
+    };
+    registry.storageCodecs = {
+        {{1}, StorageCodec::SqliteInteger, "INTEGER", 0, true, true},
+        {{2}, StorageCodec::SqliteReal, "REAL", 0, true, true},
+        {{3}, StorageCodec::SqliteText, "TEXT", 0, true, true},
+        {{4}, StorageCodec::SqliteBlob, "BLOB", 0, true, false},
+        {{5}, StorageCodec::SqliteFixedBlob, "BLOB", 0, true, false},
+        {{6}, StorageCodec::SqliteOrderedU64, "BLOB", 8, true, true},
+        {{7}, StorageCodec::SqliteOrderedDecimal128, "BLOB", 16, true, true},
+    };
+    return registry;
+}
+
+std::string FingerprintTypeRegistry(const SchemaCatalog& catalog)
+{
+    const auto registry = BuildTypeRegistry(catalog);
+    std::uint64_t hash = UINT64_C(14695981039346656037);
+    HashText(hash, "arken-schema-type-registry-v1");
+    for (const auto& type : registry.semanticTypes)
+    {
+        HashText(hash, std::to_string(type.typeId.value));
+        HashText(hash, type.registryKey);
+        HashText(hash, type.name);
+    }
+    for (const auto& binding : registry.bindings)
+    {
+        HashText(hash, std::to_string(binding.semanticTypeId.value));
+        HashText(hash, FieldKindName(binding.fieldKind));
+        HashText(hash, std::to_string(binding.wireTypeId.value));
+        HashText(hash, std::to_string(binding.storageCodecId.value));
+        HashText(hash, std::to_string(binding.wireSize));
+        HashText(hash, std::to_string(binding.storageSize));
+        HashText(hash, std::to_string(binding.decimalPrecision));
+        HashText(hash, std::to_string(binding.decimalScale));
+    }
+    for (const auto& type : registry.wireTypes)
+    {
+        HashText(hash, std::to_string(type.typeId.value));
+        HashText(hash, WireTypeName(type.type));
+        HashText(hash, std::to_string(type.bitWidth));
+        HashBool(hash, type.signedInteger);
+        HashBool(hash, type.fixedWidth);
+    }
+    for (const auto& codec : registry.storageCodecs)
+    {
+        HashText(hash, std::to_string(codec.codecId.value));
+        HashText(hash, StorageCodecName(codec.codec));
+        HashText(hash, codec.sqliteStorageClass);
+        HashText(hash, std::to_string(codec.fixedSize));
+        HashBool(hash, codec.exact);
+        HashBool(hash, codec.orderPreserving);
+    }
+    std::ostringstream text;
+    text << std::hex << std::setfill('0') << std::setw(16) << hash;
+    return text.str();
+}
+
+nlohmann::json BuildTypeRegistryManifest(const SchemaCatalog& catalog)
+{
+    const auto registry = BuildTypeRegistry(catalog);
+    json semantic_types = json::array();
+    json bindings = json::array();
+    json wire_types = json::array();
+    json storage_codecs = json::array();
+    for (const auto& type : registry.semanticTypes)
+    {
+        semantic_types.push_back({
+            {"typeId", type.typeId.value},
+            {"registryKey", type.registryKey},
+            {"name", type.name},
+            {"fieldCount", type.fieldCount},
+        });
+    }
+    for (const auto& binding : registry.bindings)
+    {
+        bindings.push_back({
+            {"semanticTypeId", binding.semanticTypeId.value},
+            {"fieldKind", std::string(FieldKindName(binding.fieldKind))},
+            {"wireTypeId", binding.wireTypeId.value},
+            {"storageCodecId", binding.storageCodecId.value},
+            {"wireSize", binding.wireSize},
+            {"storageSize", binding.storageSize},
+            {"decimalPrecision", binding.decimalPrecision},
+            {"decimalScale", binding.decimalScale},
+            {"fieldCount", binding.fieldCount},
+        });
+    }
+    for (const auto& type : registry.wireTypes)
+    {
+        wire_types.push_back({
+            {"typeId", type.typeId.value},
+            {"name", std::string(WireTypeName(type.type))},
+            {"bitWidth", type.bitWidth},
+            {"signedInteger", type.signedInteger},
+            {"fixedWidth", type.fixedWidth},
+        });
+    }
+    for (const auto& codec : registry.storageCodecs)
+    {
+        storage_codecs.push_back({
+            {"codecId", codec.codecId.value},
+            {"name", std::string(StorageCodecName(codec.codec))},
+            {"sqliteStorageClass", codec.sqliteStorageClass},
+            {"fixedSize", codec.fixedSize},
+            {"exact", codec.exact},
+            {"orderPreserving", codec.orderPreserving},
+        });
+    }
+    return {
+        {"mode", "arken-schema-type-registry"},
+        {"version", registry.version},
+        {"idType", "u32"},
+        {"allocation", "persisted-u32-registry-v1"},
+        {"fingerprint", FingerprintTypeRegistry(catalog)},
+        {"semanticTypeCount", semantic_types.size()},
+        {"bindingCount", bindings.size()},
+        {"wireTypeCount", wire_types.size()},
+        {"storageCodecCount", storage_codecs.size()},
+        {"semanticTypes", std::move(semantic_types)},
+        {"bindings", std::move(bindings)},
+        {"wireTypes", std::move(wire_types)},
+        {"storageCodecs", std::move(storage_codecs)},
+        {"retiredSemanticTypeIds", registry.retiredSemanticTypeIds},
+        {"retiredWireTypeIds", registry.retiredWireTypeIds},
+        {"retiredStorageCodecIds", registry.retiredStorageCodecIds},
+        {"reservedWireTypeRange", {{"first", 16}, {"last", 31}}},
+        {"reservedStorageCodecRange", {{"first", 8}, {"last", 31}}},
+    };
+}
+
 SchemaCatalog ComposeCatalog(std::string catalog_id, int version, std::vector<SchemaFragment> fragments)
 {
     std::sort(fragments.begin(), fragments.end(), [](const SchemaFragment& lhs, const SchemaFragment& rhs) {
@@ -758,6 +1331,10 @@ SchemaCatalog ComposeCatalog(std::string catalog_id, int version, std::vector<Sc
     };
     for (auto& fragment : catalog.fragments)
     {
+        for (auto& model : fragment.models)
+        {
+            NormalizeModelRegistry(model);
+        }
         std::sort(fragment.models.begin(), fragment.models.end(), [](const ModelSchema& lhs, const ModelSchema& rhs) {
             return std::tie(lhs.modelId, lhs.logicalName, lhs.storageName) <
                 std::tie(rhs.modelId, rhs.logicalName, rhs.storageName);
@@ -899,12 +1476,34 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
     std::set<std::string> model_ids;
     std::set<std::string> logical_names;
     std::set<std::string> storage_names;
+    std::set<std::string> qualified_names;
+    std::set<std::string> model_registry_keys;
+    std::set<std::uint32_t> type_ids;
+    std::set<std::string> active_model_names;
+    std::set<std::string> retired_model_names;
+    std::map<std::uint32_t, std::string> semantic_type_ids;
+    std::map<std::string, std::string> semantic_type_names;
     for (const auto& model : catalog.models)
     {
-        if (model.modelId.empty() || model.logicalName.empty() || model.storageName.empty() ||
-            model.ownerCapsule.empty() || model.domain.empty())
+        if (model.registryKey.empty() || model.modelId.empty() || model.logicalName.empty() || model.storageName.empty() ||
+            model.ownerCapsule.empty() || model.domain.empty() || model.qualifiedName.empty() ||
+            model.mutationAuthority.empty() || model.typeId == 0 || model.role == ModelRole::Unspecified)
         {
-            AddError(result, "model_identity_required", model.modelId, "model", "Model id, names, owner capsule, and domain are required.");
+            AddError(
+                result,
+                "model_identity_required",
+                model.modelId,
+                "model",
+                "Model registry key, type id, names, owner capsule, mutation authority, domain, and semantic role are required."
+            );
+        }
+        if (!model_registry_keys.insert(model.registryKey).second)
+        {
+            AddError(result, "duplicate_model_registry_key", model.modelId, "registryKey", "Model registry keys must be globally unique and durable across renames.");
+        }
+        if (!type_ids.insert(model.typeId).second)
+        {
+            AddError(result, "duplicate_model_type_id", model.modelId, "typeId", "Model type id must be globally unique.");
         }
         if (!model_ids.insert(model.modelId).second)
         {
@@ -918,6 +1517,50 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
         {
             AddError(result, "duplicate_storage_name", model.modelId, "storageName", "Storage name must be unique.");
         }
+        if (!qualified_names.insert(model.qualifiedName).second)
+        {
+            AddError(result, "duplicate_qualified_name", model.modelId, "qualifiedName", "Qualified model name must be unique.");
+        }
+        if (model.qualifiedName.find('.') == std::string::npos)
+        {
+            AddError(result, "qualified_name_invalid", model.modelId, "qualifiedName", "Qualified model names require a domain namespace.");
+        }
+        if (HasForbiddenProductPrefix(model.storageName) &&
+            (model.role != ModelRole::ImportRecord || model.nameReview != NameReviewStatus::ApprovedException))
+        {
+            AddError(result, "product_prefixed_storage_name", model.modelId, "storageName", "Product or legacy prefixes are reserved for explicitly approved import evidence.");
+        }
+        if (model.storageName == "sets" || model.logicalName == "Set" || model.logicalName == "sets")
+        {
+            AddError(result, "unqualified_set_model_name", model.modelId, "storageName", "Unqualified Set/sets is not a canonical domain concept.");
+        }
+        if (IsAmbiguousStorageName(model.storageName) && model.nameReview == NameReviewStatus::Canonical)
+        {
+            AddError(result, "ambiguous_name_not_reviewed", model.modelId, "nameReview", "Ambiguous storage names require review or an approved exception.");
+        }
+        if (model.nameReview == NameReviewStatus::ApprovedException && model.nameReviewRationale.empty())
+        {
+            AddError(result, "name_exception_rationale_required", model.modelId, "nameReviewRationale", "Approved naming exceptions require a rationale.");
+        }
+        if (model.nameReview == NameReviewStatus::ReviewRequired)
+        {
+            AddWarning(result, "ambiguous_name_review_required", model.modelId, "storageName", "Canonical naming review remains required for this model.");
+        }
+        if (HasDuplicate(model.sourceAliases, [](const std::string& value) -> std::string_view { return value; }) ||
+            HasDuplicate(model.retiredNames, [](const std::string& value) -> std::string_view { return value; }))
+        {
+            AddError(result, "duplicate_model_name_alias", model.modelId, "sourceAliases", "Source aliases and retired names must be unique within their lists.");
+        }
+        if (std::any_of(model.sourceAliases.begin(), model.sourceAliases.end(), [](const std::string& value) { return value.empty(); }) ||
+            std::any_of(model.retiredNames.begin(), model.retiredNames.end(), [](const std::string& value) { return value.empty(); }))
+        {
+            AddError(result, "empty_model_name_alias", model.modelId, "sourceAliases", "Source aliases and retired names cannot be empty.");
+        }
+        active_model_names.insert(model.modelId);
+        active_model_names.insert(model.logicalName);
+        active_model_names.insert(model.storageName);
+        active_model_names.insert(model.qualifiedName);
+        retired_model_names.insert(model.retiredNames.begin(), model.retiredNames.end());
         if (model.fields.empty())
         {
             AddError(result, "model_fields_required", model.modelId, "fields", "At least one field is required.");
@@ -943,9 +1586,27 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
 
         std::set<std::string> field_names;
         std::set<std::string> field_storage_names;
+        std::set<std::uint32_t> field_ids;
+        std::set<std::string> field_registry_keys;
         for (const auto& field : model.fields)
         {
             const std::string path = "fields." + field.name;
+            if (field.fieldId == 0)
+            {
+                AddError(result, "field_id_required", model.modelId, path, "Every field requires a nonzero stable u32 field id.");
+            }
+            else if (!field_ids.insert(field.fieldId).second)
+            {
+                AddError(result, "duplicate_field_id", model.modelId, path, "Field ids must be unique within a model.");
+            }
+            if (field.registryKey.empty())
+            {
+                AddError(result, "field_registry_key_required", model.modelId, path, "Every field requires a durable registry key independent of its canonical name.");
+            }
+            else if (!field_registry_keys.insert(field.registryKey).second)
+            {
+                AddError(result, "duplicate_field_registry_key", model.modelId, path, "Field registry keys must be unique within a model.");
+            }
             if (field.name.empty() || field.storageName.empty())
             {
                 AddError(result, "field_identity_required", model.modelId, path, "Field name and storage name are required.");
@@ -962,9 +1623,55 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             {
                 AddError(result, "wire_type_kind_mismatch", model.modelId, path, "Wire type is incompatible with the semantic field kind.");
             }
-            if (field.wireType == WireType::FixedBytes && field.wireSize <= 0)
+            if (!IsStorageCodecCompatible(field.kind, field.storageCodec))
             {
-                AddError(result, "fixed_wire_size_required", model.modelId, path, "Fixed-byte wire fields require a positive byte width.");
+                AddError(result, "storage_codec_kind_mismatch", model.modelId, path, "Storage codec is incompatible with the semantic field kind.");
+            }
+            if ((!field.semanticType.empty() || field.storageCodec != StorageCodec::None) &&
+                (field.semanticType.empty() || field.wireType == WireType::None || field.storageCodec == StorageCodec::None))
+            {
+                AddError(result, "strict_type_contract_incomplete", model.modelId, path, "Semantic type, wire type, and storage codec must be declared together.");
+            }
+            const bool strict_type_contract = !field.semanticType.empty() && field.wireType != WireType::None &&
+                field.storageCodec != StorageCodec::None;
+            if (!strict_type_contract && (!field.semanticTypeKey.empty() || field.semanticTypeId.value != 0 ||
+                field.wireTypeId.value != 0 || field.storageCodecId.value != 0))
+            {
+                AddError(result, "type_registry_id_without_contract", model.modelId, path, "Type registry keys and ids require a complete strict type contract.");
+            }
+            if (strict_type_contract)
+            {
+                if (field.semanticTypeKey.empty() || field.semanticTypeId.value == 0 || field.wireTypeId.value == 0 ||
+                    field.storageCodecId.value == 0)
+                {
+                    AddError(result, "type_registry_identity_required", model.modelId, path, "Complete type contracts require nonzero semantic, wire, and storage registry identities.");
+                }
+                if (field.semanticTypeId != SemanticTypeRegistryId(field.semanticTypeKey))
+                {
+                    AddError(result, "semantic_type_id_mismatch", model.modelId, path, "Semantic type id does not match its durable registry key.");
+                }
+                if (field.wireTypeId != WireTypeRegistryId(field.wireType))
+                {
+                    AddError(result, "wire_type_id_mismatch", model.modelId, path, "Wire type id does not match the canonical wire registry.");
+                }
+                if (field.storageCodecId != StorageCodecRegistryId(field.storageCodec))
+                {
+                    AddError(result, "storage_codec_id_mismatch", model.modelId, path, "Storage codec id does not match the canonical storage registry.");
+                }
+                const auto prior_id = semantic_type_ids.emplace(field.semanticTypeId.value, field.semanticTypeKey);
+                if (!prior_id.second && prior_id.first->second != field.semanticTypeKey)
+                {
+                    AddError(result, "semantic_type_id_collision", model.modelId, path, "Semantic type ids must be globally unique across durable registry keys.");
+                }
+                const auto prior_name = semantic_type_names.emplace(field.semanticTypeKey, field.semanticType);
+                if (!prior_name.second && prior_name.first->second != field.semanticType)
+                {
+                    AddError(result, "semantic_type_name_conflict", model.modelId, path, "One semantic registry key cannot resolve to multiple semantic names.");
+                }
+            }
+            if ((field.wireType == WireType::FixedBytes || field.wireType == WireType::Decimal128) && field.wireSize <= 0)
+            {
+                AddError(result, "fixed_wire_size_required", model.modelId, path, "Fixed-width wire fields require a positive byte width.");
             }
             if (field.wireType == WireType::FixedBytes &&
                 ((field.kind == FieldKind::ObjectId && field.wireSize != 12) ||
@@ -979,9 +1686,56 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
                     "Fixed-byte wire width does not match the semantic field codec."
                 );
             }
-            if (field.wireType != WireType::FixedBytes && field.wireSize != 0)
+            if (field.wireType == WireType::Decimal128 && field.wireSize != 16)
             {
-                AddError(result, "wire_size_not_applicable", model.modelId, path, "Only fixed-byte wire fields declare a byte width.");
+                AddError(result, "decimal_wire_size_mismatch", model.modelId, path, "Decimal128 wire fields require a 16-byte coefficient.");
+            }
+            if (field.wireType != WireType::FixedBytes && field.wireType != WireType::Decimal128 && field.wireSize != 0)
+            {
+                AddError(result, "wire_size_not_applicable", model.modelId, path, "Only fixed-width wire fields declare a byte width.");
+            }
+            if (field.storageCodec == StorageCodec::SqliteFixedBlob && field.storageSize <= 0)
+            {
+                AddError(result, "fixed_storage_size_required", model.modelId, path, "Fixed-blob storage fields require a positive byte width.");
+            }
+            if (field.storageCodec == StorageCodec::SqliteFixedBlob &&
+                (field.wireType != WireType::FixedBytes || field.storageSize != field.wireSize))
+            {
+                AddError(result, "fixed_storage_wire_size_mismatch", model.modelId, path, "Fixed wire and storage widths must match.");
+            }
+            if (field.storageCodec == StorageCodec::SqliteOrderedU64 && field.storageSize != 8)
+            {
+                AddError(result, "ordered_u64_storage_size_mismatch", model.modelId, path, "Ordered u64 storage requires exactly 8 bytes.");
+            }
+            if (field.storageCodec == StorageCodec::SqliteOrderedDecimal128 && field.storageSize != 16)
+            {
+                AddError(result, "ordered_decimal_storage_size_mismatch", model.modelId, path, "Ordered Decimal128 storage requires exactly 16 bytes.");
+            }
+            if (field.storageCodec != StorageCodec::SqliteFixedBlob &&
+                field.storageCodec != StorageCodec::SqliteOrderedU64 &&
+                field.storageCodec != StorageCodec::SqliteOrderedDecimal128 && field.storageSize != 0)
+            {
+                AddError(result, "storage_size_not_applicable", model.modelId, path, "Only fixed-width storage codecs declare a byte width.");
+            }
+            if ((field.wireType == WireType::U64) != (field.storageCodec == StorageCodec::SqliteOrderedU64))
+            {
+                AddError(result, "u64_storage_codec_mismatch", model.modelId, path, "Full-range u64 fields require the ordered eight-byte SQLite codec, and that codec is reserved for u64.");
+            }
+            if (field.kind == FieldKind::Decimal)
+            {
+                if (field.wireType != WireType::Decimal128 ||
+                    field.storageCodec != StorageCodec::SqliteOrderedDecimal128 ||
+                    field.decimalPrecision < 1 || field.decimalPrecision > 38 ||
+                    field.decimalScale < 0 || field.decimalScale > field.decimalPrecision)
+                {
+                    AddError(result, "decimal_contract_invalid", model.modelId, path, "Decimal fields require Decimal128, ordered 16-byte storage, precision 1..38, and scale within precision.");
+                }
+            }
+            else if (field.wireType == WireType::Decimal128 ||
+                     field.storageCodec == StorageCodec::SqliteOrderedDecimal128 ||
+                     field.decimalPrecision != 0 || field.decimalScale != 0)
+            {
+                AddError(result, "decimal_contract_on_non_decimal", model.modelId, path, "Decimal wire, storage, precision, and scale metadata are reserved for decimal fields.");
             }
             if (field.kind == FieldKind::Enum && field.enumValues.empty())
             {
@@ -1084,6 +1838,24 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             if ((field.query.sortable || field.query.cursor) && !HasIndexPrefix(model, {field.name}))
             {
                 AddError(result, "ordered_query_field_not_indexed", model.modelId, path, "Sortable and cursor fields require an index or key prefix.");
+            }
+        }
+        if (HasDuplicate(model.retiredFieldNames, [](const std::string& value) -> std::string_view { return value; }))
+        {
+            AddError(result, "duplicate_retired_field_name", model.modelId, "retiredFieldNames", "Retired field names must be unique.");
+        }
+        if (std::any_of(model.retiredFieldNames.begin(), model.retiredFieldNames.end(), [&field_names](const std::string& name) {
+            return name.empty() || field_names.contains(name);
+        }))
+        {
+            AddError(result, "retired_field_name_reused", model.modelId, "retiredFieldNames", "Retired field names cannot be empty or reused by active fields.");
+        }
+        std::set<std::uint32_t> retired_field_ids;
+        for (const auto retired_id : model.retiredFieldIds)
+        {
+            if (retired_id == 0 || !retired_field_ids.insert(retired_id).second || field_ids.contains(retired_id))
+            {
+                AddError(result, "retired_field_id_reused", model.modelId, "retiredFieldIds", "Retired field ids must be nonzero, unique, and absent from active fields.");
             }
         }
 
@@ -1242,6 +2014,21 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             {
                 AddError(result, "singular_relation_target_not_unique", model.modelId, path, "Singular relation target fields must identify a unique row.");
             }
+            if (target != nullptr && relation.sourceFields.size() == relation.targetFields.size())
+            {
+                for (std::size_t field_index = 0; field_index < relation.sourceFields.size(); ++field_index)
+                {
+                    const auto* source_field = FindField(model, relation.sourceFields[field_index]);
+                    const auto* target_field = FindField(*target, relation.targetFields[field_index]);
+                    if (source_field != nullptr && target_field != nullptr &&
+                        source_field->semanticTypeId.value != 0 && target_field->semanticTypeId.value != 0 &&
+                        source_field->semanticTypeId != target_field->semanticTypeId)
+                    {
+                        AddError(result, "relation_semantic_type_mismatch", model.modelId, path,
+                                 "Relation source and target fields must share the same semantic type id.");
+                    }
+                }
+            }
             if (!HasIndexPrefix(model, relation.sourceFields))
             {
                 AddError(result, "relation_source_not_indexed", model.modelId, path, "Relation source fields require an index prefix.");
@@ -1339,6 +2126,13 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             }
         }
     }
+    for (const auto& retired_name : retired_model_names)
+    {
+        if (active_model_names.contains(retired_name))
+        {
+            AddError(result, "retired_model_name_reused", {}, "retiredNames", "Retired model names cannot be reused by an active canonical name.");
+        }
+    }
     return result;
 }
 
@@ -1364,6 +2158,84 @@ std::string FingerprintCatalog(const SchemaCatalog& catalog)
     std::ostringstream text;
     text << std::hex << std::setfill('0') << std::setw(16) << hash;
     return text.str();
+}
+
+nlohmann::json BuildNamingRegistryManifest(const SchemaCatalog& catalog)
+{
+    json models = json::array();
+    json review_required = json::array();
+    json resolved_names = json::array();
+    std::size_t field_count = 0;
+    for (const auto& model : catalog.models)
+    {
+        json fields = json::array();
+        for (const auto& field : model.fields)
+        {
+            ++field_count;
+            fields.push_back({
+                {"fieldId", field.fieldId},
+                {"registryKey", field.registryKey},
+                {"name", field.name},
+                {"storageName", field.storageName},
+                {"semanticType", field.semanticType},
+                {"semanticTypeKey", field.semanticTypeKey},
+                {"semanticTypeId", field.semanticTypeId.value},
+                {"wireTypeId", field.wireTypeId.value},
+                {"storageCodecId", field.storageCodecId.value},
+            });
+        }
+        models.push_back({
+            {"typeId", model.typeId},
+            {"registryKey", model.registryKey},
+            {"modelId", model.modelId},
+            {"qualifiedName", model.qualifiedName},
+            {"logicalName", model.logicalName},
+            {"storageName", model.storageName},
+            {"ownerCapsule", model.ownerCapsule},
+            {"mutationAuthority", model.mutationAuthority},
+            {"role", std::string(ModelRoleName(model.role))},
+            {"sourceAliases", model.sourceAliases},
+            {"retiredNames", model.retiredNames},
+            {"nameReview", std::string(NameReviewStatusName(model.nameReview))},
+            {"nameReviewRationale", model.nameReviewRationale},
+            {"retiredFieldIds", model.retiredFieldIds},
+            {"retiredFieldNames", model.retiredFieldNames},
+            {"fields", std::move(fields)},
+        });
+        if (model.nameReview == NameReviewStatus::ReviewRequired)
+        {
+            review_required.push_back({
+                {"typeId", model.typeId},
+                {"modelId", model.modelId},
+                {"storageName", model.storageName},
+            });
+        }
+        for (const auto& retired_name : model.retiredNames)
+        {
+            resolved_names.push_back({
+                {"retiredName", retired_name},
+                {"typeId", model.typeId},
+                {"modelId", model.modelId},
+                {"qualifiedName", model.qualifiedName},
+                {"storageName", model.storageName},
+            });
+        }
+    }
+    return {
+        {"mode", "arken-schema-naming-registry"},
+        {"version", 1},
+        {"modelIdType", "u32"},
+        {"fieldIdType", "u32"},
+        {"allocation", "persisted-u32-registry-v1"},
+        {"fingerprint", NamingRegistryFingerprint(catalog)},
+        {"modelCount", catalog.models.size()},
+        {"fieldCount", field_count},
+        {"reviewRequiredCount", review_required.size()},
+        {"resolvedRetiredNameCount", resolved_names.size()},
+        {"models", std::move(models)},
+        {"reviewRequired", std::move(review_required)},
+        {"resolvedNames", std::move(resolved_names)},
+    };
 }
 
 nlohmann::json BuildSchemaManifest(const SchemaCatalog& catalog)
@@ -1398,6 +2270,8 @@ nlohmann::json BuildSchemaManifest(const SchemaCatalog& catalog)
         {"modelCount", catalog.models.size()},
         {"fragments", std::move(fragments)},
         {"models", std::move(models)},
+        {"namingRegistry", BuildNamingRegistryManifest(catalog)},
+        {"typeRegistry", BuildTypeRegistryManifest(catalog)},
         {"validation", validation.ToJson()},
     };
 }

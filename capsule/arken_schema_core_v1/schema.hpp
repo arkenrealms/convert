@@ -1,10 +1,14 @@
 #pragma once
 
+#include <compare>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <nlohmann/json.hpp>
+
+#include "arken_schema_core_v1/value.hpp"
 
 namespace arken::schema::core::v1
 {
@@ -20,7 +24,7 @@ enum class FieldKind
     Enum,
     Bool,
     TimestampMs,
-    JsonObject,
+    JsonText,
     Secret,
     EthereumAddress,
     HashHex,
@@ -28,6 +32,7 @@ enum class FieldKind
     KeyReference,
     Integer,
     Real,
+    Decimal,
     Blob,
 };
 
@@ -48,6 +53,37 @@ enum class WireType
     Utf8,
     Bytes,
     FixedBytes,
+    Decimal128,
+};
+
+enum class StorageCodec
+{
+    None,
+    SqliteInteger,
+    SqliteReal,
+    SqliteText,
+    SqliteBlob,
+    SqliteFixedBlob,
+    SqliteOrderedU64,
+    SqliteOrderedDecimal128,
+};
+
+struct SemanticTypeId
+{
+    std::uint32_t value = 0;
+    [[nodiscard]] auto operator<=>(const SemanticTypeId&) const = default;
+};
+
+struct WireTypeId
+{
+    std::uint32_t value = 0;
+    [[nodiscard]] auto operator<=>(const WireTypeId&) const = default;
+};
+
+struct StorageCodecId
+{
+    std::uint32_t value = 0;
+    [[nodiscard]] auto operator<=>(const StorageCodecId&) const = default;
 };
 
 enum class NormalizationKind
@@ -69,6 +105,37 @@ enum class ModelKind
     AuditLedger,
     Provenance,
     ImportLedger,
+};
+
+enum class ModelRole
+{
+    Unspecified,
+    UniversalSpine,
+    DomainFacet,
+    Definition,
+    Revision,
+    Instance,
+    Occurrence,
+    Manifestation,
+    Representation,
+    Assertion,
+    Observation,
+    AuthoritativeAggregate,
+    Ledger,
+    Registry,
+    Projection,
+    ImportRecord,
+    Receipt,
+    Membership,
+    ValueObject,
+};
+
+enum class NameReviewStatus
+{
+    Unspecified,
+    Canonical,
+    ReviewRequired,
+    ApprovedException,
 };
 
 enum class RetentionPolicy
@@ -157,11 +224,18 @@ struct QueryPolicy
 
 struct FieldSchema
 {
+    std::string registryKey;
     std::string name;
     std::string storageName;
     FieldKind kind = FieldKind::Text;
+    std::string semanticType;
+    std::string semanticTypeKey;
     WireType wireType = WireType::None;
     int wireSize = 0;
+    StorageCodec storageCodec = StorageCodec::None;
+    int storageSize = 0;
+    int decimalPrecision = 0;
+    int decimalScale = 0;
     bool nullable = true;
     bool redacted = false;
     std::string sourceField;
@@ -173,6 +247,10 @@ struct FieldSchema
     std::vector<std::string> enumValues;
     std::vector<CheckSchema> checks;
     QueryPolicy query;
+    std::uint32_t fieldId = 0;
+    SemanticTypeId semanticTypeId;
+    WireTypeId wireTypeId;
+    StorageCodecId storageCodecId;
 };
 
 struct OneOfVariantSchema
@@ -224,6 +302,7 @@ struct JoinSchema
 
 struct ModelSchema
 {
+    std::string registryKey;
     std::string modelId;
     std::string logicalName;
     std::string storageName;
@@ -238,6 +317,16 @@ struct ModelSchema
     std::vector<RelationSchema> relations;
     std::vector<JoinSchema> joins;
     std::vector<OneOfSchema> oneOfs;
+    std::uint32_t typeId = 0;
+    std::string qualifiedName;
+    std::string mutationAuthority;
+    ModelRole role = ModelRole::Unspecified;
+    std::vector<std::string> sourceAliases;
+    std::vector<std::string> retiredNames;
+    NameReviewStatus nameReview = NameReviewStatus::Unspecified;
+    std::string nameReviewRationale;
+    std::vector<std::uint32_t> retiredFieldIds;
+    std::vector<std::string> retiredFieldNames;
 };
 
 struct SchemaFragment
@@ -254,6 +343,58 @@ struct SchemaCatalog
     int version = 1;
     std::vector<SchemaFragment> fragments;
     std::vector<ModelSchema> models;
+};
+
+struct SemanticTypeDefinition
+{
+    SemanticTypeId typeId;
+    std::string registryKey;
+    std::string name;
+    std::size_t fieldCount = 0;
+};
+
+struct TypeBindingDefinition
+{
+    SemanticTypeId semanticTypeId;
+    FieldKind fieldKind = FieldKind::Text;
+    WireTypeId wireTypeId;
+    StorageCodecId storageCodecId;
+    int wireSize = 0;
+    int storageSize = 0;
+    int decimalPrecision = 0;
+    int decimalScale = 0;
+    std::size_t fieldCount = 0;
+};
+
+struct WireTypeDefinition
+{
+    WireTypeId typeId;
+    WireType type = WireType::None;
+    int bitWidth = 0;
+    bool signedInteger = false;
+    bool fixedWidth = false;
+};
+
+struct StorageCodecDefinition
+{
+    StorageCodecId codecId;
+    StorageCodec codec = StorageCodec::None;
+    std::string sqliteStorageClass;
+    int fixedSize = 0;
+    bool exact = false;
+    bool orderPreserving = false;
+};
+
+struct TypeRegistry
+{
+    int version = 1;
+    std::vector<SemanticTypeDefinition> semanticTypes;
+    std::vector<TypeBindingDefinition> bindings;
+    std::vector<WireTypeDefinition> wireTypes;
+    std::vector<StorageCodecDefinition> storageCodecs;
+    std::vector<std::uint32_t> retiredSemanticTypeIds;
+    std::vector<std::uint32_t> retiredWireTypeIds;
+    std::vector<std::uint32_t> retiredStorageCodecIds;
 };
 
 struct ValidationDiagnostic
@@ -289,8 +430,11 @@ struct FragmentManifestParseResult
 
 std::string_view FieldKindName(FieldKind kind);
 std::string_view WireTypeName(WireType type);
+std::string_view StorageCodecName(StorageCodec codec);
 std::string_view NormalizationKindName(NormalizationKind kind);
 std::string_view ModelKindName(ModelKind kind);
+std::string_view ModelRoleName(ModelRole role);
+std::string_view NameReviewStatusName(NameReviewStatus status);
 std::string_view RetentionPolicyName(RetentionPolicy policy);
 std::string_view DefaultKindName(DefaultKind kind);
 std::string_view CheckKindName(CheckKind kind);
@@ -298,6 +442,14 @@ std::string_view KeyKindName(KeyKind kind);
 std::string_view RelationCardinalityName(RelationCardinality cardinality);
 std::string_view ReferentialActionName(ReferentialAction action);
 std::string_view QueryOperatorName(QueryOperator query_operator);
+
+std::uint32_t StableRegistryId(std::string_view registry_namespace, std::string_view canonical_name);
+SemanticTypeId SemanticTypeRegistryId(std::string_view registry_key);
+WireTypeId WireTypeRegistryId(WireType type);
+StorageCodecId StorageCodecRegistryId(StorageCodec codec);
+TypeRegistry BuildTypeRegistry(const SchemaCatalog& catalog);
+std::string FingerprintTypeRegistry(const SchemaCatalog& catalog);
+nlohmann::json BuildTypeRegistryManifest(const SchemaCatalog& catalog);
 
 SchemaCatalog ComposeCatalog(std::string catalog_id, int version, std::vector<SchemaFragment> fragments);
 const ModelSchema* FindModelById(const SchemaCatalog& catalog, std::string_view model_id);
@@ -310,6 +462,7 @@ bool HasIndexPrefix(const ModelSchema& model, const std::vector<std::string>& fi
 bool IsSingleFieldUnique(const ModelSchema& model, std::string_view field_name);
 ValidationResult ValidateCatalog(const SchemaCatalog& catalog);
 std::string FingerprintCatalog(const SchemaCatalog& catalog);
+nlohmann::json BuildNamingRegistryManifest(const SchemaCatalog& catalog);
 nlohmann::json BuildSchemaManifest(const SchemaCatalog& catalog);
 FragmentManifestParseResult ParseSchemaFragmentManifest(const nlohmann::json& manifest);
 } // namespace arken::schema::core::v1
