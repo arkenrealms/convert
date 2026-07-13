@@ -1,0 +1,21 @@
+{
+  "name": "Arken Schema C++ V1",
+  "key": "arken_schema_cpp_v1",
+  "version": "1.0.0",
+  "public_dependencies": [
+    "arken_schema_idl_v1"
+  ],
+  "private_dependencies": [],
+  "test_dependencies": [],
+  "optional_features": {},
+  "capabilities": [
+    "deterministic_cpp_schema_generation",
+    "per_fragment_generated_headers",
+    "strong_semantic_cpp_values",
+    "snake_case_generated_apis",
+    "typed_field_tokens",
+    "compile_time_query_capabilities",
+    "closed_union_types",
+    "model_scoped_validation_results"
+  ]
+}
