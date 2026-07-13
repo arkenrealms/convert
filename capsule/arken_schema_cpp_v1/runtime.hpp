@@ -373,6 +373,182 @@ struct name_index_entry
     std::uint32_t ordinal = 0;
 };
 
+struct no_payload
+{
+    [[nodiscard]] bool operator==(const no_payload&) const = default;
+};
+
+struct schema_contract_ref
+{
+    std::string_view schema_name;
+    std::uint32_t schema_version = 0;
+    std::string_view owner_capsule;
+    std::string_view semantic_fingerprint;
+    std::string_view allocation_fingerprint;
+
+    [[nodiscard]] bool operator==(const schema_contract_ref&) const = default;
+};
+
+enum class operation_target_profile : std::uint8_t
+{
+    cpp = 0,
+    fabric = 1,
+    http_json = 2,
+};
+
+using operation_target_mask = std::uint8_t;
+
+[[nodiscard]] constexpr operation_target_mask operation_target_bit(
+    operation_target_profile target
+) noexcept
+{
+    return operation_target_mask{1} << static_cast<std::uint8_t>(target);
+}
+
+enum class fabric_lane : std::uint8_t
+{
+    control_reliable = 0,
+    state_reliable = 1,
+    bulk_reliable = 2,
+    realtime_unreliable = 3,
+    compatibility = 4,
+};
+
+enum class command_idempotency : std::uint8_t
+{
+    none = 0,
+    idempotent = 1,
+    safe = 2,
+};
+
+enum class command_streaming : std::uint8_t
+{
+    unary = 0,
+    server_stream = 1,
+    client_stream = 2,
+    bidirectional = 3,
+};
+
+enum class event_delivery : std::uint8_t
+{
+    best_effort = 0,
+    at_least_once = 1,
+};
+
+enum class event_ordering : std::uint8_t
+{
+    none = 0,
+    source = 1,
+    aggregate = 2,
+    global = 3,
+};
+
+enum class event_replay : std::uint8_t
+{
+    none = 0,
+    retained = 1,
+    resumable = 2,
+};
+
+struct model_reference_descriptor
+{
+    std::uint32_t type_id = 0;
+    std::string_view canonical_name;
+
+    [[nodiscard]] bool operator==(const model_reference_descriptor&) const = default;
+};
+
+struct fabric_operation_descriptor
+{
+    fabric_lane lane = fabric_lane::control_reliable;
+    std::uint32_t maximum_encoded_bytes = 0;
+    bool enabled = false;
+    bool direct_eligible = false;
+
+    [[nodiscard]] bool operator==(const fabric_operation_descriptor&) const = default;
+};
+
+struct command_descriptor
+{
+    std::uint32_t command_id = 0;
+    std::string_view name;
+    std::string_view qualified_name;
+    std::string_view owner_capsule;
+    model_reference_descriptor request;
+    model_reference_descriptor response;
+    std::span<const model_reference_descriptor> errors;
+    operation_target_mask targets = 0;
+    fabric_operation_descriptor fabric;
+    command_idempotency idempotency = command_idempotency::none;
+    command_streaming streaming = command_streaming::unary;
+    bool has_request = false;
+    bool has_response = false;
+
+    [[nodiscard]] constexpr bool supports(operation_target_profile target) const noexcept
+    {
+        return (targets & operation_target_bit(target)) != 0;
+    }
+};
+
+struct event_descriptor
+{
+    std::uint32_t event_id = 0;
+    std::string_view name;
+    std::string_view qualified_name;
+    std::string_view owner_capsule;
+    model_reference_descriptor payload;
+    operation_target_mask targets = 0;
+    fabric_operation_descriptor fabric;
+    event_delivery delivery = event_delivery::best_effort;
+    event_ordering ordering = event_ordering::none;
+    event_replay replay = event_replay::none;
+
+    [[nodiscard]] constexpr bool supports(operation_target_profile target) const noexcept
+    {
+        return (targets & operation_target_bit(target)) != 0;
+    }
+};
+
+template <typename Request, typename Response, std::uint32_t CommandId>
+struct command_token
+{
+    using request_type = Request;
+    using response_type = Response;
+
+    static constexpr std::uint32_t command_id = CommandId;
+
+    schema_contract_ref contract;
+    const command_descriptor* descriptor = nullptr;
+};
+
+template <typename Payload, std::uint32_t EventId>
+struct event_token
+{
+    using payload_type = Payload;
+
+    static constexpr std::uint32_t event_id = EventId;
+
+    schema_contract_ref contract;
+    const event_descriptor* descriptor = nullptr;
+};
+
+template <typename Token>
+concept command_token_type = requires(Token token) {
+    typename Token::request_type;
+    typename Token::response_type;
+    { Token::command_id } -> std::convertible_to<std::uint32_t>;
+    { token.contract } -> std::convertible_to<schema_contract_ref>;
+    { token.descriptor } -> std::convertible_to<const command_descriptor*>;
+};
+
+template <typename Token>
+concept event_token_type = requires(Token token) {
+    typename Token::payload_type;
+    { Token::event_id } -> std::convertible_to<std::uint32_t>;
+    { token.contract } -> std::convertible_to<schema_contract_ref>;
+    { token.descriptor } -> std::convertible_to<const event_descriptor*>;
+};
+
 template <typename Value, std::size_t Size>
 [[nodiscard]] constexpr std::span<const Value> descriptor_span(
     const std::array<Value, Size>& values
@@ -538,11 +714,29 @@ struct schema_catalog_view
     std::string_view schema_name;
     std::string_view owner_capsule;
     std::string_view semantic_fingerprint;
+    std::string_view allocation_fingerprint;
     std::span<const field_descriptor> fields;
     std::span<const relation_descriptor> relations;
     std::span<const model_descriptor> models;
+    std::span<const command_descriptor> commands;
+    std::span<const event_descriptor> events;
     std::span<const numeric_index_entry> model_id_index;
     std::span<const name_index_entry> model_name_index;
+    std::span<const numeric_index_entry> command_id_index;
+    std::span<const name_index_entry> command_name_index;
+    std::span<const numeric_index_entry> event_id_index;
+    std::span<const name_index_entry> event_name_index;
+
+    [[nodiscard]] constexpr schema_contract_ref contract() const noexcept
+    {
+        return {
+            .schema_name = schema_name,
+            .schema_version = schema_version,
+            .owner_capsule = owner_capsule,
+            .semantic_fingerprint = semantic_fingerprint,
+            .allocation_fingerprint = allocation_fingerprint,
+        };
+    }
 
     [[nodiscard]] constexpr const model_descriptor* find_model(std::uint32_t type_id) const noexcept
     {
@@ -552,6 +746,34 @@ struct schema_catalog_view
     [[nodiscard]] constexpr const model_descriptor* find_model(std::string_view model_name) const noexcept
     {
         return find_named(models, model_name_index, model_name);
+    }
+
+    [[nodiscard]] constexpr const command_descriptor* find_command(
+        std::uint32_t command_id
+    ) const noexcept
+    {
+        return find_numeric(commands, command_id_index, command_id);
+    }
+
+    [[nodiscard]] constexpr const command_descriptor* find_command(
+        std::string_view command_name
+    ) const noexcept
+    {
+        return find_named(commands, command_name_index, command_name);
+    }
+
+    [[nodiscard]] constexpr const event_descriptor* find_event(
+        std::uint32_t event_id
+    ) const noexcept
+    {
+        return find_numeric(events, event_id_index, event_id);
+    }
+
+    [[nodiscard]] constexpr const event_descriptor* find_event(
+        std::string_view event_name
+    ) const noexcept
+    {
+        return find_named(events, event_name_index, event_name);
     }
 
     [[nodiscard]] constexpr const field_descriptor* find_field(
