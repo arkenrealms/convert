@@ -177,8 +177,15 @@ const auto kCheckKinds = std::to_array<std::pair<std::string_view, CheckKind>>({
     {"maximumReal", CheckKind::MaximumReal},
     {"minimumLength", CheckKind::MinimumLength},
     {"maximumLength", CheckKind::MaximumLength},
+    {"fixedLength", CheckKind::FixedLength},
     {"pattern", CheckKind::Pattern},
     {"custom", CheckKind::Custom},
+});
+
+const auto kCheckUnits = std::to_array<std::pair<std::string_view, CheckUnit>>({
+    {"none", CheckUnit::None},
+    {"utf8Bytes", CheckUnit::Utf8Bytes},
+    {"bytes", CheckUnit::Bytes},
 });
 
 const auto kKeyKinds = std::to_array<std::pair<std::string_view, KeyKind>>({
@@ -286,6 +293,7 @@ std::optional<FieldSchema> ParseField(const json &value,
   }
   field.defaultValue = {.kind = *default_kind, .value = *default_text};
   field.enumValues = value.value("enumValues", std::vector<std::string>{});
+  field.enumValueIds = value.value("enumValueIds", std::vector<std::uint32_t>{});
 
   const auto &checks = value.value("checks", json::array());
   if (!checks.is_array()) {
@@ -298,14 +306,17 @@ std::optional<FieldSchema> ParseField(const json &value,
         Read<std::string>(checks[index], "checkId", check_path, result);
     const auto check_kind =
         ParseEnum(checks[index], "kind", check_path, kCheckKinds, result);
+    const auto check_unit =
+        ParseEnum(checks[index], "unit", check_path, kCheckUnits, result);
     const auto check_value =
         Read<std::string>(checks[index], "value", check_path, result);
     const auto message =
         Read<std::string>(checks[index], "message", check_path, result);
-    if (check_id && check_kind && check_value && message) {
+    if (check_id && check_kind && check_unit && check_value && message) {
       field.checks.push_back({
           .checkId = *check_id,
           .kind = *check_kind,
+          .unit = *check_unit,
           .value = *check_value,
           .message = *message,
       });
@@ -511,6 +522,7 @@ std::optional<ModelSchema> ParseModel(const json &value,
       if (tag && fields_value && optional_fields) {
         one_of.variants.push_back({
             .tag = *tag,
+            .tagValueId = variants[variant_index].value("tagValueId", std::uint32_t{0}),
             .fields = *fields_value,
             .optionalFields = *optional_fields,
         });
