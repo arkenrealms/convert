@@ -8,6 +8,7 @@ arken_embed_text_file(
 )
 
 add_library(arken_schema_cpp_v1 STATIC
+    src/binding.cpp
     src/generator.cpp
     src/manifest.cpp
 )
@@ -19,7 +20,12 @@ target_include_directories(arken_schema_cpp_v1
         ${ARKEN_NATIVE_GENERATED_DIR}
 )
 
-target_link_libraries(arken_schema_cpp_v1 PUBLIC arken_schema_idl_v1)
+find_package(nlohmann_json CONFIG REQUIRED)
+
+target_link_libraries(arken_schema_cpp_v1
+    PUBLIC arken_schema_idl_v1
+    PRIVATE nlohmann_json::nlohmann_json
+)
 
 if(BUILD_TESTING)
     enable_testing()

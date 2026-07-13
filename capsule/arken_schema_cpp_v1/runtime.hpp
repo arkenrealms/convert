@@ -262,6 +262,25 @@ enum class semantic_type_kind : std::uint8_t
     json_text = 17,
 };
 
+enum class storage_codec_kind : std::uint8_t
+{
+    sqlite_integer = 1,
+    sqlite_real = 2,
+    sqlite_text = 3,
+    sqlite_blob = 4,
+    sqlite_fixed_blob = 5,
+    sqlite_ordered_u64 = 6,
+    sqlite_ordered_decimal128 = 7,
+};
+
+enum class sqlite_storage_class : std::uint8_t
+{
+    integer = 0,
+    real = 1,
+    text = 2,
+    blob = 3,
+};
+
 enum class normalization_kind : std::uint8_t
 {
     none = 0,
@@ -433,10 +452,18 @@ struct field_descriptor
     std::uint32_t model_type_id = 0;
     std::uint32_t field_id = 0;
     std::uint32_t semantic_type_id = 0;
+    std::uint32_t wire_type_id = 0;
+    std::uint32_t storage_codec_id = 0;
+    std::uint32_t semantic_fixed_size = 0;
+    std::uint32_t precision = 0;
+    std::uint32_t scale = 0;
+    std::uint32_t storage_fixed_size = 0;
     std::string_view name;
     std::string_view storage_name;
     std::string_view semantic_type_name;
     semantic_type_kind type_kind = semantic_type_kind::u32;
+    storage_codec_kind storage_codec = storage_codec_kind::sqlite_integer;
+    sqlite_storage_class storage_class = sqlite_storage_class::integer;
     normalization_kind normalization = normalization_kind::none;
     field_source_kind source_kind = field_source_kind::canonical;
     serialization_policy serialization = serialization_policy::include;
@@ -448,6 +475,8 @@ struct field_descriptor
     bool primary_key = false;
     bool sortable = false;
     bool cursor = false;
+    bool storage_exact = false;
+    bool storage_order_preserving = false;
 };
 
 struct relation_descriptor
