@@ -1,7 +1,7 @@
 {
   "name": "Arken Schema C++ V1",
   "key": "arken_schema_cpp_v1",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "public_dependencies": [
     "arken_schema_idl_v1"
   ],
@@ -19,6 +19,12 @@
     "model_scoped_validation_results",
     "constexpr_runtime_schema_catalogs",
     "immutable_field_model_relation_descriptors",
-    "numeric_and_name_descriptor_indexes"
+    "numeric_and_name_descriptor_indexes",
+    "value_local_generated_validation",
+    "ordered_storage_binding_records",
+    "lossless_generated_decoders",
+    "typed_primary_key_and_change_sets",
+    "sqlite_codec_layout_metadata",
+    "typed_query_erasure"
   ]
 }
