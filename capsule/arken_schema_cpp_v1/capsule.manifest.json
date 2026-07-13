@@ -1,7 +1,7 @@
 {
   "name": "Arken Schema C++ V1",
   "key": "arken_schema_cpp_v1",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "public_dependencies": [
     "arken_schema_idl_v1"
   ],
@@ -25,6 +25,9 @@
     "lossless_generated_decoders",
     "typed_primary_key_and_change_sets",
     "sqlite_codec_layout_metadata",
-    "typed_query_erasure"
+    "typed_query_erasure",
+    "generated_contract_fingerprints",
+    "generated_operation_descriptors",
+    "typed_command_and_event_tokens"
   ]
 }
