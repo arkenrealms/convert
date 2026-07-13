@@ -349,11 +349,12 @@ bool IsWireTypeCompatible(FieldKind kind, WireType type)
         case FieldKind::DisplayName:
         case FieldKind::Url:
         case FieldKind::Email:
-        case FieldKind::Enum:
         case FieldKind::JsonText:
         case FieldKind::Secret:
         case FieldKind::KeyReference:
             return type == WireType::Utf8;
+        case FieldKind::Enum:
+            return type == WireType::Utf8 || IsIntegerWireType(type);
     }
     return false;
 }
@@ -384,7 +385,6 @@ bool IsStorageCodecCompatible(FieldKind kind, StorageCodec codec)
         case FieldKind::DisplayName:
         case FieldKind::Url:
         case FieldKind::Email:
-        case FieldKind::Enum:
         case FieldKind::JsonText:
         case FieldKind::Secret:
         case FieldKind::EthereumAddress:
@@ -392,6 +392,8 @@ bool IsStorageCodecCompatible(FieldKind kind, StorageCodec codec)
         case FieldKind::TokenHash:
         case FieldKind::KeyReference:
             return codec == StorageCodec::SqliteText;
+        case FieldKind::Enum:
+            return codec == StorageCodec::SqliteText || codec == StorageCodec::SqliteInteger;
     }
     return false;
 }
@@ -486,6 +488,8 @@ bool IsCheckCompatible(FieldKind kind, CheckKind check_kind)
             return kind == FieldKind::Real;
         case CheckKind::MinimumLength:
         case CheckKind::MaximumLength:
+        case CheckKind::FixedLength:
+            return IsTextKind(kind) || kind == FieldKind::Blob;
         case CheckKind::Pattern:
             return IsTextKind(kind);
         case CheckKind::Custom:
@@ -615,10 +619,18 @@ void HashModel(std::uint64_t& hash, const ModelSchema& model)
         HashText(hash, DefaultKindName(field.defaultValue.kind));
         HashText(hash, field.defaultValue.value);
         HashStrings(hash, field.enumValues);
+        for (const auto value_id : field.enumValueIds)
+        {
+            HashText(hash, std::to_string(value_id));
+        }
         for (const auto& check : field.checks)
         {
             HashText(hash, check.checkId);
             HashText(hash, CheckKindName(check.kind));
+            if (check.unit != CheckUnit::None)
+            {
+                HashText(hash, CheckUnitName(check.unit));
+            }
             HashText(hash, check.value);
             HashText(hash, check.message);
         }
@@ -665,6 +677,10 @@ void HashModel(std::uint64_t& hash, const ModelSchema& model)
         for (const auto& variant : one_of.variants)
         {
             HashText(hash, variant.tag);
+            if (variant.tagValueId != 0)
+            {
+                HashText(hash, std::to_string(variant.tagValueId));
+            }
             HashStrings(hash, variant.fields);
             HashStrings(hash, variant.optionalFields);
         }
@@ -693,6 +709,7 @@ json FieldJson(const FieldSchema& field)
         checks.push_back({
             {"checkId", check.checkId},
             {"kind", std::string(CheckKindName(check.kind))},
+            {"unit", std::string(CheckUnitName(check.unit))},
             {"value", check.value},
             {"message", check.message},
         });
@@ -726,6 +743,7 @@ json FieldJson(const FieldSchema& field)
             {"value", field.defaultValue.value},
         }},
         {"enumValues", field.enumValues},
+        {"enumValueIds", field.enumValueIds},
         {"checks", std::move(checks)},
         {"query", QueryPolicyJson(field.query)},
     };
@@ -787,6 +805,7 @@ json ModelJson(const ModelSchema& model)
         {
             variants.push_back({
                 {"tag", variant.tag},
+                {"tagValueId", variant.tagValueId},
                 {"fields", variant.fields},
                 {"optionalFields", variant.optionalFields},
             });
@@ -1060,10 +1079,22 @@ std::string_view CheckKindName(CheckKind kind)
         case CheckKind::MaximumReal: return "maximumReal";
         case CheckKind::MinimumLength: return "minimumLength";
         case CheckKind::MaximumLength: return "maximumLength";
+        case CheckKind::FixedLength: return "fixedLength";
         case CheckKind::Pattern: return "pattern";
         case CheckKind::Custom: return "custom";
     }
     return "custom";
+}
+
+std::string_view CheckUnitName(CheckUnit unit)
+{
+    switch (unit)
+    {
+        case CheckUnit::None: return "none";
+        case CheckUnit::Utf8Bytes: return "utf8Bytes";
+        case CheckUnit::Bytes: return "bytes";
+    }
+    return "none";
 }
 
 std::string_view KeyKindName(KeyKind kind)
@@ -1482,6 +1513,7 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
     std::set<std::string> active_model_names;
     std::set<std::string> retired_model_names;
     std::map<std::uint32_t, std::string> semantic_type_ids;
+    std::map<std::string, std::uint32_t> semantic_type_registry_ids;
     std::map<std::string, std::string> semantic_type_names;
     for (const auto& model : catalog.models)
     {
@@ -1646,10 +1678,6 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
                 {
                     AddError(result, "type_registry_identity_required", model.modelId, path, "Complete type contracts require nonzero semantic, wire, and storage registry identities.");
                 }
-                if (field.semanticTypeId != SemanticTypeRegistryId(field.semanticTypeKey))
-                {
-                    AddError(result, "semantic_type_id_mismatch", model.modelId, path, "Semantic type id does not match its durable registry key.");
-                }
                 if (field.wireTypeId != WireTypeRegistryId(field.wireType))
                 {
                     AddError(result, "wire_type_id_mismatch", model.modelId, path, "Wire type id does not match the canonical wire registry.");
@@ -1662,6 +1690,14 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
                 if (!prior_id.second && prior_id.first->second != field.semanticTypeKey)
                 {
                     AddError(result, "semantic_type_id_collision", model.modelId, path, "Semantic type ids must be globally unique across durable registry keys.");
+                }
+                const auto prior_registry_id = semantic_type_registry_ids.emplace(
+                    field.semanticTypeKey, field.semanticTypeId.value
+                );
+                if (!prior_registry_id.second &&
+                    prior_registry_id.first->second != field.semanticTypeId.value)
+                {
+                    AddError(result, "semantic_type_key_id_conflict", model.modelId, path, "One semantic registry key cannot resolve to multiple numeric ids.");
                 }
                 const auto prior_name = semantic_type_names.emplace(field.semanticTypeKey, field.semanticType);
                 if (!prior_name.second && prior_name.first->second != field.semanticType)
@@ -1753,6 +1789,18 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             {
                 AddError(result, "empty_enum_value", model.modelId, path, "Enum values cannot be empty.");
             }
+            if (!field.enumValueIds.empty() && field.enumValueIds.size() != field.enumValues.size())
+            {
+                AddError(result, "enum_value_id_count_mismatch", model.modelId, path, "Numeric enum value ids must align one-to-one with enum names.");
+            }
+            std::set<std::uint32_t> enum_value_ids;
+            for (const auto value_id : field.enumValueIds)
+            {
+                if (value_id == 0 || !enum_value_ids.insert(value_id).second)
+                {
+                    AddError(result, "enum_value_id_invalid", model.modelId, path, "Numeric enum value ids must be unique and nonzero.");
+                }
+            }
             if (field.kind == FieldKind::Secret && !field.redacted)
             {
                 AddError(result, "secret_field_not_redacted", model.modelId, path, "Secret fields must be redacted.");
@@ -1813,6 +1861,20 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
                 if (!IsCheckCompatible(field.kind, check.kind))
                 {
                     AddError(result, "check_kind_mismatch", model.modelId, path, "Field check is incompatible with the semantic field kind.");
+                }
+                const bool length_check = check.kind == CheckKind::MinimumLength ||
+                    check.kind == CheckKind::MaximumLength || check.kind == CheckKind::FixedLength;
+                if (length_check && field.kind == FieldKind::Blob && check.unit != CheckUnit::Bytes)
+                {
+                    AddError(result, "blob_check_unit_invalid", model.modelId, path, "Blob length checks require the bytes unit.");
+                }
+                else if (length_check && IsTextKind(field.kind) && check.unit == CheckUnit::Bytes)
+                {
+                    AddError(result, "text_check_unit_invalid", model.modelId, path, "Text length checks use character count or UTF-8 byte count, not the opaque bytes unit.");
+                }
+                else if (!length_check && check.unit != CheckUnit::None)
+                {
+                    AddError(result, "non_length_check_unit_invalid", model.modelId, path, "Only length checks may declare a unit.");
                 }
             }
             std::set<QueryOperator> query_operators;
@@ -1880,6 +1942,21 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
                     std::find(discriminator->enumValues.begin(), discriminator->enumValues.end(), variant.tag) == discriminator->enumValues.end())
                 {
                     AddError(result, "one_of_variant_tag_invalid", model.modelId, path, "One-of variant tags must be unique values from the discriminator enum.");
+                }
+                if (variant.tagValueId != 0)
+                {
+                    const auto tag = std::find(
+                        discriminator->enumValues.begin(), discriminator->enumValues.end(), variant.tag
+                    );
+                    const auto ordinal = static_cast<std::size_t>(
+                        std::distance(discriminator->enumValues.begin(), tag)
+                    );
+                    if (tag == discriminator->enumValues.end() ||
+                        discriminator->enumValueIds.size() != discriminator->enumValues.size() ||
+                        discriminator->enumValueIds[ordinal] != variant.tagValueId)
+                    {
+                        AddError(result, "one_of_variant_tag_value_id_invalid", model.modelId, path, "One-of numeric tag ids must match the discriminator enum allocation.");
+                    }
                 }
                 if (HasRepeatedField(variant.fields) || !FieldsExist(model, variant.fields) ||
                     std::find(variant.fields.begin(), variant.fields.end(), one_of.discriminatorField) != variant.fields.end())
