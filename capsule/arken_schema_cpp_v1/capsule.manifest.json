@@ -1,7 +1,7 @@
 {
   "name": "Arken Schema C++ V1",
   "key": "arken_schema_cpp_v1",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "public_dependencies": [
     "arken_schema_idl_v1"
   ],
@@ -25,6 +25,11 @@
     "lossless_generated_decoders",
     "typed_primary_key_and_change_sets",
     "sqlite_codec_layout_metadata",
-    "typed_query_erasure"
+    "typed_query_erasure",
+    "arken_binary_wire_profile_v1",
+    "bounded_canonical_tlv_codecs",
+    "preserved_unknown_wire_fields",
+    "generated_wire_message_descriptors",
+    "generated_fabric_operation_descriptors"
   ]
 }

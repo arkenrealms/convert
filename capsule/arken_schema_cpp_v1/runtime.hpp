@@ -281,6 +281,37 @@ enum class wire_type_kind : std::uint8_t
     decimal128 = 15,
 };
 
+enum class wire_byte_order : std::uint8_t
+{
+    none = 0,
+    big_endian = 1,
+};
+
+enum class wire_compatibility_class : std::uint8_t
+{
+    boolean = 0,
+    fixed_unsigned = 1,
+    fixed_signed = 2,
+    ieee754 = 3,
+    utf8 = 4,
+    bytes = 5,
+    fixed_bytes = 6,
+    decimal128 = 7,
+};
+
+enum class field_cardinality : std::uint8_t
+{
+    required_one = 0,
+    optional_one = 1,
+    repeated = 2,
+};
+
+enum class wire_duplicate_policy : std::uint8_t
+{
+    reject = 0,
+    append = 1,
+};
+
 enum class storage_codec_kind : std::uint8_t
 {
     sqlite_integer = 1,
@@ -425,6 +456,51 @@ enum class relation_cardinality : std::uint8_t
     one = 0,
     optional_one = 1,
     many = 2,
+};
+
+enum class fabric_lane : std::uint8_t
+{
+    control_reliable = 0,
+    state_reliable = 1,
+    bulk_reliable = 2,
+    realtime_unreliable = 3,
+    compatibility = 4,
+};
+
+enum class command_idempotency : std::uint8_t
+{
+    none = 0,
+    idempotent = 1,
+    safe = 2,
+};
+
+enum class command_streaming : std::uint8_t
+{
+    unary = 0,
+    server_stream = 1,
+    client_stream = 2,
+    bidirectional = 3,
+};
+
+enum class event_delivery : std::uint8_t
+{
+    best_effort = 0,
+    at_least_once = 1,
+};
+
+enum class event_ordering : std::uint8_t
+{
+    none = 0,
+    source = 1,
+    aggregate = 2,
+    global = 3,
+};
+
+enum class event_replay : std::uint8_t
+{
+    none = 0,
+    retained = 1,
+    resumable = 2,
 };
 
 enum class referential_action : std::uint8_t
@@ -580,7 +656,8 @@ struct field_descriptor
     std::span<const enum_value_descriptor> enum_values;
     std::span<const check_descriptor> checks;
     query_operator_mask query_operators = 0;
-    bool required = true;
+    field_cardinality cardinality = field_cardinality::required_one;
+    std::uint32_t maximum_items = 0;
     bool redacted = false;
     bool immutable = false;
     bool write_once = false;
@@ -644,6 +721,85 @@ struct one_of_descriptor
     std::span<const one_of_variant_descriptor> variants;
 };
 
+struct wire_field_descriptor
+{
+    std::uint32_t model_type_id = 0;
+    std::uint32_t field_tag = 0;
+    std::uint32_t semantic_type_id = 0;
+    std::uint32_t wire_type_id = 0;
+    std::uint32_t fixed_size = 0;
+    std::uint32_t scale = 0;
+    std::string_view name;
+    semantic_type_kind type_kind = semantic_type_kind::u32;
+    wire_type_kind wire_type = wire_type_kind::u32;
+    wire_byte_order byte_order = wire_byte_order::big_endian;
+    wire_compatibility_class compatibility = wire_compatibility_class::fixed_unsigned;
+    field_cardinality cardinality = field_cardinality::required_one;
+    wire_duplicate_policy duplicate_policy = wire_duplicate_policy::reject;
+    serialization_policy serialization = serialization_policy::include;
+    std::uint32_t maximum_items = 0;
+};
+
+struct wire_message_descriptor
+{
+    std::uint32_t model_type_id = 0;
+    std::string_view name;
+    std::string_view qualified_name;
+    std::span<const wire_field_descriptor> fields;
+    std::span<const one_of_descriptor> one_ofs;
+    std::span<const numeric_index_entry> field_tag_index;
+
+    [[nodiscard]] constexpr const wire_field_descriptor* find_field(
+        std::uint32_t field_tag
+    ) const noexcept
+    {
+        return find_numeric(fields, field_tag_index, field_tag);
+    }
+};
+
+struct model_reference_descriptor
+{
+    std::uint32_t model_type_id = 0;
+    std::string_view qualified_name;
+};
+
+struct fabric_operation_descriptor
+{
+    fabric_lane lane = fabric_lane::control_reliable;
+    std::uint32_t maximum_encoded_bytes = 0;
+    bool direct_eligible = false;
+    bool enabled = false;
+};
+
+struct command_descriptor
+{
+    std::uint32_t command_id = 0;
+    std::string_view name;
+    std::string_view qualified_name;
+    std::string_view owner_capsule;
+    model_reference_descriptor request;
+    model_reference_descriptor response;
+    std::span<const model_reference_descriptor> errors;
+    command_idempotency idempotency = command_idempotency::none;
+    command_streaming streaming = command_streaming::unary;
+    target_profile_mask targets = 0;
+    fabric_operation_descriptor fabric;
+};
+
+struct event_descriptor
+{
+    std::uint32_t event_id = 0;
+    std::string_view name;
+    std::string_view qualified_name;
+    std::string_view owner_capsule;
+    model_reference_descriptor payload;
+    event_delivery delivery = event_delivery::best_effort;
+    event_ordering ordering = event_ordering::none;
+    event_replay replay = event_replay::none;
+    target_profile_mask targets = 0;
+    fabric_operation_descriptor fabric;
+};
+
 struct model_descriptor
 {
     std::uint32_t type_id = 0;
@@ -701,8 +857,17 @@ struct schema_catalog_view
     std::span<const field_descriptor> fields;
     std::span<const relation_descriptor> relations;
     std::span<const model_descriptor> models;
+    std::span<const wire_field_descriptor> wire_fields;
+    std::span<const wire_message_descriptor> wire_messages;
+    std::span<const command_descriptor> commands;
+    std::span<const event_descriptor> events;
     std::span<const numeric_index_entry> model_id_index;
     std::span<const name_index_entry> model_name_index;
+    std::span<const numeric_index_entry> wire_message_id_index;
+    std::span<const numeric_index_entry> command_id_index;
+    std::span<const name_index_entry> command_name_index;
+    std::span<const numeric_index_entry> event_id_index;
+    std::span<const name_index_entry> event_name_index;
 
     [[nodiscard]] constexpr const model_descriptor* find_model(std::uint32_t type_id) const noexcept
     {
@@ -721,6 +886,41 @@ struct schema_catalog_view
     {
         const auto* model = find_model(model_type_id);
         return model == nullptr ? nullptr : model->find_field(field_id);
+    }
+
+    [[nodiscard]] constexpr const wire_message_descriptor* find_wire_message(
+        std::uint32_t model_type_id
+    ) const noexcept
+    {
+        return find_numeric(wire_messages, wire_message_id_index, model_type_id);
+    }
+
+    [[nodiscard]] constexpr const command_descriptor* find_command(
+        std::uint32_t command_id
+    ) const noexcept
+    {
+        return find_numeric(commands, command_id_index, command_id);
+    }
+
+    [[nodiscard]] constexpr const command_descriptor* find_command(
+        std::string_view command_name
+    ) const noexcept
+    {
+        return find_named(commands, command_name_index, command_name);
+    }
+
+    [[nodiscard]] constexpr const event_descriptor* find_event(
+        std::uint32_t event_id
+    ) const noexcept
+    {
+        return find_numeric(events, event_id_index, event_id);
+    }
+
+    [[nodiscard]] constexpr const event_descriptor* find_event(
+        std::string_view event_name
+    ) const noexcept
+    {
+        return find_named(events, event_name_index, event_name);
     }
 
     [[nodiscard]] constexpr const field_descriptor* find_field(

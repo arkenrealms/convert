@@ -10,7 +10,9 @@ arken_embed_text_file(
 add_library(arken_schema_cpp_v1 STATIC
     src/binding.cpp
     src/generator.cpp
+    src/generator_wire_names.cpp
     src/manifest.cpp
+    src/wire.cpp
 )
 
 target_include_directories(arken_schema_cpp_v1
@@ -78,6 +80,7 @@ if(BUILD_TESTING)
         add_executable(
             arken-schema-cpp-v1-generated-tests
             tests/generated_api_tests.cpp
+            tests/wire_codec_tests.cpp
             ${ARKEN_SCHEMA_CPP_V1_GENERATED_ACCOUNT_HEADER}
             ${ARKEN_SCHEMA_CPP_V1_GENERATED_PROFILE_HEADER}
         )
