@@ -7,27 +7,65 @@ arken_embed_text_file(
     ARKEN_SCHEMA_CPP_V1_MANIFEST_JSON
 )
 
-add_library(arken_schema_cpp_v1 STATIC
+if(EMSCRIPTEN)
+    set(ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET "")
+elseif(DEFINED ARKEN_NLOHMANN_TARGET AND TARGET ${ARKEN_NLOHMANN_TARGET})
+    set(ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET ${ARKEN_NLOHMANN_TARGET})
+else()
+    find_package(nlohmann_json CONFIG REQUIRED)
+    set(ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET nlohmann_json::nlohmann_json)
+endif()
+
+add_library(arken_schema_cpp_v1_runtime STATIC
     src/binding.cpp
-    src/generator.cpp
-    src/generator_wire_names.cpp
     src/manifest.cpp
     src/wire.cpp
 )
 
-target_include_directories(arken_schema_cpp_v1
+target_include_directories(arken_schema_cpp_v1_runtime
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/..
     PRIVATE
         ${ARKEN_NATIVE_GENERATED_DIR}
+        ${EXTERNAL_DIR}
 )
 
-find_package(nlohmann_json CONFIG REQUIRED)
+if(ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET)
+    target_link_libraries(arken_schema_cpp_v1_runtime
+        PRIVATE ${ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET}
+    )
+endif()
 
-target_link_libraries(arken_schema_cpp_v1
-    PUBLIC arken_schema_idl_v1
-    PRIVATE nlohmann_json::nlohmann_json
-)
+if(EMSCRIPTEN)
+    add_library(arken_schema_cpp_v1 INTERFACE)
+    target_link_libraries(arken_schema_cpp_v1 INTERFACE arken_schema_cpp_v1_runtime)
+else()
+    add_library(arken_schema_cpp_v1 STATIC
+        src/generator.cpp
+        src/generator_wire_names.cpp
+    )
+    target_include_directories(arken_schema_cpp_v1 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+    target_link_libraries(arken_schema_cpp_v1
+        PUBLIC
+            arken_schema_cpp_v1_runtime
+            arken_schema_idl_v1
+        PRIVATE
+            ${ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET}
+    )
+endif()
+
+if(NOT EMSCRIPTEN)
+    add_executable(
+        arken-schema-cpp-v1-codegen
+        tools/generate_cpp_contract.cpp
+    )
+    target_link_libraries(
+        arken-schema-cpp-v1-codegen
+        PRIVATE
+            arken_schema_cpp_v1
+            ${ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET}
+    )
+endif()
 
 if(BUILD_TESTING)
     enable_testing()
