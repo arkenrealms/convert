@@ -161,9 +161,20 @@ template <typename Value>
     requires std::is_enum_v<Value>
 [[nodiscard]] storage_value encode_storage_value(Value value)
 {
-    using underlying = std::underlying_type_t<Value>;
-    static_assert(std::unsigned_integral<underlying> && sizeof(underlying) <= sizeof(std::uint32_t));
-    return static_cast<std::int64_t>(static_cast<underlying>(value));
+    if constexpr (requires(Value candidate) {
+        { arken_schema_enum_storage_name(candidate) } -> std::convertible_to<std::string_view>;
+    })
+    {
+        return std::string(arken_schema_enum_storage_name(value));
+    }
+    else
+    {
+        using underlying = std::underlying_type_t<Value>;
+        static_assert(
+            std::unsigned_integral<underlying> && sizeof(underlying) <= sizeof(std::uint32_t)
+        );
+        return static_cast<std::int64_t>(static_cast<underlying>(value));
+    }
 }
 
 namespace detail
@@ -310,17 +321,46 @@ template <typename SemanticValue>
     }
     else if constexpr (std::is_enum_v<SemanticValue>)
     {
-        using underlying = std::underlying_type_t<SemanticValue>;
-        const auto* decoded = std::get_if<std::int64_t>(&value);
-        if (decoded != nullptr && *decoded >= 0 &&
-            static_cast<std::uint64_t>(*decoded) <= std::numeric_limits<underlying>::max())
+        if constexpr (requires(std::string_view text) {
+            {
+                arken_schema_enum_from_storage_name(
+                    static_cast<SemanticValue*>(nullptr), text
+                )
+            } -> std::same_as<std::optional<SemanticValue>>;
+        })
         {
-            return {.value = static_cast<SemanticValue>(static_cast<underlying>(*decoded))};
+            const auto* text = std::get_if<std::string>(&value);
+            if (text == nullptr)
+            {
+                return detail::DecodeFailure<SemanticValue>(
+                    "storage.enum_text_type_mismatch",
+                    "Stored text-backed enum value must use canonical text storage."
+                );
+            }
+            const auto decoded = arken_schema_enum_from_storage_name(
+                static_cast<SemanticValue*>(nullptr), *text
+            );
+            if (decoded.has_value()) return {.value = *decoded};
+            return detail::DecodeFailure<SemanticValue>(
+                "storage.enum_domain_mismatch",
+                "Stored enum text is outside the generated canonical domain."
+            );
         }
-        return detail::DecodeFailure<SemanticValue>(
-            "storage.enum_value_mismatch",
-            "Stored enum value does not fit the generated enum wire type."
-        );
+        else
+        {
+            using underlying = std::underlying_type_t<SemanticValue>;
+            const auto* decoded = std::get_if<std::int64_t>(&value);
+            if (decoded != nullptr && *decoded >= 0 &&
+                static_cast<std::uint64_t>(*decoded) <=
+                    std::numeric_limits<underlying>::max())
+            {
+                return {.value = static_cast<SemanticValue>(static_cast<underlying>(*decoded))};
+            }
+            return detail::DecodeFailure<SemanticValue>(
+                "storage.enum_value_mismatch",
+                "Stored enum value does not fit the generated enum wire type."
+            );
+        }
     }
     else
     {
