@@ -772,6 +772,7 @@ struct field_descriptor
     std::string_view name;
     std::string_view storage_name;
     std::string_view semantic_type_name;
+    std::string_view semantic_type_registry_key;
     semantic_type_kind type_kind = semantic_type_kind::u32;
     wire_type_kind wire_type = wire_type_kind::u32;
     storage_codec_kind storage_codec = storage_codec_kind::sqlite_integer;
@@ -797,6 +798,9 @@ struct field_descriptor
     bool cursor = false;
     bool storage_exact = false;
     bool storage_order_preserving = false;
+    std::string_view catalog_registry_key;
+    std::string_view catalog_field_name;
+    std::uint32_t catalog_declaration_order = 0;
 };
 
 struct key_descriptor
@@ -914,6 +918,12 @@ struct model_descriptor
     std::span<const numeric_index_entry> field_id_index;
     std::span<const name_index_entry> field_name_index;
     std::span<const name_index_entry> relation_name_index;
+    std::string_view catalog_fragment_id;
+    std::string_view catalog_registry_key;
+    std::string_view catalog_model_id;
+    std::string_view catalog_logical_name;
+    std::string_view catalog_qualified_name;
+    std::uint32_t catalog_declaration_order = 0;
 
     [[nodiscard]] constexpr const field_descriptor* find_field(std::uint32_t field_id) const noexcept
     {
@@ -931,6 +941,14 @@ struct model_descriptor
     {
         return find_named(relations, relation_name_index, relation_name);
     }
+};
+
+struct catalog_fragment_descriptor
+{
+    std::string_view fragment_id;
+    std::string_view owner_capsule;
+    std::uint32_t version = 0;
+    std::uint32_t declaration_order = 0;
 };
 
 struct schema_catalog_view
@@ -957,6 +975,9 @@ struct schema_catalog_view
     std::span<const name_index_entry> command_name_index;
     std::span<const numeric_index_entry> event_id_index;
     std::span<const name_index_entry> event_name_index;
+    std::string_view catalog_id;
+    std::uint32_t catalog_version = 0;
+    std::span<const catalog_fragment_descriptor> catalog_fragments;
     [[nodiscard]] constexpr schema_contract_ref contract() const noexcept
     {
         return {
