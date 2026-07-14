@@ -1,4 +1,4 @@
-#include "arken_schema_cpp_v1/api.hpp"
+#include "arken_schema_cpp_v1/manifest.hpp"
 
 #include "arken_schema_cpp_v1_manifest_embed.h"
 

@@ -262,56 +262,6 @@ enum class semantic_type_kind : std::uint8_t
     json_text = 17,
 };
 
-enum class wire_type_kind : std::uint8_t
-{
-    boolean = 1,
-    u8 = 2,
-    u16 = 3,
-    u32 = 4,
-    u64 = 5,
-    i8 = 6,
-    i16 = 7,
-    i32 = 8,
-    i64 = 9,
-    f32 = 10,
-    f64 = 11,
-    utf8 = 12,
-    bytes = 13,
-    fixed_bytes = 14,
-    decimal128 = 15,
-};
-
-enum class wire_byte_order : std::uint8_t
-{
-    none = 0,
-    big_endian = 1,
-};
-
-enum class wire_compatibility_class : std::uint8_t
-{
-    boolean = 0,
-    fixed_unsigned = 1,
-    fixed_signed = 2,
-    ieee754 = 3,
-    utf8 = 4,
-    bytes = 5,
-    fixed_bytes = 6,
-    decimal128 = 7,
-};
-
-enum class field_cardinality : std::uint8_t
-{
-    required_one = 0,
-    optional_one = 1,
-    repeated = 2,
-};
-
-enum class wire_duplicate_policy : std::uint8_t
-{
-    reject = 0,
-    append = 1,
-};
-
 enum class storage_codec_kind : std::uint8_t
 {
     sqlite_integer = 1,
@@ -354,60 +304,6 @@ enum class serialization_policy : std::uint8_t
     include = 0,
     omit = 1,
 };
-
-enum class field_default_kind : std::uint8_t
-{
-    none = 0,
-    literal = 1,
-    boundary = 2,
-};
-
-enum class boundary_default_source : std::uint8_t
-{
-    none = 0,
-    request_time = 1,
-    generated_id = 2,
-    generated_token = 3,
-};
-
-enum class check_kind : std::uint8_t
-{
-    minimum_integer = 0,
-    maximum_integer = 1,
-    minimum_real = 2,
-    maximum_real = 3,
-    minimum_length = 4,
-    maximum_length = 5,
-    fixed_length = 6,
-    enum_domain = 7,
-    valid_json = 8,
-    decimal_precision = 9,
-    decimal_scale = 10,
-};
-
-enum class check_unit : std::uint8_t
-{
-    none = 0,
-    utf8_bytes = 1,
-    bytes = 2,
-};
-
-enum class target_profile : std::uint8_t
-{
-    cpp = 0,
-    sqlite = 1,
-    csharp = 2,
-    javascript = 3,
-    fabric = 4,
-    http_json = 5,
-};
-
-using target_profile_mask = std::uint32_t;
-
-[[nodiscard]] constexpr target_profile_mask target_profile_bit(target_profile target)
-{
-    return target_profile_mask{1} << static_cast<std::uint8_t>(target);
-}
 
 enum class model_kind : std::uint8_t
 {
@@ -458,6 +354,57 @@ enum class relation_cardinality : std::uint8_t
     many = 2,
 };
 
+enum class referential_action : std::uint8_t
+{
+    restrict = 0,
+    cascade = 1,
+    set_null = 2,
+};
+
+struct numeric_index_entry
+{
+    std::uint32_t key = 0;
+    std::uint32_t ordinal = 0;
+};
+
+struct name_index_entry
+{
+    std::string_view key;
+    std::uint32_t ordinal = 0;
+};
+
+struct no_payload
+{
+    [[nodiscard]] bool operator==(const no_payload&) const = default;
+};
+
+struct schema_contract_ref
+{
+    std::string_view schema_name;
+    std::uint32_t schema_version = 0;
+    std::string_view owner_capsule;
+    std::string_view semantic_fingerprint;
+    std::string_view allocation_fingerprint;
+
+    [[nodiscard]] bool operator==(const schema_contract_ref&) const = default;
+};
+
+enum class operation_target_profile : std::uint8_t
+{
+    cpp = 0,
+    fabric = 1,
+    http_json = 2,
+};
+
+using operation_target_mask = std::uint8_t;
+
+[[nodiscard]] constexpr operation_target_mask operation_target_bit(
+    operation_target_profile target
+) noexcept
+{
+    return operation_target_mask{1} << static_cast<std::uint8_t>(target);
+}
+
 enum class fabric_lane : std::uint8_t
 {
     control_reliable = 0,
@@ -503,36 +450,103 @@ enum class event_replay : std::uint8_t
     resumable = 2,
 };
 
-enum class referential_action : std::uint8_t
+struct model_reference_descriptor
 {
-    restrict = 0,
-    cascade = 1,
-    set_null = 2,
+    std::uint32_t type_id = 0;
+    std::string_view canonical_name;
+
+    [[nodiscard]] bool operator==(const model_reference_descriptor&) const = default;
 };
 
-enum class key_kind : std::uint8_t
+struct fabric_operation_descriptor
 {
-    primary = 0,
-    alternate = 1,
+    fabric_lane lane = fabric_lane::control_reliable;
+    std::uint32_t maximum_encoded_bytes = 0;
+    bool enabled = false;
+    bool direct_eligible = false;
+
+    [[nodiscard]] bool operator==(const fabric_operation_descriptor&) const = default;
 };
 
-enum class name_review_status : std::uint8_t
+struct command_descriptor
 {
-    canonical = 0,
-    review_required = 1,
-    approved_exception = 2,
+    std::uint32_t command_id = 0;
+    std::string_view name;
+    std::string_view qualified_name;
+    std::string_view owner_capsule;
+    model_reference_descriptor request;
+    model_reference_descriptor response;
+    std::span<const model_reference_descriptor> errors;
+    operation_target_mask targets = 0;
+    fabric_operation_descriptor fabric;
+    command_idempotency idempotency = command_idempotency::none;
+    command_streaming streaming = command_streaming::unary;
+    bool has_request = false;
+    bool has_response = false;
+
+    [[nodiscard]] constexpr bool supports(operation_target_profile target) const noexcept
+    {
+        return (targets & operation_target_bit(target)) != 0;
+    }
 };
 
-struct numeric_index_entry
+struct event_descriptor
 {
-    std::uint32_t key = 0;
-    std::uint32_t ordinal = 0;
+    std::uint32_t event_id = 0;
+    std::string_view name;
+    std::string_view qualified_name;
+    std::string_view owner_capsule;
+    model_reference_descriptor payload;
+    operation_target_mask targets = 0;
+    fabric_operation_descriptor fabric;
+    event_delivery delivery = event_delivery::best_effort;
+    event_ordering ordering = event_ordering::none;
+    event_replay replay = event_replay::none;
+
+    [[nodiscard]] constexpr bool supports(operation_target_profile target) const noexcept
+    {
+        return (targets & operation_target_bit(target)) != 0;
+    }
 };
 
-struct name_index_entry
+template <typename Request, typename Response, std::uint32_t CommandId>
+struct command_token
 {
-    std::string_view key;
-    std::uint32_t ordinal = 0;
+    using request_type = Request;
+    using response_type = Response;
+
+    static constexpr std::uint32_t command_id = CommandId;
+
+    schema_contract_ref contract;
+    const command_descriptor* descriptor = nullptr;
+};
+
+template <typename Payload, std::uint32_t EventId>
+struct event_token
+{
+    using payload_type = Payload;
+
+    static constexpr std::uint32_t event_id = EventId;
+
+    schema_contract_ref contract;
+    const event_descriptor* descriptor = nullptr;
+};
+
+template <typename Token>
+concept command_token_type = requires(Token token) {
+    typename Token::request_type;
+    typename Token::response_type;
+    { Token::command_id } -> std::convertible_to<std::uint32_t>;
+    { token.contract } -> std::convertible_to<schema_contract_ref>;
+    { token.descriptor } -> std::convertible_to<const command_descriptor*>;
+};
+
+template <typename Token>
+concept event_token_type = requires(Token token) {
+    typename Token::payload_type;
+    { Token::event_id } -> std::convertible_to<std::uint32_t>;
+    { token.contract } -> std::convertible_to<schema_contract_ref>;
+    { token.descriptor } -> std::convertible_to<const event_descriptor*>;
 };
 
 template <typename Value, std::size_t Size>
@@ -609,23 +623,6 @@ struct field_reference_descriptor
     std::string_view canonical_name;
 };
 
-struct enum_value_descriptor
-{
-    std::uint32_t value_id = 0;
-    std::string_view name;
-};
-
-struct check_descriptor
-{
-    std::string_view name;
-    check_kind kind = check_kind::minimum_integer;
-    check_unit unit = check_unit::none;
-    std::string_view value;
-    std::string_view message;
-    target_profile_mask targets = 0;
-    bool generated = false;
-};
-
 struct field_descriptor
 {
     std::uint32_t model_type_id = 0;
@@ -634,7 +631,6 @@ struct field_descriptor
     std::uint32_t wire_type_id = 0;
     std::uint32_t storage_codec_id = 0;
     std::uint32_t semantic_fixed_size = 0;
-    std::uint32_t wire_fixed_size = 0;
     std::uint32_t precision = 0;
     std::uint32_t scale = 0;
     std::uint32_t storage_fixed_size = 0;
@@ -642,22 +638,13 @@ struct field_descriptor
     std::string_view storage_name;
     std::string_view semantic_type_name;
     semantic_type_kind type_kind = semantic_type_kind::u32;
-    wire_type_kind wire_type = wire_type_kind::u32;
     storage_codec_kind storage_codec = storage_codec_kind::sqlite_integer;
     sqlite_storage_class storage_class = sqlite_storage_class::integer;
     normalization_kind normalization = normalization_kind::none;
     field_source_kind source_kind = field_source_kind::canonical;
     serialization_policy serialization = serialization_policy::include;
-    field_default_kind default_kind = field_default_kind::none;
-    boundary_default_source boundary_default = boundary_default_source::none;
-    std::string_view default_literal;
-    std::string_view source_field;
-    std::string_view import_transform;
-    std::span<const enum_value_descriptor> enum_values;
-    std::span<const check_descriptor> checks;
     query_operator_mask query_operators = 0;
-    field_cardinality cardinality = field_cardinality::required_one;
-    std::uint32_t maximum_items = 0;
+    bool required = true;
     bool redacted = false;
     bool immutable = false;
     bool write_once = false;
@@ -666,22 +653,6 @@ struct field_descriptor
     bool cursor = false;
     bool storage_exact = false;
     bool storage_order_preserving = false;
-};
-
-struct key_descriptor
-{
-    std::string_view name;
-    key_kind kind = key_kind::alternate;
-    std::span<const field_reference_descriptor> fields;
-    bool generated = false;
-};
-
-struct index_descriptor
-{
-    std::string_view name;
-    std::span<const field_reference_descriptor> fields;
-    bool unique = false;
-    bool generated = false;
 };
 
 struct relation_descriptor
@@ -695,109 +666,6 @@ struct relation_descriptor
     relation_cardinality cardinality = relation_cardinality::one;
     referential_action on_delete = referential_action::restrict;
     referential_action on_update = referential_action::restrict;
-};
-
-struct join_descriptor
-{
-    std::string_view name;
-    std::uint32_t through_model_type_id = 0;
-    std::string_view through_qualified_name;
-    std::string_view source_relation;
-    std::string_view target_relation;
-};
-
-struct one_of_variant_descriptor
-{
-    std::string_view tag;
-    std::uint32_t tag_value_id = 0;
-    std::span<const field_reference_descriptor> fields;
-    std::span<const field_reference_descriptor> optional_fields;
-};
-
-struct one_of_descriptor
-{
-    std::string_view name;
-    field_reference_descriptor discriminator;
-    std::span<const one_of_variant_descriptor> variants;
-};
-
-struct wire_field_descriptor
-{
-    std::uint32_t model_type_id = 0;
-    std::uint32_t field_tag = 0;
-    std::uint32_t semantic_type_id = 0;
-    std::uint32_t wire_type_id = 0;
-    std::uint32_t fixed_size = 0;
-    std::uint32_t scale = 0;
-    std::string_view name;
-    semantic_type_kind type_kind = semantic_type_kind::u32;
-    wire_type_kind wire_type = wire_type_kind::u32;
-    wire_byte_order byte_order = wire_byte_order::big_endian;
-    wire_compatibility_class compatibility = wire_compatibility_class::fixed_unsigned;
-    field_cardinality cardinality = field_cardinality::required_one;
-    wire_duplicate_policy duplicate_policy = wire_duplicate_policy::reject;
-    serialization_policy serialization = serialization_policy::include;
-    std::uint32_t maximum_items = 0;
-};
-
-struct wire_message_descriptor
-{
-    std::uint32_t model_type_id = 0;
-    std::string_view name;
-    std::string_view qualified_name;
-    std::span<const wire_field_descriptor> fields;
-    std::span<const one_of_descriptor> one_ofs;
-    std::span<const numeric_index_entry> field_tag_index;
-
-    [[nodiscard]] constexpr const wire_field_descriptor* find_field(
-        std::uint32_t field_tag
-    ) const noexcept
-    {
-        return find_numeric(fields, field_tag_index, field_tag);
-    }
-};
-
-struct model_reference_descriptor
-{
-    std::uint32_t model_type_id = 0;
-    std::string_view qualified_name;
-};
-
-struct fabric_operation_descriptor
-{
-    fabric_lane lane = fabric_lane::control_reliable;
-    std::uint32_t maximum_encoded_bytes = 0;
-    bool direct_eligible = false;
-    bool enabled = false;
-};
-
-struct command_descriptor
-{
-    std::uint32_t command_id = 0;
-    std::string_view name;
-    std::string_view qualified_name;
-    std::string_view owner_capsule;
-    model_reference_descriptor request;
-    model_reference_descriptor response;
-    std::span<const model_reference_descriptor> errors;
-    command_idempotency idempotency = command_idempotency::none;
-    command_streaming streaming = command_streaming::unary;
-    target_profile_mask targets = 0;
-    fabric_operation_descriptor fabric;
-};
-
-struct event_descriptor
-{
-    std::uint32_t event_id = 0;
-    std::string_view name;
-    std::string_view qualified_name;
-    std::string_view owner_capsule;
-    model_reference_descriptor payload;
-    event_delivery delivery = event_delivery::best_effort;
-    event_ordering ordering = event_ordering::none;
-    event_replay replay = event_replay::none;
-    target_profile_mask targets = 0;
-    fabric_operation_descriptor fabric;
 };
 
 struct model_descriptor
@@ -814,15 +682,7 @@ struct model_descriptor
     model_role role = model_role::unspecified;
     retention_policy retention = retention_policy::durable;
     std::span<const field_descriptor> fields;
-    std::span<const key_descriptor> keys;
-    std::span<const index_descriptor> indexes;
     std::span<const relation_descriptor> relations;
-    std::span<const join_descriptor> joins;
-    std::span<const one_of_descriptor> one_ofs;
-    std::span<const std::string_view> source_aliases;
-    std::span<const std::string_view> retired_names;
-    name_review_status name_review = name_review_status::canonical;
-    std::string_view name_review_rationale;
     std::span<const numeric_index_entry> field_id_index;
     std::span<const name_index_entry> field_name_index;
     std::span<const name_index_entry> relation_name_index;
@@ -854,20 +714,29 @@ struct schema_catalog_view
     std::string_view schema_name;
     std::string_view owner_capsule;
     std::string_view semantic_fingerprint;
+    std::string_view allocation_fingerprint;
     std::span<const field_descriptor> fields;
     std::span<const relation_descriptor> relations;
     std::span<const model_descriptor> models;
-    std::span<const wire_field_descriptor> wire_fields;
-    std::span<const wire_message_descriptor> wire_messages;
     std::span<const command_descriptor> commands;
     std::span<const event_descriptor> events;
     std::span<const numeric_index_entry> model_id_index;
     std::span<const name_index_entry> model_name_index;
-    std::span<const numeric_index_entry> wire_message_id_index;
     std::span<const numeric_index_entry> command_id_index;
     std::span<const name_index_entry> command_name_index;
     std::span<const numeric_index_entry> event_id_index;
     std::span<const name_index_entry> event_name_index;
+
+    [[nodiscard]] constexpr schema_contract_ref contract() const noexcept
+    {
+        return {
+            .schema_name = schema_name,
+            .schema_version = schema_version,
+            .owner_capsule = owner_capsule,
+            .semantic_fingerprint = semantic_fingerprint,
+            .allocation_fingerprint = allocation_fingerprint,
+        };
+    }
 
     [[nodiscard]] constexpr const model_descriptor* find_model(std::uint32_t type_id) const noexcept
     {
@@ -877,22 +746,6 @@ struct schema_catalog_view
     [[nodiscard]] constexpr const model_descriptor* find_model(std::string_view model_name) const noexcept
     {
         return find_named(models, model_name_index, model_name);
-    }
-
-    [[nodiscard]] constexpr const field_descriptor* find_field(
-        std::uint32_t model_type_id,
-        std::uint32_t field_id
-    ) const noexcept
-    {
-        const auto* model = find_model(model_type_id);
-        return model == nullptr ? nullptr : model->find_field(field_id);
-    }
-
-    [[nodiscard]] constexpr const wire_message_descriptor* find_wire_message(
-        std::uint32_t model_type_id
-    ) const noexcept
-    {
-        return find_numeric(wire_messages, wire_message_id_index, model_type_id);
     }
 
     [[nodiscard]] constexpr const command_descriptor* find_command(
@@ -921,6 +774,15 @@ struct schema_catalog_view
     ) const noexcept
     {
         return find_named(events, event_name_index, event_name);
+    }
+
+    [[nodiscard]] constexpr const field_descriptor* find_field(
+        std::uint32_t model_type_id,
+        std::uint32_t field_id
+    ) const noexcept
+    {
+        const auto* model = find_model(model_type_id);
+        return model == nullptr ? nullptr : model->find_field(field_id);
     }
 
     [[nodiscard]] constexpr const field_descriptor* find_field(

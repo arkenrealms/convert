@@ -328,6 +328,21 @@ template <typename SemanticValue>
     }
 }
 
+enum class check_kind : std::uint8_t
+{
+    minimum_integer = 0,
+    maximum_integer = 1,
+    minimum_real = 2,
+    maximum_real = 3,
+    minimum_length = 4,
+    maximum_length = 5,
+    fixed_length = 6,
+    enum_domain = 7,
+    valid_json = 8,
+    decimal_precision = 9,
+    decimal_scale = 10,
+};
+
 struct value_validation_failure
 {
     std::string code;
