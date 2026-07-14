@@ -161,8 +161,16 @@ enum class CheckKind
     MaximumReal,
     MinimumLength,
     MaximumLength,
+    FixedLength,
     Pattern,
     Custom,
+};
+
+enum class CheckUnit
+{
+    None,
+    Utf8Bytes,
+    Bytes,
 };
 
 enum class KeyKind
@@ -211,6 +219,7 @@ struct CheckSchema
 {
     std::string checkId;
     CheckKind kind = CheckKind::Custom;
+    CheckUnit unit = CheckUnit::None;
     std::string value;
     std::string message;
 };
@@ -245,6 +254,7 @@ struct FieldSchema
     std::string importTransform;
     DefaultSchema defaultValue;
     std::vector<std::string> enumValues;
+    std::vector<std::uint32_t> enumValueIds;
     std::vector<CheckSchema> checks;
     QueryPolicy query;
     std::uint32_t fieldId = 0;
@@ -256,6 +266,7 @@ struct FieldSchema
 struct OneOfVariantSchema
 {
     std::string tag;
+    std::uint32_t tagValueId = 0;
     std::vector<std::string> fields;
     std::vector<std::string> optionalFields;
 };
@@ -438,6 +449,7 @@ std::string_view NameReviewStatusName(NameReviewStatus status);
 std::string_view RetentionPolicyName(RetentionPolicy policy);
 std::string_view DefaultKindName(DefaultKind kind);
 std::string_view CheckKindName(CheckKind kind);
+std::string_view CheckUnitName(CheckUnit unit);
 std::string_view KeyKindName(KeyKind kind);
 std::string_view RelationCardinalityName(RelationCardinality cardinality);
 std::string_view ReferentialActionName(ReferentialAction action);

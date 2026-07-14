@@ -19,6 +19,7 @@ endif()
 add_library(arken_schema_cpp_v1_runtime STATIC
     src/binding.cpp
     src/manifest.cpp
+    src/wire.cpp
 )
 
 target_include_directories(arken_schema_cpp_v1_runtime
@@ -39,7 +40,10 @@ if(EMSCRIPTEN)
     add_library(arken_schema_cpp_v1 INTERFACE)
     target_link_libraries(arken_schema_cpp_v1 INTERFACE arken_schema_cpp_v1_runtime)
 else()
-    add_library(arken_schema_cpp_v1 STATIC src/generator.cpp)
+    add_library(arken_schema_cpp_v1 STATIC
+        src/generator.cpp
+        src/generator_wire_names.cpp
+    )
     target_include_directories(arken_schema_cpp_v1 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
     target_link_libraries(arken_schema_cpp_v1
         PUBLIC
@@ -114,6 +118,7 @@ if(BUILD_TESTING)
         add_executable(
             arken-schema-cpp-v1-generated-tests
             tests/generated_api_tests.cpp
+            tests/wire_codec_tests.cpp
             ${ARKEN_SCHEMA_CPP_V1_GENERATED_ACCOUNT_HEADER}
             ${ARKEN_SCHEMA_CPP_V1_GENERATED_PROFILE_HEADER}
         )
