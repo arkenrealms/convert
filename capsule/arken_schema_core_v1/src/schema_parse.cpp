@@ -1,7 +1,9 @@
 #include "arken_schema_core_v1/schema.hpp"
 
 #include <array>
+#include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -545,6 +547,24 @@ ParseSchemaFragmentManifest(const nlohmann::json &manifest) {
       AddError(result, "fragments", "Manifest must contain a fragments array.");
       return result;
     }
+    std::map<std::string, ModelSchema> flat_models;
+    if (manifest.contains("models")) {
+      if (!manifest.at("models").is_array()) {
+        AddError(result, "models", "Top-level models must be an array.");
+        return result;
+      }
+      const auto &models = manifest.at("models");
+      for (std::size_t model_index = 0; model_index < models.size();
+           ++model_index) {
+        const auto path = "models[" + std::to_string(model_index) + "]";
+        auto model = ParseModel(models[model_index], path, result);
+        if (model && !flat_models.emplace(model->modelId, std::move(*model)).second) {
+          AddError(result, path + ".modelId",
+                   "Top-level model IDs must be unique.");
+        }
+      }
+    }
+    std::set<std::string> referenced_flat_models;
     const auto &fragments = manifest.at("fragments");
     for (std::size_t fragment_index = 0; fragment_index < fragments.size();
          ++fragment_index) {
@@ -555,11 +575,15 @@ ParseSchemaFragmentManifest(const nlohmann::json &manifest) {
                                            "ownerCapsule", path, result);
       const auto version =
           Read<int>(fragments[fragment_index], "version", path, result);
-      const auto &models =
-          fragments[fragment_index].value("models", json::array());
-      if (!fragment_id || !owner || !version || !models.is_array()) {
-        if (!models.is_array()) {
-          AddError(result, path + ".models", "Models must be an array.");
+      const bool has_nested_models =
+          fragments[fragment_index].contains("models");
+      const bool has_model_ids =
+          fragments[fragment_index].contains("modelIds");
+      if (!fragment_id || !owner || !version ||
+          has_nested_models == has_model_ids) {
+        if (has_nested_models == has_model_ids) {
+          AddError(result, path,
+                   "Fragment must contain exactly one of models or modelIds.");
         }
         continue;
       }
@@ -568,16 +592,62 @@ ParseSchemaFragmentManifest(const nlohmann::json &manifest) {
           .ownerCapsule = *owner,
           .version = *version,
       };
-      for (std::size_t model_index = 0; model_index < models.size();
-           ++model_index) {
-        auto model = ParseModel(
-            models[model_index],
-            path + ".models[" + std::to_string(model_index) + "]", result);
-        if (model) {
-          fragment.models.push_back(std::move(*model));
+      if (has_nested_models) {
+        const auto &models = fragments[fragment_index].at("models");
+        if (!models.is_array()) {
+          AddError(result, path + ".models", "Models must be an array.");
+        } else {
+          for (std::size_t model_index = 0; model_index < models.size();
+               ++model_index) {
+            auto model = ParseModel(
+                models[model_index],
+                path + ".models[" + std::to_string(model_index) + "]",
+                result);
+            if (model) {
+              fragment.models.push_back(std::move(*model));
+            }
+          }
+        }
+      } else {
+        const auto &model_ids = fragments[fragment_index].at("modelIds");
+        if (!model_ids.is_array()) {
+          AddError(result, path + ".modelIds", "Model IDs must be an array.");
+        } else if (flat_models.empty() && !model_ids.empty()) {
+          AddError(result, path + ".modelIds",
+                   "Model ID references require top-level models.");
+        } else {
+          for (std::size_t model_index = 0; model_index < model_ids.size();
+               ++model_index) {
+            const auto model_path = path + ".modelIds[" +
+                                    std::to_string(model_index) + "]";
+            if (!model_ids[model_index].is_string()) {
+              AddError(result, model_path, "Model ID must be a string.");
+              continue;
+            }
+            const auto model_id = model_ids[model_index].get<std::string>();
+            const auto model = flat_models.find(model_id);
+            if (model == flat_models.end()) {
+              AddError(result, model_path,
+                       "Model ID does not resolve in top-level models.");
+              continue;
+            }
+            if (!referenced_flat_models.insert(model_id).second) {
+              AddError(result, model_path,
+                       "Top-level model may belong to only one fragment.");
+              continue;
+            }
+            fragment.models.push_back(model->second);
+          }
         }
       }
       result.fragments.push_back(std::move(fragment));
+    }
+    for (const auto &[model_id, model] : flat_models) {
+      static_cast<void>(model);
+      if (!referenced_flat_models.contains(model_id)) {
+        AddError(result, "models." + model_id,
+                 "Top-level model is not referenced by a fragment.");
+      }
     }
   } catch (const json::exception &error) {
     AddError(result, "manifest", error.what());

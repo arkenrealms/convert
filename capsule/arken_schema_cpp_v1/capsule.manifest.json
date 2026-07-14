@@ -30,9 +30,6 @@
     "bounded_canonical_tlv_codecs",
     "preserved_unknown_wire_fields",
     "generated_wire_message_descriptors",
-    "generated_fabric_operation_descriptors",
-    "generated_contract_fingerprints",
-    "generated_operation_descriptors",
-    "typed_command_and_event_tokens"
+    "generated_fabric_operation_descriptors"
   ]
 }
