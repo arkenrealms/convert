@@ -113,33 +113,33 @@ template <typename Value, std::uint32_t SemanticTypeId>
     const strong_value<Value, SemanticTypeId>& semantic_value
 )
 {
-    if constexpr (std::same_as<Value, bool>)
+    if constexpr (type_concepts::same_as<Value, bool>)
     {
         return semantic_value.value;
     }
-    else if constexpr (std::unsigned_integral<Value> && sizeof(Value) == sizeof(std::uint64_t))
+    else if constexpr (type_concepts::unsigned_integral<Value> && sizeof(Value) == sizeof(std::uint64_t))
     {
         return static_cast<std::uint64_t>(semantic_value.value);
     }
-    else if constexpr (std::integral<Value>)
+    else if constexpr (type_concepts::integral<Value>)
     {
         return static_cast<std::int64_t>(semantic_value.value);
     }
-    else if constexpr (std::floating_point<Value>)
+    else if constexpr (type_concepts::floating_point<Value>)
     {
         return static_cast<double>(semantic_value.value);
     }
-    else if constexpr (std::same_as<Value, std::string>)
+    else if constexpr (type_concepts::same_as<Value, std::string>)
     {
         return semantic_value.value;
     }
-    else if constexpr (std::same_as<Value, std::vector<std::byte>>)
+    else if constexpr (type_concepts::same_as<Value, std::vector<std::byte>>)
     {
         return storage_blob(semantic_value.value.begin(), semantic_value.value.end());
     }
     else
     {
-        static_assert(std::same_as<Value, void>, "Unsupported generated semantic value type.");
+        static_assert(type_concepts::same_as<Value, void>, "Unsupported generated semantic value type.");
     }
 }
 
@@ -162,7 +162,7 @@ template <typename Value>
 [[nodiscard]] storage_value encode_storage_value(Value value)
 {
     if constexpr (requires(Value candidate) {
-        { arken_schema_enum_storage_name(candidate) } -> std::convertible_to<std::string_view>;
+        { arken_schema_enum_storage_name(candidate) } -> type_concepts::convertible_to<std::string_view>;
     })
     {
         return std::string(arken_schema_enum_storage_name(value));
@@ -171,7 +171,7 @@ template <typename Value>
     {
         using underlying = std::underlying_type_t<Value>;
         static_assert(
-            std::unsigned_integral<underlying> && sizeof(underlying) <= sizeof(std::uint32_t)
+            type_concepts::unsigned_integral<underlying> && sizeof(underlying) <= sizeof(std::uint32_t)
         );
         return static_cast<std::int64_t>(static_cast<underlying>(value));
     }
@@ -232,17 +232,18 @@ template <typename SemanticValue>
     if constexpr (detail::strong_value_traits<SemanticValue>::value)
     {
         using underlying = typename detail::strong_value_traits<SemanticValue>::value_type;
-        if constexpr (std::same_as<underlying, bool>)
+        if constexpr (type_concepts::same_as<underlying, bool>)
         {
             const auto* decoded = std::get_if<bool>(&value);
             if (decoded != nullptr) return {.value = SemanticValue{*decoded}};
         }
-        else if constexpr (std::unsigned_integral<underlying> && sizeof(underlying) == sizeof(std::uint64_t))
+        else if constexpr (
+            type_concepts::unsigned_integral<underlying> && sizeof(underlying) == sizeof(std::uint64_t))
         {
             const auto* decoded = std::get_if<std::uint64_t>(&value);
             if (decoded != nullptr) return {.value = SemanticValue{static_cast<underlying>(*decoded)}};
         }
-        else if constexpr (std::unsigned_integral<underlying>)
+        else if constexpr (type_concepts::unsigned_integral<underlying>)
         {
             const auto* decoded = std::get_if<std::int64_t>(&value);
             if (decoded != nullptr && *decoded >= 0 &&
@@ -251,7 +252,7 @@ template <typename SemanticValue>
                 return {.value = SemanticValue{static_cast<underlying>(*decoded)}};
             }
         }
-        else if constexpr (std::signed_integral<underlying>)
+        else if constexpr (type_concepts::signed_integral<underlying>)
         {
             const auto* decoded = std::get_if<std::int64_t>(&value);
             if (decoded != nullptr && *decoded >= std::numeric_limits<underlying>::min() &&
@@ -260,13 +261,13 @@ template <typename SemanticValue>
                 return {.value = SemanticValue{static_cast<underlying>(*decoded)}};
             }
         }
-        else if constexpr (std::floating_point<underlying>)
+        else if constexpr (type_concepts::floating_point<underlying>)
         {
             const auto* decoded = std::get_if<double>(&value);
             if (decoded != nullptr && std::isfinite(*decoded))
             {
                 const auto narrowed = static_cast<underlying>(*decoded);
-                if constexpr (std::same_as<underlying, float>)
+                if constexpr (type_concepts::same_as<underlying, float>)
                 {
                     if (static_cast<double>(narrowed) == *decoded)
                         return {.value = SemanticValue{narrowed}};
@@ -277,12 +278,12 @@ template <typename SemanticValue>
                 }
             }
         }
-        else if constexpr (std::same_as<underlying, std::string>)
+        else if constexpr (type_concepts::same_as<underlying, std::string>)
         {
             const auto* decoded = std::get_if<std::string>(&value);
             if (decoded != nullptr) return {.value = SemanticValue{*decoded}};
         }
-        else if constexpr (std::same_as<underlying, std::vector<std::byte>>)
+        else if constexpr (type_concepts::same_as<underlying, std::vector<std::byte>>)
         {
             const auto* decoded = std::get_if<storage_blob>(&value);
             if (decoded != nullptr)
@@ -326,7 +327,7 @@ template <typename SemanticValue>
                 arken_schema_enum_from_storage_name(
                     static_cast<SemanticValue*>(nullptr), text
                 )
-            } -> std::same_as<std::optional<SemanticValue>>;
+            } -> type_concepts::same_as<std::optional<SemanticValue>>;
         })
         {
             const auto* text = std::get_if<std::string>(&value);
@@ -364,7 +365,7 @@ template <typename SemanticValue>
     }
     else
     {
-        static_assert(std::same_as<SemanticValue, void>, "Unsupported generated decode type.");
+        static_assert(type_concepts::same_as<SemanticValue, void>, "Unsupported generated decode type.");
     }
 }
 
@@ -416,7 +417,7 @@ struct typed_query_where
     erased_query_where value;
 
     template <field_token_type Token>
-        requires std::same_as<typename Token::model_type, Model>
+        requires type_concepts::same_as<typename Token::model_type, Model>
     typed_query_where& add(query_predicate<Token> predicate)
     {
         erased_query_filter filter{
@@ -474,7 +475,7 @@ struct typed_query_options
     bool include_total_count = false;
 
     template <field_token_type Token>
-        requires std::same_as<typename Token::model_type, Model> && Token::sortable
+        requires type_concepts::same_as<typename Token::model_type, Model> && Token::sortable
     typed_query_options& order_by(query_sort<Token> sorting)
     {
         sort = erased_query_sort{
@@ -486,7 +487,7 @@ struct typed_query_options
     }
 
     template <field_token_type Token>
-        requires std::same_as<typename Token::model_type, Model> && Token::cursor
+        requires type_concepts::same_as<typename Token::model_type, Model> && Token::cursor
     typed_query_options& start_after(query_cursor<Token> position, binding_record primary_key)
     {
         if (!sort.has_value() || sort->field_id != Token::field_id)
