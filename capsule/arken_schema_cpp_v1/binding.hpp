@@ -388,6 +388,8 @@ struct value_validation_failure
 [[nodiscard]] value_validation_failure validate_storage_check(
     const storage_value& value,
     check_kind kind,
+    schema_field_kind field_kind,
+    check_unit unit,
     std::string_view expected,
     std::string_view message
 );

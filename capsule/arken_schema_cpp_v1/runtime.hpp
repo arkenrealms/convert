@@ -262,6 +262,30 @@ enum class semantic_type_kind : std::uint8_t
     json_text = 17,
 };
 
+enum class schema_field_kind : std::uint8_t
+{
+    object_id = 0,
+    internal_id = 1,
+    text = 2,
+    slug = 3,
+    display_name = 4,
+    url = 5,
+    email = 6,
+    enumeration = 7,
+    boolean = 8,
+    timestamp_ms = 9,
+    json_text = 10,
+    secret = 11,
+    ethereum_address = 12,
+    hash_hex = 13,
+    token_hash = 14,
+    key_reference = 15,
+    integer = 16,
+    real = 17,
+    decimal = 18,
+    blob = 19,
+};
+
 enum class wire_type_kind : std::uint8_t
 {
     boolean = 1,
@@ -773,6 +797,7 @@ struct field_descriptor
     std::string_view storage_name;
     std::string_view semantic_type_name;
     std::string_view semantic_type_registry_key;
+    schema_field_kind field_kind = schema_field_kind::text;
     semantic_type_kind type_kind = semantic_type_kind::u32;
     wire_type_kind wire_type = wire_type_kind::u32;
     storage_codec_kind storage_codec = storage_codec_kind::sqlite_integer;
@@ -783,6 +808,7 @@ struct field_descriptor
     field_default_kind default_kind = field_default_kind::none;
     boundary_default_source boundary_default = boundary_default_source::none;
     std::string_view default_literal;
+    std::string_view catalog_default_value;
     std::string_view source_field;
     std::string_view import_transform;
     std::span<const enum_value_descriptor> enum_values;
@@ -913,6 +939,7 @@ struct model_descriptor
     std::span<const one_of_descriptor> one_ofs;
     std::span<const std::string_view> source_aliases;
     std::span<const std::string_view> retired_names;
+    std::span<const std::string_view> resolution_retired_names;
     name_review_status name_review = name_review_status::canonical;
     std::string_view name_review_rationale;
     std::span<const numeric_index_entry> field_id_index;
