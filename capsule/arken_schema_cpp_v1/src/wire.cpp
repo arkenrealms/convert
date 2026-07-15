@@ -1,9 +1,9 @@
 #include "arken_schema_cpp_v1/wire.hpp"
 
 #include <algorithm>
-#include <bit>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <set>
@@ -15,6 +15,17 @@ namespace arken::schema::cpp::v1
 {
 namespace
 {
+template <typename Target, typename Source>
+Target BitCast(const Source& source) noexcept
+{
+    static_assert(sizeof(Target) == sizeof(Source));
+    static_assert(std::is_trivially_copyable_v<Target>);
+    static_assert(std::is_trivially_copyable_v<Source>);
+    Target target;
+    std::memcpy(&target, &source, sizeof(Target));
+    return target;
+}
+
 struct encoded_field
 {
     std::uint32_t tag = 0;
@@ -308,14 +319,14 @@ std::optional<std::vector<std::byte>> EncodePayload(
         const float narrowed = real == nullptr ? 0.0f : static_cast<float>(*real);
         valid = real != nullptr && std::isfinite(*real) && std::isfinite(narrowed) &&
             static_cast<double>(narrowed) == *real;
-        if (valid) AppendBigEndian(output, std::bit_cast<std::uint32_t>(narrowed));
+        if (valid) AppendBigEndian(output, BitCast<std::uint32_t>(narrowed));
         break;
     }
     case wire_type_kind::f64:
     {
         const auto* real = std::get_if<double>(&value);
         valid = real != nullptr && std::isfinite(*real);
-        if (valid) AppendBigEndian(output, std::bit_cast<std::uint64_t>(*real));
+        if (valid) AppendBigEndian(output, BitCast<std::uint64_t>(*real));
         break;
     }
     case wire_type_kind::utf8:
@@ -403,30 +414,30 @@ std::optional<storage_value> DecodePayload(
     case wire_type_kind::i8:
         if (!RequireSize(issues, message, field, payload, 1, offset)) return std::nullopt;
         return storage_value{static_cast<std::int64_t>(
-            std::bit_cast<std::int8_t>(ReadBigEndian<std::uint8_t>(payload)))};
+            BitCast<std::int8_t>(ReadBigEndian<std::uint8_t>(payload)))};
     case wire_type_kind::i16:
         if (!RequireSize(issues, message, field, payload, 2, offset)) return std::nullopt;
         return storage_value{static_cast<std::int64_t>(
-            std::bit_cast<std::int16_t>(ReadBigEndian<std::uint16_t>(payload)))};
+            BitCast<std::int16_t>(ReadBigEndian<std::uint16_t>(payload)))};
     case wire_type_kind::i32:
         if (!RequireSize(issues, message, field, payload, 4, offset)) return std::nullopt;
         return storage_value{static_cast<std::int64_t>(
-            std::bit_cast<std::int32_t>(ReadBigEndian<std::uint32_t>(payload)))};
+            BitCast<std::int32_t>(ReadBigEndian<std::uint32_t>(payload)))};
     case wire_type_kind::i64:
         if (!RequireSize(issues, message, field, payload, 8, offset)) return std::nullopt;
         return storage_value{
-            std::bit_cast<std::int64_t>(ReadBigEndian<std::uint64_t>(payload))};
+            BitCast<std::int64_t>(ReadBigEndian<std::uint64_t>(payload))};
     case wire_type_kind::f32:
     {
         if (!RequireSize(issues, message, field, payload, 4, offset)) return std::nullopt;
-        const float value = std::bit_cast<float>(ReadBigEndian<std::uint32_t>(payload));
+        const float value = BitCast<float>(ReadBigEndian<std::uint32_t>(payload));
         if (std::isfinite(value)) return storage_value{static_cast<double>(value)};
         break;
     }
     case wire_type_kind::f64:
     {
         if (!RequireSize(issues, message, field, payload, 8, offset)) return std::nullopt;
-        const double value = std::bit_cast<double>(ReadBigEndian<std::uint64_t>(payload));
+        const double value = BitCast<double>(ReadBigEndian<std::uint64_t>(payload));
         if (std::isfinite(value)) return storage_value{value};
         break;
     }
