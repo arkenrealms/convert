@@ -293,6 +293,11 @@ bool IsTextKind(FieldKind kind)
     return false;
 }
 
+bool IsLengthCheckedTextKind(FieldKind kind)
+{
+    return IsTextKind(kind) || kind == FieldKind::JsonText;
+}
+
 bool IsIntegerWireType(WireType type)
 {
     switch (type)
@@ -489,7 +494,7 @@ bool IsCheckCompatible(FieldKind kind, CheckKind check_kind)
         case CheckKind::MinimumLength:
         case CheckKind::MaximumLength:
         case CheckKind::FixedLength:
-            return IsTextKind(kind) || kind == FieldKind::Blob;
+            return IsLengthCheckedTextKind(kind) || kind == FieldKind::Blob;
         case CheckKind::Pattern:
             return IsTextKind(kind);
         case CheckKind::Custom:
@@ -1868,7 +1873,7 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
                 {
                     AddError(result, "blob_check_unit_invalid", model.modelId, path, "Blob length checks require the bytes unit.");
                 }
-                else if (length_check && IsTextKind(field.kind) && check.unit == CheckUnit::Bytes)
+                else if (length_check && IsLengthCheckedTextKind(field.kind) && check.unit == CheckUnit::Bytes)
                 {
                     AddError(result, "text_check_unit_invalid", model.modelId, path, "Text length checks use character count or UTF-8 byte count, not the opaque bytes unit.");
                 }
