@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -74,6 +75,82 @@ bool IsCanonicalText(std::string_view text, normalization_kind normalization)
                 (text.starts_with("http://") || text.starts_with("https://"));
     }
     return false;
+}
+
+std::optional<std::size_t> Utf8ScalarLength(std::string_view text)
+{
+    const auto continuation = [](unsigned char byte) {
+        return (byte & UINT8_C(0xc0)) == UINT8_C(0x80);
+    };
+    std::size_t scalar_count = 0;
+    std::size_t offset = 0;
+    while (offset < text.size())
+    {
+        const auto first = static_cast<unsigned char>(text[offset]);
+        if (first == 0) break;
+        std::size_t width = 0;
+        if (first <= UINT8_C(0x7f))
+        {
+            width = 1;
+        }
+        else if (first >= UINT8_C(0xc2) && first <= UINT8_C(0xdf))
+        {
+            width = 2;
+        }
+        else if (first >= UINT8_C(0xe0) && first <= UINT8_C(0xef))
+        {
+            width = 3;
+        }
+        else if (first >= UINT8_C(0xf0) && first <= UINT8_C(0xf4))
+        {
+            width = 4;
+        }
+        else
+        {
+            return std::nullopt;
+        }
+        if (offset + width > text.size()) return std::nullopt;
+        for (std::size_t index = 1; index < width; ++index)
+            if (!continuation(static_cast<unsigned char>(text[offset + index]))) return std::nullopt;
+        if (width == 3)
+        {
+            const auto second = static_cast<unsigned char>(text[offset + 1]);
+            if ((first == UINT8_C(0xe0) && second < UINT8_C(0xa0)) ||
+                (first == UINT8_C(0xed) && second >= UINT8_C(0xa0)))
+            {
+                return std::nullopt;
+            }
+        }
+        if (width == 4)
+        {
+            const auto second = static_cast<unsigned char>(text[offset + 1]);
+            if ((first == UINT8_C(0xf0) && second < UINT8_C(0x90)) ||
+                (first == UINT8_C(0xf4) && second > UINT8_C(0x8f)))
+            {
+                return std::nullopt;
+            }
+        }
+        offset += width;
+        ++scalar_count;
+    }
+    return scalar_count;
+}
+
+std::optional<std::size_t> LogicalTextLength(schema_field_kind kind, std::size_t byte_count)
+{
+    constexpr auto maximum = std::numeric_limits<std::size_t>::max();
+    switch (kind)
+    {
+        case schema_field_kind::object_id:
+        case schema_field_kind::hash_hex:
+        case schema_field_kind::token_hash:
+            return byte_count <= maximum / 2u ? std::optional<std::size_t>(byte_count * 2u) : std::nullopt;
+        case schema_field_kind::ethereum_address:
+            return byte_count <= (maximum - 2u) / 2u
+                ? std::optional<std::size_t>(byte_count * 2u + 2u)
+                : std::nullopt;
+        default: return std::nullopt;
+    }
 }
 
 std::size_t DecimalPrecision(const std::array<std::byte, 16>& coefficient)
@@ -230,6 +307,14 @@ value_validation_failure validate_semantic_storage_value(
                 return Failure("value.json_invalid", "JSON text must contain one valid JSON value.");
         }
     }
+    if (kind == semantic_type_kind::blob)
+    {
+        const auto* bytes = std::get_if<storage_blob>(&value);
+        if (bytes == nullptr)
+            return Failure("value.blob_type_mismatch", "Blob value has the wrong storage type.");
+        if (fixed_size != 0u && bytes->size() != fixed_size)
+            return Failure("value.blob_size_mismatch", "Fixed-width blob has the wrong byte length.");
+    }
     if (kind == semantic_type_kind::fixed_id)
     {
         const auto* bytes = std::get_if<storage_blob>(&value);
@@ -250,6 +335,8 @@ value_validation_failure validate_semantic_storage_value(
 value_validation_failure validate_storage_check(
     const storage_value& value,
     check_kind kind,
+    schema_field_kind field_kind,
+    check_unit unit,
     std::string_view expected,
     std::string_view message
 )
@@ -306,8 +393,41 @@ value_validation_failure validate_storage_check(
         {
             const auto bound = ParseInteger<std::size_t>(expected);
             std::optional<std::size_t> size;
-            if (const auto* text = std::get_if<std::string>(&value)) size = text->size();
-            if (const auto* bytes = std::get_if<storage_blob>(&value)) size = bytes->size();
+            bool unit_compatible = false;
+            if (const auto* text = std::get_if<std::string>(&value))
+            {
+                if (unit == check_unit::none)
+                {
+                    unit_compatible = true;
+                    size = Utf8ScalarLength(*text);
+                    if (!size.has_value())
+                        return Failure("value.text_utf8_invalid", "Text length requires valid UTF-8.", message);
+                }
+                else if (unit == check_unit::utf8_bytes)
+                {
+                    unit_compatible = true;
+                    size = text->size();
+                }
+            }
+            if (const auto* bytes = std::get_if<storage_blob>(&value); bytes != nullptr)
+            {
+                if (unit == check_unit::bytes && field_kind == schema_field_kind::blob)
+                {
+                    unit_compatible = true;
+                    size = bytes->size();
+                }
+                else if (unit == check_unit::none || unit == check_unit::utf8_bytes)
+                {
+                    size = LogicalTextLength(field_kind, bytes->size());
+                    unit_compatible = size.has_value();
+                }
+            }
+            if (!unit_compatible)
+                return Failure(
+                    "value.length_check_unit_mismatch",
+                    "Length-check unit is incompatible with the stored value.",
+                    message
+                );
             const bool passes = bound.has_value() && size.has_value() &&
                 (kind == check_kind::minimum_length ? *size >= *bound :
                  kind == check_kind::maximum_length ? *size <= *bound : *size == *bound);
