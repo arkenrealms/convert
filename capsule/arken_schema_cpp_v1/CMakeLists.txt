@@ -133,4 +133,16 @@ if(BUILD_TESTING)
         )
         gtest_discover_tests(arken-schema-cpp-v1-generated-tests DISCOVERY_TIMEOUT 30)
     endif()
+
+    if(TARGET arken-schema-cpp-v1-codegen)
+        add_test(
+            NAME ArkenSchemaCppV1.CodegenOverwriteGuard
+            COMMAND
+                ${CMAKE_COMMAND}
+                -DCODEGEN=$<TARGET_FILE:arken-schema-cpp-v1-codegen>
+                -DSCHEMA=${CMAKE_CURRENT_LIST_DIR}/../arken_chat_v1/schema/chat_v1.arken-schema
+                -DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/codegen-overwrite-guard
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/codegen_overwrite_guard_test.cmake
+        )
+    endif()
 endif()
