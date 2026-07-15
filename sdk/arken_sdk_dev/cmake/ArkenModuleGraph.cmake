@@ -66,12 +66,7 @@ function(_arken_visit_module module_key)
 
     _arken_manifest_array_to_list(_public_dependencies "${_manifest_json}" "public_dependencies")
     _arken_manifest_array_to_list(_private_dependencies "${_manifest_json}" "private_dependencies")
-    set(_module_dependencies ${_public_dependencies} ${_private_dependencies})
-    if(BUILD_TESTING)
-        _arken_manifest_array_to_list(_test_dependencies "${_manifest_json}" "test_dependencies")
-        list(APPEND _module_dependencies ${_test_dependencies})
-    endif()
-    foreach(_dependency IN LISTS _module_dependencies)
+    foreach(_dependency IN LISTS _public_dependencies _private_dependencies)
         _arken_visit_module("${_dependency}")
     endforeach()
 
