@@ -12,6 +12,8 @@
 #include <utility>
 #include <vector>
 
+#include "arken_schema_cpp_v1/type_concepts.hpp"
+
 namespace arken::schema::cpp::v1
 {
 template <typename Value, std::uint32_t SemanticTypeId>
@@ -138,12 +140,12 @@ template <typename Token>
 concept field_token_type = requires {
     typename Token::model_type;
     typename Token::value_type;
-    { Token::model_type_id } -> std::convertible_to<std::uint32_t>;
-    { Token::field_id } -> std::convertible_to<std::uint32_t>;
-    { Token::operator_mask } -> std::convertible_to<query_operator_mask>;
-    { Token::sortable } -> std::convertible_to<bool>;
-    { Token::cursor } -> std::convertible_to<bool>;
-    { Token::supports(query_operator::equal) } -> std::convertible_to<bool>;
+    { Token::model_type_id } -> type_concepts::convertible_to<std::uint32_t>;
+    { Token::field_id } -> type_concepts::convertible_to<std::uint32_t>;
+    { Token::operator_mask } -> type_concepts::convertible_to<query_operator_mask>;
+    { Token::sortable } -> type_concepts::convertible_to<bool>;
+    { Token::cursor } -> type_concepts::convertible_to<bool>;
+    { Token::supports(query_operator::equal) } -> type_concepts::convertible_to<bool>;
 };
 
 template <field_token_type Token>
@@ -237,7 +239,7 @@ struct query_surface
     using model_type = Model;
     using field_tokens = std::tuple<Tokens...>;
 
-    static_assert((std::same_as<typename Tokens::model_type, Model> && ...));
+    static_assert((type_concepts::same_as<typename Tokens::model_type, Model> && ...));
 };
 
 enum class semantic_type_kind : std::uint8_t
@@ -677,17 +679,17 @@ template <typename Token>
 concept command_token_type = requires(Token token) {
     typename Token::request_type;
     typename Token::response_type;
-    { Token::command_id } -> std::convertible_to<std::uint32_t>;
-    { token.contract } -> std::convertible_to<schema_contract_ref>;
-    { token.descriptor } -> std::convertible_to<const command_descriptor*>;
+    { Token::command_id } -> type_concepts::convertible_to<std::uint32_t>;
+    { token.contract } -> type_concepts::convertible_to<schema_contract_ref>;
+    { token.descriptor } -> type_concepts::convertible_to<const command_descriptor*>;
 };
 
 template <typename Token>
 concept event_token_type = requires(Token token) {
     typename Token::payload_type;
-    { Token::event_id } -> std::convertible_to<std::uint32_t>;
-    { token.contract } -> std::convertible_to<schema_contract_ref>;
-    { token.descriptor } -> std::convertible_to<const event_descriptor*>;
+    { Token::event_id } -> type_concepts::convertible_to<std::uint32_t>;
+    { token.contract } -> type_concepts::convertible_to<schema_contract_ref>;
+    { token.descriptor } -> type_concepts::convertible_to<const event_descriptor*>;
 };
 
 template <typename Value, std::size_t Size>

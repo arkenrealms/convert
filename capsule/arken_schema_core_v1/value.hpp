@@ -22,7 +22,20 @@ class Decimal128
     [[nodiscard]] std::size_t precision() const;
     [[nodiscard]] std::string ToString() const;
 
-    [[nodiscard]] auto operator<=>(const Decimal128&) const = default;
+    [[nodiscard]] bool operator==(const Decimal128& other) const noexcept
+    {
+        return coefficient_ == other.coefficient_ && scale_ == other.scale_;
+    }
+
+    [[nodiscard]] std::strong_ordering operator<=>(const Decimal128& other) const noexcept
+    {
+        for (std::size_t index = 0; index < coefficient_.size(); ++index)
+        {
+            if (coefficient_[index] < other.coefficient_[index]) return std::strong_ordering::less;
+            if (coefficient_[index] > other.coefficient_[index]) return std::strong_ordering::greater;
+        }
+        return scale_ <=> other.scale_;
+    }
 
   private:
     Decimal128(CoefficientBytes coefficient, std::int32_t scale);
