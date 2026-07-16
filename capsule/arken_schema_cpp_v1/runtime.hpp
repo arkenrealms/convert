@@ -1092,4 +1092,399 @@ struct schema_catalog_view
         return model == nullptr ? nullptr : model->find_relation(relation_name);
     }
 };
+
+struct schema_catalog_model_registry_entry
+{
+    const schema_catalog_view* source = nullptr;
+    const model_descriptor* model = nullptr;
+};
+
+struct schema_catalog_command_registry_entry
+{
+    const schema_catalog_view* source = nullptr;
+    const command_descriptor* command = nullptr;
+};
+
+struct schema_catalog_event_registry_entry
+{
+    const schema_catalog_view* source = nullptr;
+    const event_descriptor* event = nullptr;
+};
+
+enum class schema_model_name_index_kind : std::uint8_t
+{
+    qualified_name = 0,
+    catalog_model_id = 1,
+    storage_name = 2,
+};
+
+[[nodiscard]] constexpr bool schema_registry_contains_source(
+    std::span<const schema_catalog_view* const> sources,
+    const schema_catalog_view* candidate
+) noexcept
+{
+    for (const auto* source : sources)
+        if (source == candidate) return true;
+    return false;
+}
+
+[[nodiscard]] constexpr bool schema_registry_model_index_valid(
+    std::span<const schema_catalog_model_registry_entry> models,
+    std::span<const name_index_entry> index,
+    schema_model_name_index_kind kind
+) noexcept
+{
+    std::size_t expected_size = 0;
+    for (const auto& entry : models)
+    {
+        if (entry.model == nullptr) return false;
+        std::string_view key;
+        switch (kind)
+        {
+        case schema_model_name_index_kind::qualified_name:
+            key = entry.model->qualified_name;
+            break;
+        case schema_model_name_index_kind::catalog_model_id:
+            key = entry.model->catalog_model_id;
+            break;
+        case schema_model_name_index_kind::storage_name:
+            key = entry.model->storage_name;
+            break;
+        }
+        if (!key.empty()) ++expected_size;
+    }
+    if (index.size() != expected_size) return false;
+
+    std::string_view previous;
+    for (std::size_t ordinal = 0; ordinal < index.size(); ++ordinal)
+    {
+        const auto& entry = index[ordinal];
+        if (entry.key.empty() || entry.ordinal >= models.size() ||
+            (ordinal != 0 && previous >= entry.key))
+        {
+            return false;
+        }
+        const auto* model = models[entry.ordinal].model;
+        if (model == nullptr) return false;
+        std::string_view expected;
+        switch (kind)
+        {
+        case schema_model_name_index_kind::qualified_name:
+            expected = model->qualified_name;
+            break;
+        case schema_model_name_index_kind::catalog_model_id:
+            expected = model->catalog_model_id;
+            break;
+        case schema_model_name_index_kind::storage_name:
+            expected = model->storage_name;
+            break;
+        }
+        if (entry.key != expected) return false;
+        previous = entry.key;
+    }
+    return true;
+}
+
+struct schema_catalog_registry_view
+{
+    std::string_view semantic_fingerprint;
+    std::string_view allocation_fingerprint;
+    std::span<const schema_catalog_view* const> sources;
+    std::span<const schema_catalog_view* const> model_sources;
+    std::span<const schema_catalog_model_registry_entry> models;
+    std::span<const name_index_entry> model_qualified_name_index;
+    std::span<const name_index_entry> model_catalog_id_index;
+    std::span<const name_index_entry> model_storage_name_index;
+    std::span<const schema_catalog_command_registry_entry> commands;
+    std::span<const schema_catalog_event_registry_entry> events;
+
+    [[nodiscard]] constexpr const schema_catalog_view* find_source(
+        std::string_view schema_name,
+        std::uint32_t schema_version
+    ) const noexcept
+    {
+        std::size_t begin = 0;
+        std::size_t end = sources.size();
+        while (begin < end)
+        {
+            const std::size_t middle = begin + (end - begin) / 2;
+            const auto* source = sources[middle];
+            if (source->schema_name < schema_name ||
+                (source->schema_name == schema_name &&
+                 source->schema_version < schema_version))
+            {
+                begin = middle + 1;
+            }
+            else
+            {
+                end = middle;
+            }
+        }
+        if (begin == sources.size() || sources[begin]->schema_name != schema_name ||
+            sources[begin]->schema_version != schema_version)
+        {
+            return nullptr;
+        }
+        return sources[begin];
+    }
+
+    [[nodiscard]] constexpr const schema_catalog_model_registry_entry* locate_model(
+        std::uint32_t type_id
+    ) const noexcept
+    {
+        std::size_t begin = 0;
+        std::size_t end = models.size();
+        while (begin < end)
+        {
+            const std::size_t middle = begin + (end - begin) / 2;
+            if (models[middle].model->type_id < type_id)
+                begin = middle + 1;
+            else
+                end = middle;
+        }
+        if (begin == models.size() || models[begin].model->type_id != type_id)
+            return nullptr;
+        return &models[begin];
+    }
+
+    [[nodiscard]] constexpr const model_descriptor* find_model(
+        std::uint32_t type_id
+    ) const noexcept
+    {
+        const auto* entry = locate_model(type_id);
+        return entry == nullptr ? nullptr : entry->model;
+    }
+
+    [[nodiscard]] constexpr const schema_catalog_model_registry_entry*
+    locate_model_by_qualified_name(std::string_view qualified_name) const noexcept
+    {
+        return find_named(models, model_qualified_name_index, qualified_name);
+    }
+
+    [[nodiscard]] constexpr const model_descriptor* find_model_by_qualified_name(
+        std::string_view qualified_name
+    ) const noexcept
+    {
+        const auto* entry = locate_model_by_qualified_name(qualified_name);
+        return entry == nullptr ? nullptr : entry->model;
+    }
+
+    [[nodiscard]] constexpr const schema_catalog_model_registry_entry*
+    locate_model_by_catalog_id(std::string_view catalog_model_id) const noexcept
+    {
+        return find_named(models, model_catalog_id_index, catalog_model_id);
+    }
+
+    [[nodiscard]] constexpr const model_descriptor* find_model_by_catalog_id(
+        std::string_view catalog_model_id
+    ) const noexcept
+    {
+        const auto* entry = locate_model_by_catalog_id(catalog_model_id);
+        return entry == nullptr ? nullptr : entry->model;
+    }
+
+    [[nodiscard]] constexpr const schema_catalog_model_registry_entry*
+    locate_model_by_storage_name(std::string_view storage_name) const noexcept
+    {
+        return find_named(models, model_storage_name_index, storage_name);
+    }
+
+    [[nodiscard]] constexpr const model_descriptor* find_model_by_storage_name(
+        std::string_view storage_name
+    ) const noexcept
+    {
+        const auto* entry = locate_model_by_storage_name(storage_name);
+        return entry == nullptr ? nullptr : entry->model;
+    }
+
+    [[nodiscard]] constexpr const command_descriptor* find_command_by_qualified_name(
+        std::string_view qualified_name
+    ) const noexcept
+    {
+        std::size_t begin = 0;
+        std::size_t end = commands.size();
+        while (begin < end)
+        {
+            const std::size_t middle = begin + (end - begin) / 2;
+            if (commands[middle].command->qualified_name < qualified_name)
+                begin = middle + 1;
+            else
+                end = middle;
+        }
+        if (begin == commands.size() ||
+            commands[begin].command->qualified_name != qualified_name)
+        {
+            return nullptr;
+        }
+        return commands[begin].command;
+    }
+
+    [[nodiscard]] constexpr const event_descriptor* find_event_by_qualified_name(
+        std::string_view qualified_name
+    ) const noexcept
+    {
+        std::size_t begin = 0;
+        std::size_t end = events.size();
+        while (begin < end)
+        {
+            const std::size_t middle = begin + (end - begin) / 2;
+            if (events[middle].event->qualified_name < qualified_name)
+                begin = middle + 1;
+            else
+                end = middle;
+        }
+        if (begin == events.size() ||
+            events[begin].event->qualified_name != qualified_name)
+        {
+            return nullptr;
+        }
+        return events[begin].event;
+    }
+
+    [[nodiscard]] constexpr const command_descriptor* find_command(
+        std::string_view schema_name,
+        std::uint32_t schema_version,
+        std::uint32_t command_id
+    ) const noexcept
+    {
+        const auto* source = find_source(schema_name, schema_version);
+        return source == nullptr ? nullptr : source->find_command(command_id);
+    }
+
+    [[nodiscard]] constexpr const event_descriptor* find_event(
+        std::string_view schema_name,
+        std::uint32_t schema_version,
+        std::uint32_t event_id
+    ) const noexcept
+    {
+        const auto* source = find_source(schema_name, schema_version);
+        return source == nullptr ? nullptr : source->find_event(event_id);
+    }
+
+    [[nodiscard]] constexpr bool valid() const noexcept
+    {
+        if (sources.empty() || semantic_fingerprint.empty() ||
+            allocation_fingerprint.empty())
+        {
+            return false;
+        }
+        std::size_t expected_command_count = 0;
+        std::size_t expected_event_count = 0;
+        for (std::size_t ordinal = 0; ordinal < sources.size(); ++ordinal)
+        {
+            const auto* source = sources[ordinal];
+            if (source == nullptr || source->schema_name.empty() ||
+                source->schema_version == 0 || source->semantic_fingerprint.empty() ||
+                source->allocation_fingerprint.empty())
+            {
+                return false;
+            }
+            if (ordinal != 0)
+            {
+                const auto* previous = sources[ordinal - 1];
+                if (previous->schema_name > source->schema_name ||
+                    (previous->schema_name == source->schema_name &&
+                     previous->schema_version >= source->schema_version))
+                {
+                    return false;
+                }
+            }
+            expected_command_count += source->commands.size();
+            expected_event_count += source->events.size();
+        }
+
+        std::uint32_t previous_type_id = 0;
+        std::size_t expected_model_count = 0;
+        for (std::size_t ordinal = 0; ordinal < model_sources.size(); ++ordinal)
+        {
+            const auto* source = model_sources[ordinal];
+            if (source == nullptr ||
+                !schema_registry_contains_source(sources, source))
+            {
+                return false;
+            }
+            if (ordinal != 0)
+            {
+                const auto* previous = model_sources[ordinal - 1];
+                if (previous->schema_name > source->schema_name ||
+                    (previous->schema_name == source->schema_name &&
+                     previous->schema_version >= source->schema_version))
+                {
+                    return false;
+                }
+            }
+            expected_model_count += source->models.size();
+        }
+        if (models.size() != expected_model_count ||
+            commands.size() != expected_command_count ||
+            events.size() != expected_event_count)
+        {
+            return false;
+        }
+
+        for (std::size_t ordinal = 0; ordinal < models.size(); ++ordinal)
+        {
+            const auto& entry = models[ordinal];
+            if (entry.source == nullptr || entry.model == nullptr ||
+                !schema_registry_contains_source(model_sources, entry.source) ||
+                entry.source->find_model(entry.model->type_id) != entry.model ||
+                entry.model->type_id == 0 ||
+                (ordinal != 0 && previous_type_id >= entry.model->type_id))
+            {
+                return false;
+            }
+            previous_type_id = entry.model->type_id;
+        }
+        if (!schema_registry_model_index_valid(
+                models,
+                model_qualified_name_index,
+                schema_model_name_index_kind::qualified_name
+            ) ||
+            !schema_registry_model_index_valid(
+                models,
+                model_catalog_id_index,
+                schema_model_name_index_kind::catalog_model_id
+            ) ||
+            !schema_registry_model_index_valid(
+                models,
+                model_storage_name_index,
+                schema_model_name_index_kind::storage_name
+            ))
+        {
+            return false;
+        }
+
+        std::string_view previous_command_name;
+        for (std::size_t ordinal = 0; ordinal < commands.size(); ++ordinal)
+        {
+            const auto& entry = commands[ordinal];
+            if (entry.source == nullptr || entry.command == nullptr ||
+                !schema_registry_contains_source(sources, entry.source) ||
+                entry.source->find_command(entry.command->command_id) != entry.command ||
+                entry.command->qualified_name.empty() ||
+                (ordinal != 0 &&
+                 previous_command_name >= entry.command->qualified_name))
+            {
+                return false;
+            }
+            previous_command_name = entry.command->qualified_name;
+        }
+
+        std::string_view previous_event_name;
+        for (std::size_t ordinal = 0; ordinal < events.size(); ++ordinal)
+        {
+            const auto& entry = events[ordinal];
+            if (entry.source == nullptr || entry.event == nullptr ||
+                !schema_registry_contains_source(sources, entry.source) ||
+                entry.source->find_event(entry.event->event_id) != entry.event ||
+                entry.event->qualified_name.empty() ||
+                (ordinal != 0 && previous_event_name >= entry.event->qualified_name))
+            {
+                return false;
+            }
+            previous_event_name = entry.event->qualified_name;
+        }
+        return true;
+    }
+};
 }

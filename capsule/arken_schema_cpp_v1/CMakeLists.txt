@@ -54,6 +54,7 @@ if(EMSCRIPTEN OR ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
 else()
     add_library(arken_schema_cpp_v1 STATIC
         src/generator.cpp
+        src/generator_registry.cpp
         src/generator_wire_names.cpp
     )
     target_include_directories(arken_schema_cpp_v1 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
