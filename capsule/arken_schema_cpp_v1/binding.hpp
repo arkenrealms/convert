@@ -102,7 +102,7 @@ struct field_update
 
     [[nodiscard]] static field_update set_null() requires(Nullable)
     {
-        return {.state = field_update_state::null_value};
+        return {.state = field_update_state::null_value, .payload = {}};
     }
 
     [[nodiscard]] bool changed() const { return state != field_update_state::unchanged; }
@@ -220,9 +220,23 @@ struct decimal_traits<decimal128_value<Precision, Scale, SemanticTypeId>>
 };
 
 template <typename Value>
+[[nodiscard]] value_decode_result<Value> DecodeSuccess(Value value)
+{
+    return {
+        .value = std::move(value),
+        .code = {},
+        .message = {},
+    };
+}
+
+template <typename Value>
 [[nodiscard]] value_decode_result<Value> DecodeFailure(std::string code, std::string message)
 {
-    return {.code = std::move(code), .message = std::move(message)};
+    return {
+        .value = std::nullopt,
+        .code = std::move(code),
+        .message = std::move(message),
+    };
 }
 }
 
@@ -235,13 +249,14 @@ template <typename SemanticValue>
         if constexpr (type_concepts::same_as<underlying, bool>)
         {
             const auto* decoded = std::get_if<bool>(&value);
-            if (decoded != nullptr) return {.value = SemanticValue{*decoded}};
+            if (decoded != nullptr) return detail::DecodeSuccess(SemanticValue{*decoded});
         }
         else if constexpr (
             type_concepts::unsigned_integral<underlying> && sizeof(underlying) == sizeof(std::uint64_t))
         {
             const auto* decoded = std::get_if<std::uint64_t>(&value);
-            if (decoded != nullptr) return {.value = SemanticValue{static_cast<underlying>(*decoded)}};
+            if (decoded != nullptr)
+                return detail::DecodeSuccess(SemanticValue{static_cast<underlying>(*decoded)});
         }
         else if constexpr (type_concepts::unsigned_integral<underlying>)
         {
@@ -249,7 +264,7 @@ template <typename SemanticValue>
             if (decoded != nullptr && *decoded >= 0 &&
                 static_cast<std::uint64_t>(*decoded) <= std::numeric_limits<underlying>::max())
             {
-                return {.value = SemanticValue{static_cast<underlying>(*decoded)}};
+                return detail::DecodeSuccess(SemanticValue{static_cast<underlying>(*decoded)});
             }
         }
         else if constexpr (type_concepts::signed_integral<underlying>)
@@ -258,7 +273,7 @@ template <typename SemanticValue>
             if (decoded != nullptr && *decoded >= std::numeric_limits<underlying>::min() &&
                 *decoded <= std::numeric_limits<underlying>::max())
             {
-                return {.value = SemanticValue{static_cast<underlying>(*decoded)}};
+                return detail::DecodeSuccess(SemanticValue{static_cast<underlying>(*decoded)});
             }
         }
         else if constexpr (type_concepts::floating_point<underlying>)
@@ -270,24 +285,25 @@ template <typename SemanticValue>
                 if constexpr (type_concepts::same_as<underlying, float>)
                 {
                     if (static_cast<double>(narrowed) == *decoded)
-                        return {.value = SemanticValue{narrowed}};
+                        return detail::DecodeSuccess(SemanticValue{narrowed});
                 }
                 else
                 {
-                    return {.value = SemanticValue{narrowed}};
+                    return detail::DecodeSuccess(SemanticValue{narrowed});
                 }
             }
         }
         else if constexpr (type_concepts::same_as<underlying, std::string>)
         {
             const auto* decoded = std::get_if<std::string>(&value);
-            if (decoded != nullptr) return {.value = SemanticValue{*decoded}};
+            if (decoded != nullptr) return detail::DecodeSuccess(SemanticValue{*decoded});
         }
         else if constexpr (type_concepts::same_as<underlying, std::vector<std::byte>>)
         {
             const auto* decoded = std::get_if<storage_blob>(&value);
             if (decoded != nullptr)
-                return {.value = SemanticValue{std::vector<std::byte>(decoded->begin(), decoded->end())}};
+                return detail::DecodeSuccess(
+                    SemanticValue{std::vector<std::byte>(decoded->begin(), decoded->end())});
         }
         return detail::DecodeFailure<SemanticValue>(
             "storage.type_mismatch",
@@ -306,7 +322,7 @@ template <typename SemanticValue>
         }
         typename SemanticValue::value_type bytes{};
         std::copy(decoded->begin(), decoded->end(), bytes.begin());
-        return {.value = SemanticValue{std::move(bytes)}};
+        return detail::DecodeSuccess(SemanticValue{std::move(bytes)});
     }
     else if constexpr (detail::decimal_traits<SemanticValue>::value)
     {
@@ -318,7 +334,7 @@ template <typename SemanticValue>
                 "Stored Decimal128 value has the wrong fixed scale."
             );
         }
-        return {.value = SemanticValue{decoded->coefficient}};
+        return detail::DecodeSuccess(SemanticValue{decoded->coefficient});
     }
     else if constexpr (std::is_enum_v<SemanticValue>)
     {
@@ -341,7 +357,7 @@ template <typename SemanticValue>
             const auto decoded = arken_schema_enum_from_storage_name(
                 static_cast<SemanticValue*>(nullptr), *text
             );
-            if (decoded.has_value()) return {.value = *decoded};
+            if (decoded.has_value()) return detail::DecodeSuccess(*decoded);
             return detail::DecodeFailure<SemanticValue>(
                 "storage.enum_domain_mismatch",
                 "Stored enum text is outside the generated canonical domain."
@@ -355,7 +371,8 @@ template <typename SemanticValue>
                 static_cast<std::uint64_t>(*decoded) <=
                     std::numeric_limits<underlying>::max())
             {
-                return {.value = static_cast<SemanticValue>(static_cast<underlying>(*decoded))};
+                return detail::DecodeSuccess(
+                    static_cast<SemanticValue>(static_cast<underlying>(*decoded)));
             }
             return detail::DecodeFailure<SemanticValue>(
                 "storage.enum_value_mismatch",
@@ -424,6 +441,7 @@ struct typed_query_where
             .field_id = Token::field_id,
             .field_name = predicate.field.name,
             .operation = predicate.operation,
+            .values = {},
         };
         filter.values.reserve(predicate.values.size());
         for (const auto& item : predicate.values)
@@ -500,6 +518,7 @@ struct typed_query_options
         }
         erased_query_cursor erased{
             .sort = *sort,
+            .values = {},
         };
         erased.values.push_back({
             .field_id = Token::field_id,
