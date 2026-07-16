@@ -1,9 +1,10 @@
 {
   "name": "Arken Schema C++ V1",
   "key": "arken_schema_cpp_v1",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "public_dependencies": [
-    "arken_schema_idl_v1"
+    "arken_schema_idl_v1",
+    "arken_schema_core_v1"
   ],
   "private_dependencies": [],
   "test_dependencies": [],
@@ -23,6 +24,8 @@
     "closed_union_types",
     "model_scoped_validation_results",
     "constexpr_runtime_schema_catalogs",
+    "core_owned_catalog_view_traits",
+    "strong_registry_descriptor_ids",
     "compile_time_cross_fragment_schema_registries",
     "allocation_free_cross_fragment_descriptor_lookup",
     "immutable_field_model_relation_descriptors",

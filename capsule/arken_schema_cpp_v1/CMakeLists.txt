@@ -41,6 +41,7 @@ target_include_directories(arken_schema_cpp_v1_runtime
         ${ARKEN_NATIVE_GENERATED_DIR}
 )
 target_compile_features(arken_schema_cpp_v1_runtime PUBLIC cxx_std_20)
+target_link_libraries(arken_schema_cpp_v1_runtime PUBLIC arken_schema_core_v1)
 
 if(ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET)
     target_link_libraries(arken_schema_cpp_v1_runtime
@@ -153,7 +154,8 @@ if(BUILD_TESTING AND NOT ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
             COMMAND
                 ${CMAKE_COMMAND}
                 -DCODEGEN=$<TARGET_FILE:arken-schema-cpp-v1-codegen>
-                -DSCHEMA=${CMAKE_CURRENT_LIST_DIR}/../arken_chat_v1/schema/chat_v1.arken-schema
+                -DSCHEMA=${CMAKE_CURRENT_LIST_DIR}/../arken_schema_compiler_v1/tests/fixtures/account.arken-schema
+                -DCOMMON_SCHEMA=${CMAKE_CURRENT_LIST_DIR}/../arken_schema_compiler_v1/tests/fixtures/common.arken-schema
                 -DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/codegen-overwrite-guard
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/codegen_overwrite_guard_test.cmake
         )

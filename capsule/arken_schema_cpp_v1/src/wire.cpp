@@ -45,7 +45,7 @@ struct varuint32_result
 void AddIssue(
     std::vector<wire_issue>& issues,
     const wire_message_descriptor& descriptor,
-    std::uint32_t field_tag,
+    schema_core::FieldId field_tag,
     std::size_t offset,
     std::string code,
     std::string message
@@ -296,7 +296,7 @@ std::optional<storage_value> NumericEnumWireValue(
             return candidate.name == *storage_name;
         });
     if (found != field.enum_values.end())
-        return storage_value{static_cast<std::int64_t>(found->value_id)};
+        return storage_value{static_cast<std::int64_t>(found->value_id.value)};
     AddIssue(
         issues,
         message,
@@ -448,7 +448,9 @@ std::optional<storage_value> DecodePayload(
             const auto found = std::find_if(
                 field.enum_values.begin(),
                 field.enum_values.end(),
-                [value](const auto& candidate) { return candidate.value_id == value; }
+                [value](const auto& candidate) {
+                    return candidate.value_id.value == value;
+                }
             );
             if (found != field.enum_values.end()) return storage_value{std::string(found->name)};
             AddIssue(issues, message, field.field_tag, offset, "wire.enum_domain",
@@ -555,7 +557,7 @@ void ValidateOneOfs(
             continue;
         }
         const auto variant = std::find_if(one_of.variants.begin(), one_of.variants.end(), [&](const auto& candidate) {
-            return candidate.tag_value_id == static_cast<std::uint64_t>(*value);
+            return candidate.tag_value_id.value == static_cast<std::uint64_t>(*value);
         });
         if (variant == one_of.variants.end())
         {
@@ -567,23 +569,26 @@ void ValidateOneOfs(
         std::set<std::uint32_t> selected_fields;
         for (const auto& field : variant->fields)
         {
-            selected_fields.insert(field.field_id);
-            if (!counts.contains(field.field_id))
+            selected_fields.insert(field.field_id.value);
+            if (!counts.contains(field.field_id.value))
                 AddIssue(issues, descriptor, field.field_id, 0, "wire.one_of_field_missing",
                          "Wire one_of selected variant is missing a required field.");
         }
-        for (const auto& field : variant->optional_fields) selected_fields.insert(field.field_id);
+        for (const auto& field : variant->optional_fields)
+            selected_fields.insert(field.field_id.value);
         for (const auto& candidate : one_of.variants)
         {
             for (const auto& field : candidate.fields)
             {
-                if (counts.contains(field.field_id) && !selected_fields.contains(field.field_id))
+                if (counts.contains(field.field_id.value) &&
+                    !selected_fields.contains(field.field_id.value))
                     AddIssue(issues, descriptor, field.field_id, 0, "wire.one_of_field_conflict",
                              "Wire one_of contains a field from an unselected variant.");
             }
             for (const auto& field : candidate.optional_fields)
             {
-                if (counts.contains(field.field_id) && !selected_fields.contains(field.field_id))
+                if (counts.contains(field.field_id.value) &&
+                    !selected_fields.contains(field.field_id.value))
                     AddIssue(issues, descriptor, field.field_id, 0, "wire.one_of_field_conflict",
                              "Wire one_of contains a field from an unselected variant.");
             }
@@ -601,7 +606,7 @@ void ValidateRequiredFields(
     {
         if (field.serialization == serialization_policy::include &&
             field.cardinality == field_cardinality::required_one &&
-            !counts.contains(field.field_tag))
+            !counts.contains(field.field_tag.value))
         {
             AddIssue(issues, descriptor, field.field_tag, 0, "wire.required_field_missing",
                      "Wire message is missing a required field.");

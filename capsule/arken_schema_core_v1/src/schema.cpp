@@ -253,6 +253,32 @@ void AddWarning(
     });
 }
 
+void AppendCatalogViewValidation(
+    ValidationResult& result,
+    const catalog_view_validation_result& validation
+)
+{
+    for (const auto& diagnostic : validation.errors)
+    {
+        const bool already_reported = std::any_of(
+            result.errors.begin(),
+            result.errors.end(),
+            [&diagnostic](const ValidationDiagnostic& existing) {
+                return existing.code == diagnostic.code &&
+                    existing.modelId == diagnostic.model_id;
+            }
+        );
+        if (already_reported) continue;
+        AddError(
+            result,
+            diagnostic.code,
+            diagnostic.model_id,
+            diagnostic.path,
+            diagnostic.message
+        );
+    }
+}
+
 json DiagnosticJson(const ValidationDiagnostic& diagnostic)
 {
     return {
@@ -2215,6 +2241,9 @@ ValidationResult ValidateCatalog(const SchemaCatalog& catalog)
             AddError(result, "retired_model_name_reused", {}, "retiredNames", "Retired model names cannot be reused by an active canonical name.");
         }
     }
+    catalog_identity_storage identity_storage;
+    const auto identity_view = BuildCatalogIdentityView(catalog, identity_storage);
+    AppendCatalogViewValidation(result, ValidateCatalogView(identity_view));
     return result;
 }
 

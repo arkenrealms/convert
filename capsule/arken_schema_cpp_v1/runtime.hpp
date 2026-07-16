@@ -12,10 +12,21 @@
 #include <utility>
 #include <vector>
 
+#include "arken_schema_core_v1/catalog_view.hpp"
 #include "arken_schema_cpp_v1/type_concepts.hpp"
 
 namespace arken::schema::cpp::v1
 {
+namespace schema_core = ::arken::schema::core::v1;
+
+using numeric_index_entry = schema_core::numeric_index_entry;
+using name_index_entry = schema_core::name_index_entry;
+using schema_contract_ref = schema_core::schema_contract_ref;
+using schema_core::descriptor_slice;
+using schema_core::descriptor_span;
+using schema_core::find_named;
+using schema_core::find_numeric;
+
 template <typename Value, std::uint32_t SemanticTypeId>
 struct strong_value
 {
@@ -549,32 +560,9 @@ enum class name_review_status : std::uint8_t
     approved_exception = 2,
 };
 
-struct numeric_index_entry
-{
-    std::uint32_t key = 0;
-    std::uint32_t ordinal = 0;
-};
-
-struct name_index_entry
-{
-    std::string_view key;
-    std::uint32_t ordinal = 0;
-};
-
 struct no_payload
 {
     [[nodiscard]] bool operator==(const no_payload&) const = default;
-};
-
-struct schema_contract_ref
-{
-    std::string_view schema_name;
-    std::uint32_t schema_version = 0;
-    std::string_view owner_capsule;
-    std::string_view semantic_fingerprint;
-    std::string_view allocation_fingerprint;
-
-    [[nodiscard]] bool operator==(const schema_contract_ref&) const = default;
 };
 
 enum class operation_target_profile : std::uint8_t
@@ -595,7 +583,7 @@ using operation_target_mask = std::uint8_t;
 
 struct model_reference_descriptor
 {
-    std::uint32_t model_type_id = 0;
+    schema_core::ModelTypeId model_type_id;
     std::string_view qualified_name;
 
     [[nodiscard]] bool operator==(const model_reference_descriptor&) const = default;
@@ -613,7 +601,7 @@ struct fabric_operation_descriptor
 
 struct command_descriptor
 {
-    std::uint32_t command_id = 0;
+    schema_core::CommandId command_id;
     std::string_view name;
     std::string_view qualified_name;
     std::string_view owner_capsule;
@@ -635,7 +623,7 @@ struct command_descriptor
 
 struct event_descriptor
 {
-    std::uint32_t event_id = 0;
+    schema_core::EventId event_id;
     std::string_view name;
     std::string_view qualified_name;
     std::string_view owner_capsule;
@@ -692,83 +680,15 @@ concept event_token_type = requires(Token token) {
     { token.descriptor } -> type_concepts::convertible_to<const event_descriptor*>;
 };
 
-template <typename Value, std::size_t Size>
-[[nodiscard]] constexpr std::span<const Value> descriptor_span(
-    const std::array<Value, Size>& values
-) noexcept
-{
-    return {values.data(), values.size()};
-}
-
-template <typename Value, std::size_t Size>
-[[nodiscard]] constexpr std::span<const Value> descriptor_slice(
-    const std::array<Value, Size>& values,
-    std::size_t offset,
-    std::size_t count
-) noexcept
-{
-    return descriptor_span(values).subspan(offset, count);
-}
-
-template <typename Value>
-[[nodiscard]] constexpr const Value* find_numeric(
-    std::span<const Value> values,
-    std::span<const numeric_index_entry> index,
-    std::uint32_t key
-) noexcept
-{
-    std::size_t begin = 0;
-    std::size_t end = index.size();
-    while (begin < end)
-    {
-        const std::size_t middle = begin + (end - begin) / 2;
-        if (index[middle].key < key)
-            begin = middle + 1;
-        else
-            end = middle;
-    }
-    if (begin == index.size() || index[begin].key != key ||
-        index[begin].ordinal >= values.size())
-    {
-        return nullptr;
-    }
-    return &values[index[begin].ordinal];
-}
-
-template <typename Value>
-[[nodiscard]] constexpr const Value* find_named(
-    std::span<const Value> values,
-    std::span<const name_index_entry> index,
-    std::string_view key
-) noexcept
-{
-    std::size_t begin = 0;
-    std::size_t end = index.size();
-    while (begin < end)
-    {
-        const std::size_t middle = begin + (end - begin) / 2;
-        if (index[middle].key < key)
-            begin = middle + 1;
-        else
-            end = middle;
-    }
-    if (begin == index.size() || index[begin].key != key ||
-        index[begin].ordinal >= values.size())
-    {
-        return nullptr;
-    }
-    return &values[index[begin].ordinal];
-}
-
 struct field_reference_descriptor
 {
-    std::uint32_t field_id = 0;
+    schema_core::FieldId field_id;
     std::string_view canonical_name;
 };
 
 struct enum_value_descriptor
 {
-    std::uint32_t value_id = 0;
+    schema_core::EnumValueId value_id;
     std::string_view name;
 };
 
@@ -785,11 +705,11 @@ struct check_descriptor
 
 struct field_descriptor
 {
-    std::uint32_t model_type_id = 0;
-    std::uint32_t field_id = 0;
-    std::uint32_t semantic_type_id = 0;
-    std::uint32_t wire_type_id = 0;
-    std::uint32_t storage_codec_id = 0;
+    schema_core::ModelTypeId model_type_id;
+    schema_core::FieldId field_id;
+    schema_core::SemanticTypeId semantic_type_id;
+    schema_core::WireTypeId wire_type_id;
+    schema_core::StorageCodecId storage_codec_id;
     std::uint32_t semantic_fixed_size = 0;
     std::uint32_t wire_fixed_size = 0;
     std::uint32_t precision = 0;
@@ -849,8 +769,8 @@ struct index_descriptor
 
 struct relation_descriptor
 {
-    std::uint32_t source_model_type_id = 0;
-    std::uint32_t target_model_type_id = 0;
+    schema_core::ModelTypeId source_model_type_id;
+    schema_core::ModelTypeId target_model_type_id;
     std::string_view name;
     std::string_view target_qualified_name;
     std::span<const field_reference_descriptor> source_fields;
@@ -863,7 +783,7 @@ struct relation_descriptor
 struct join_descriptor
 {
     std::string_view name;
-    std::uint32_t through_model_type_id = 0;
+    schema_core::ModelTypeId through_model_type_id;
     std::string_view through_qualified_name;
     std::string_view source_relation;
     std::string_view target_relation;
@@ -872,7 +792,7 @@ struct join_descriptor
 struct one_of_variant_descriptor
 {
     std::string_view tag;
-    std::uint32_t tag_value_id = 0;
+    schema_core::EnumValueId tag_value_id;
     std::span<const field_reference_descriptor> fields;
     std::span<const field_reference_descriptor> optional_fields;
 };
@@ -886,10 +806,10 @@ struct one_of_descriptor
 
 struct wire_field_descriptor
 {
-    std::uint32_t model_type_id = 0;
-    std::uint32_t field_tag = 0;
-    std::uint32_t semantic_type_id = 0;
-    std::uint32_t wire_type_id = 0;
+    schema_core::ModelTypeId model_type_id;
+    schema_core::FieldId field_tag;
+    schema_core::SemanticTypeId semantic_type_id;
+    schema_core::WireTypeId wire_type_id;
     std::uint32_t fixed_size = 0;
     std::uint32_t scale = 0;
     std::string_view name;
@@ -907,7 +827,7 @@ struct wire_field_descriptor
 
 struct wire_message_descriptor
 {
-    std::uint32_t model_type_id = 0;
+    schema_core::ModelTypeId model_type_id;
     std::string_view name;
     std::string_view qualified_name;
     std::span<const wire_field_descriptor> fields;
@@ -915,16 +835,16 @@ struct wire_message_descriptor
     std::span<const numeric_index_entry> field_tag_index;
 
     [[nodiscard]] constexpr const wire_field_descriptor* find_field(
-        std::uint32_t field_tag
+        schema_core::FieldId field_tag
     ) const noexcept
     {
-        return find_numeric(fields, field_tag_index, field_tag);
+        return find_numeric(fields, field_tag_index, field_tag.value);
     }
 };
 
 struct model_descriptor
 {
-    std::uint32_t type_id = 0;
+    schema_core::ModelTypeId type_id;
     std::string_view name;
     std::string_view storage_name;
     std::string_view qualified_name;
@@ -956,9 +876,11 @@ struct model_descriptor
     std::string_view catalog_qualified_name;
     std::uint32_t catalog_declaration_order = 0;
 
-    [[nodiscard]] constexpr const field_descriptor* find_field(std::uint32_t field_id) const noexcept
+    [[nodiscard]] constexpr const field_descriptor* find_field(
+        schema_core::FieldId field_id
+    ) const noexcept
     {
-        return find_numeric(fields, field_id_index, field_id);
+        return find_numeric(fields, field_id_index, field_id.value);
     }
 
     [[nodiscard]] constexpr const field_descriptor* find_field(std::string_view field_name) const noexcept
@@ -982,509 +904,27 @@ struct catalog_fragment_descriptor
     std::uint32_t declaration_order = 0;
 };
 
-struct schema_catalog_view
+struct schema_catalog_traits
 {
-    std::uint32_t idl_format_version = 0;
-    std::uint32_t edition = 0;
-    std::uint32_t schema_version = 0;
-    std::string_view source_path;
-    std::string_view schema_name;
-    std::string_view owner_capsule;
-    std::string_view semantic_fingerprint;
-    std::string_view allocation_fingerprint;
-    std::span<const field_descriptor> fields;
-    std::span<const relation_descriptor> relations;
-    std::span<const model_descriptor> models;
-    std::span<const wire_field_descriptor> wire_fields;
-    std::span<const wire_message_descriptor> wire_messages;
-    std::span<const command_descriptor> commands;
-    std::span<const event_descriptor> events;
-    std::span<const numeric_index_entry> model_id_index;
-    std::span<const name_index_entry> model_name_index;
-    std::span<const numeric_index_entry> wire_message_id_index;
-    std::span<const numeric_index_entry> command_id_index;
-    std::span<const name_index_entry> command_name_index;
-    std::span<const numeric_index_entry> event_id_index;
-    std::span<const name_index_entry> event_name_index;
-    std::string_view catalog_id;
-    std::uint32_t catalog_version = 0;
-    std::span<const catalog_fragment_descriptor> catalog_fragments;
-    [[nodiscard]] constexpr schema_contract_ref contract() const noexcept
-    {
-        return {
-            .schema_name = schema_name,
-            .schema_version = schema_version,
-            .owner_capsule = owner_capsule,
-            .semantic_fingerprint = semantic_fingerprint,
-            .allocation_fingerprint = allocation_fingerprint,
-        };
-    }
-
-    [[nodiscard]] constexpr const model_descriptor* find_model(std::uint32_t type_id) const noexcept
-    {
-        return find_numeric(models, model_id_index, type_id);
-    }
-
-    [[nodiscard]] constexpr const model_descriptor* find_model(std::string_view model_name) const noexcept
-    {
-        return find_named(models, model_name_index, model_name);
-    }
-
-    [[nodiscard]] constexpr const field_descriptor* find_field(
-        std::uint32_t model_type_id,
-        std::uint32_t field_id
-    ) const noexcept
-    {
-        const auto* model = find_model(model_type_id);
-        return model == nullptr ? nullptr : model->find_field(field_id);
-    }
-
-    [[nodiscard]] constexpr const wire_message_descriptor* find_wire_message(
-        std::uint32_t model_type_id
-    ) const noexcept
-    {
-        return find_numeric(wire_messages, wire_message_id_index, model_type_id);
-    }
-
-    [[nodiscard]] constexpr const command_descriptor* find_command(
-        std::uint32_t command_id
-    ) const noexcept
-    {
-        return find_numeric(commands, command_id_index, command_id);
-    }
-
-    [[nodiscard]] constexpr const command_descriptor* find_command(
-        std::string_view command_name
-    ) const noexcept
-    {
-        return find_named(commands, command_name_index, command_name);
-    }
-
-    [[nodiscard]] constexpr const event_descriptor* find_event(
-        std::uint32_t event_id
-    ) const noexcept
-    {
-        return find_numeric(events, event_id_index, event_id);
-    }
-
-    [[nodiscard]] constexpr const event_descriptor* find_event(
-        std::string_view event_name
-    ) const noexcept
-    {
-        return find_named(events, event_name_index, event_name);
-    }
-
-    [[nodiscard]] constexpr const field_descriptor* find_field(
-        std::uint32_t model_type_id,
-        std::string_view field_name
-    ) const noexcept
-    {
-        const auto* model = find_model(model_type_id);
-        return model == nullptr ? nullptr : model->find_field(field_name);
-    }
-
-    [[nodiscard]] constexpr const relation_descriptor* find_relation(
-        std::uint32_t model_type_id,
-        std::string_view relation_name
-    ) const noexcept
-    {
-        const auto* model = find_model(model_type_id);
-        return model == nullptr ? nullptr : model->find_relation(relation_name);
-    }
+    using field_descriptor_type = field_descriptor;
+    using relation_descriptor_type = relation_descriptor;
+    using model_descriptor_type = model_descriptor;
+    using wire_field_descriptor_type = wire_field_descriptor;
+    using wire_message_descriptor_type = wire_message_descriptor;
+    using command_descriptor_type = command_descriptor;
+    using event_descriptor_type = event_descriptor;
+    using catalog_fragment_descriptor_type = catalog_fragment_descriptor;
 };
 
-struct schema_catalog_model_registry_entry
-{
-    const schema_catalog_view* source = nullptr;
-    const model_descriptor* model = nullptr;
-};
-
-struct schema_catalog_command_registry_entry
-{
-    const schema_catalog_view* source = nullptr;
-    const command_descriptor* command = nullptr;
-};
-
-struct schema_catalog_event_registry_entry
-{
-    const schema_catalog_view* source = nullptr;
-    const event_descriptor* event = nullptr;
-};
-
-enum class schema_model_name_index_kind : std::uint8_t
-{
-    qualified_name = 0,
-    catalog_model_id = 1,
-    storage_name = 2,
-};
-
-[[nodiscard]] constexpr bool schema_registry_contains_source(
-    std::span<const schema_catalog_view* const> sources,
-    const schema_catalog_view* candidate
-) noexcept
-{
-    for (const auto* source : sources)
-        if (source == candidate) return true;
-    return false;
-}
-
-[[nodiscard]] constexpr bool schema_registry_model_index_valid(
-    std::span<const schema_catalog_model_registry_entry> models,
-    std::span<const name_index_entry> index,
-    schema_model_name_index_kind kind
-) noexcept
-{
-    std::size_t expected_size = 0;
-    for (const auto& entry : models)
-    {
-        if (entry.model == nullptr) return false;
-        std::string_view key;
-        switch (kind)
-        {
-        case schema_model_name_index_kind::qualified_name:
-            key = entry.model->qualified_name;
-            break;
-        case schema_model_name_index_kind::catalog_model_id:
-            key = entry.model->catalog_model_id;
-            break;
-        case schema_model_name_index_kind::storage_name:
-            key = entry.model->storage_name;
-            break;
-        }
-        if (!key.empty()) ++expected_size;
-    }
-    if (index.size() != expected_size) return false;
-
-    std::string_view previous;
-    for (std::size_t ordinal = 0; ordinal < index.size(); ++ordinal)
-    {
-        const auto& entry = index[ordinal];
-        if (entry.key.empty() || entry.ordinal >= models.size() ||
-            (ordinal != 0 && previous >= entry.key))
-        {
-            return false;
-        }
-        const auto* model = models[entry.ordinal].model;
-        if (model == nullptr) return false;
-        std::string_view expected;
-        switch (kind)
-        {
-        case schema_model_name_index_kind::qualified_name:
-            expected = model->qualified_name;
-            break;
-        case schema_model_name_index_kind::catalog_model_id:
-            expected = model->catalog_model_id;
-            break;
-        case schema_model_name_index_kind::storage_name:
-            expected = model->storage_name;
-            break;
-        }
-        if (entry.key != expected) return false;
-        previous = entry.key;
-    }
-    return true;
-}
-
-struct schema_catalog_registry_view
-{
-    std::string_view semantic_fingerprint;
-    std::string_view allocation_fingerprint;
-    std::span<const schema_catalog_view* const> sources;
-    std::span<const schema_catalog_view* const> model_sources;
-    std::span<const schema_catalog_model_registry_entry> models;
-    std::span<const name_index_entry> model_qualified_name_index;
-    std::span<const name_index_entry> model_catalog_id_index;
-    std::span<const name_index_entry> model_storage_name_index;
-    std::span<const schema_catalog_command_registry_entry> commands;
-    std::span<const schema_catalog_event_registry_entry> events;
-
-    [[nodiscard]] constexpr const schema_catalog_view* find_source(
-        std::string_view schema_name,
-        std::uint32_t schema_version
-    ) const noexcept
-    {
-        std::size_t begin = 0;
-        std::size_t end = sources.size();
-        while (begin < end)
-        {
-            const std::size_t middle = begin + (end - begin) / 2;
-            const auto* source = sources[middle];
-            if (source->schema_name < schema_name ||
-                (source->schema_name == schema_name &&
-                 source->schema_version < schema_version))
-            {
-                begin = middle + 1;
-            }
-            else
-            {
-                end = middle;
-            }
-        }
-        if (begin == sources.size() || sources[begin]->schema_name != schema_name ||
-            sources[begin]->schema_version != schema_version)
-        {
-            return nullptr;
-        }
-        return sources[begin];
-    }
-
-    [[nodiscard]] constexpr const schema_catalog_model_registry_entry* locate_model(
-        std::uint32_t type_id
-    ) const noexcept
-    {
-        std::size_t begin = 0;
-        std::size_t end = models.size();
-        while (begin < end)
-        {
-            const std::size_t middle = begin + (end - begin) / 2;
-            if (models[middle].model->type_id < type_id)
-                begin = middle + 1;
-            else
-                end = middle;
-        }
-        if (begin == models.size() || models[begin].model->type_id != type_id)
-            return nullptr;
-        return &models[begin];
-    }
-
-    [[nodiscard]] constexpr const model_descriptor* find_model(
-        std::uint32_t type_id
-    ) const noexcept
-    {
-        const auto* entry = locate_model(type_id);
-        return entry == nullptr ? nullptr : entry->model;
-    }
-
-    [[nodiscard]] constexpr const schema_catalog_model_registry_entry*
-    locate_model_by_qualified_name(std::string_view qualified_name) const noexcept
-    {
-        return find_named(models, model_qualified_name_index, qualified_name);
-    }
-
-    [[nodiscard]] constexpr const model_descriptor* find_model_by_qualified_name(
-        std::string_view qualified_name
-    ) const noexcept
-    {
-        const auto* entry = locate_model_by_qualified_name(qualified_name);
-        return entry == nullptr ? nullptr : entry->model;
-    }
-
-    [[nodiscard]] constexpr const schema_catalog_model_registry_entry*
-    locate_model_by_catalog_id(std::string_view catalog_model_id) const noexcept
-    {
-        return find_named(models, model_catalog_id_index, catalog_model_id);
-    }
-
-    [[nodiscard]] constexpr const model_descriptor* find_model_by_catalog_id(
-        std::string_view catalog_model_id
-    ) const noexcept
-    {
-        const auto* entry = locate_model_by_catalog_id(catalog_model_id);
-        return entry == nullptr ? nullptr : entry->model;
-    }
-
-    [[nodiscard]] constexpr const schema_catalog_model_registry_entry*
-    locate_model_by_storage_name(std::string_view storage_name) const noexcept
-    {
-        return find_named(models, model_storage_name_index, storage_name);
-    }
-
-    [[nodiscard]] constexpr const model_descriptor* find_model_by_storage_name(
-        std::string_view storage_name
-    ) const noexcept
-    {
-        const auto* entry = locate_model_by_storage_name(storage_name);
-        return entry == nullptr ? nullptr : entry->model;
-    }
-
-    [[nodiscard]] constexpr const command_descriptor* find_command_by_qualified_name(
-        std::string_view qualified_name
-    ) const noexcept
-    {
-        std::size_t begin = 0;
-        std::size_t end = commands.size();
-        while (begin < end)
-        {
-            const std::size_t middle = begin + (end - begin) / 2;
-            if (commands[middle].command->qualified_name < qualified_name)
-                begin = middle + 1;
-            else
-                end = middle;
-        }
-        if (begin == commands.size() ||
-            commands[begin].command->qualified_name != qualified_name)
-        {
-            return nullptr;
-        }
-        return commands[begin].command;
-    }
-
-    [[nodiscard]] constexpr const event_descriptor* find_event_by_qualified_name(
-        std::string_view qualified_name
-    ) const noexcept
-    {
-        std::size_t begin = 0;
-        std::size_t end = events.size();
-        while (begin < end)
-        {
-            const std::size_t middle = begin + (end - begin) / 2;
-            if (events[middle].event->qualified_name < qualified_name)
-                begin = middle + 1;
-            else
-                end = middle;
-        }
-        if (begin == events.size() ||
-            events[begin].event->qualified_name != qualified_name)
-        {
-            return nullptr;
-        }
-        return events[begin].event;
-    }
-
-    [[nodiscard]] constexpr const command_descriptor* find_command(
-        std::string_view schema_name,
-        std::uint32_t schema_version,
-        std::uint32_t command_id
-    ) const noexcept
-    {
-        const auto* source = find_source(schema_name, schema_version);
-        return source == nullptr ? nullptr : source->find_command(command_id);
-    }
-
-    [[nodiscard]] constexpr const event_descriptor* find_event(
-        std::string_view schema_name,
-        std::uint32_t schema_version,
-        std::uint32_t event_id
-    ) const noexcept
-    {
-        const auto* source = find_source(schema_name, schema_version);
-        return source == nullptr ? nullptr : source->find_event(event_id);
-    }
-
-    [[nodiscard]] constexpr bool valid() const noexcept
-    {
-        if (sources.empty() || semantic_fingerprint.empty() ||
-            allocation_fingerprint.empty())
-        {
-            return false;
-        }
-        std::size_t expected_command_count = 0;
-        std::size_t expected_event_count = 0;
-        for (std::size_t ordinal = 0; ordinal < sources.size(); ++ordinal)
-        {
-            const auto* source = sources[ordinal];
-            if (source == nullptr || source->schema_name.empty() ||
-                source->schema_version == 0 || source->semantic_fingerprint.empty() ||
-                source->allocation_fingerprint.empty())
-            {
-                return false;
-            }
-            if (ordinal != 0)
-            {
-                const auto* previous = sources[ordinal - 1];
-                if (previous->schema_name > source->schema_name ||
-                    (previous->schema_name == source->schema_name &&
-                     previous->schema_version >= source->schema_version))
-                {
-                    return false;
-                }
-            }
-            expected_command_count += source->commands.size();
-            expected_event_count += source->events.size();
-        }
-
-        std::uint32_t previous_type_id = 0;
-        std::size_t expected_model_count = 0;
-        for (std::size_t ordinal = 0; ordinal < model_sources.size(); ++ordinal)
-        {
-            const auto* source = model_sources[ordinal];
-            if (source == nullptr ||
-                !schema_registry_contains_source(sources, source))
-            {
-                return false;
-            }
-            if (ordinal != 0)
-            {
-                const auto* previous = model_sources[ordinal - 1];
-                if (previous->schema_name > source->schema_name ||
-                    (previous->schema_name == source->schema_name &&
-                     previous->schema_version >= source->schema_version))
-                {
-                    return false;
-                }
-            }
-            expected_model_count += source->models.size();
-        }
-        if (models.size() != expected_model_count ||
-            commands.size() != expected_command_count ||
-            events.size() != expected_event_count)
-        {
-            return false;
-        }
-
-        for (std::size_t ordinal = 0; ordinal < models.size(); ++ordinal)
-        {
-            const auto& entry = models[ordinal];
-            if (entry.source == nullptr || entry.model == nullptr ||
-                !schema_registry_contains_source(model_sources, entry.source) ||
-                entry.source->find_model(entry.model->type_id) != entry.model ||
-                entry.model->type_id == 0 ||
-                (ordinal != 0 && previous_type_id >= entry.model->type_id))
-            {
-                return false;
-            }
-            previous_type_id = entry.model->type_id;
-        }
-        if (!schema_registry_model_index_valid(
-                models,
-                model_qualified_name_index,
-                schema_model_name_index_kind::qualified_name
-            ) ||
-            !schema_registry_model_index_valid(
-                models,
-                model_catalog_id_index,
-                schema_model_name_index_kind::catalog_model_id
-            ) ||
-            !schema_registry_model_index_valid(
-                models,
-                model_storage_name_index,
-                schema_model_name_index_kind::storage_name
-            ))
-        {
-            return false;
-        }
-
-        std::string_view previous_command_name;
-        for (std::size_t ordinal = 0; ordinal < commands.size(); ++ordinal)
-        {
-            const auto& entry = commands[ordinal];
-            if (entry.source == nullptr || entry.command == nullptr ||
-                !schema_registry_contains_source(sources, entry.source) ||
-                entry.source->find_command(entry.command->command_id) != entry.command ||
-                entry.command->qualified_name.empty() ||
-                (ordinal != 0 &&
-                 previous_command_name >= entry.command->qualified_name))
-            {
-                return false;
-            }
-            previous_command_name = entry.command->qualified_name;
-        }
-
-        std::string_view previous_event_name;
-        for (std::size_t ordinal = 0; ordinal < events.size(); ++ordinal)
-        {
-            const auto& entry = events[ordinal];
-            if (entry.source == nullptr || entry.event == nullptr ||
-                !schema_registry_contains_source(sources, entry.source) ||
-                entry.source->find_event(entry.event->event_id) != entry.event ||
-                entry.event->qualified_name.empty() ||
-                (ordinal != 0 && previous_event_name >= entry.event->qualified_name))
-            {
-                return false;
-            }
-            previous_event_name = entry.event->qualified_name;
-        }
-        return true;
-    }
-};
+using schema_catalog_view =
+    schema_core::basic_schema_catalog_view<schema_catalog_traits>;
+using schema_catalog_model_registry_entry =
+    schema_core::schema_catalog_model_registry_entry<schema_catalog_view>;
+using schema_catalog_command_registry_entry =
+    schema_core::schema_catalog_command_registry_entry<schema_catalog_view>;
+using schema_catalog_event_registry_entry =
+    schema_core::schema_catalog_event_registry_entry<schema_catalog_view>;
+using schema_model_name_index_kind = schema_core::schema_model_name_index_kind;
+using schema_catalog_registry_view =
+    schema_core::basic_schema_catalog_registry_view<schema_catalog_view>;
 }
