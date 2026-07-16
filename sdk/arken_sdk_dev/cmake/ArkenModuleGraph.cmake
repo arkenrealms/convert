@@ -11,10 +11,8 @@ function(_arken_manifest_array_to_list out_var json_text field_name)
                 list(APPEND _values "${_value}")
             endforeach()
         endif()
-    elseif(NOT _field_error MATCHES "not found$")
-        message(FATAL_ERROR
-            "Module manifest field '${field_name}' is invalid: ${_field_error}"
-        )
+    elseif(NOT _field_error MATCHES "member '.*' not found")
+        message(FATAL_ERROR "Invalid module manifest field '${field_name}': ${_field_error}")
     endif()
     set(${out_var} "${_values}" PARENT_SCOPE)
 endfunction()
