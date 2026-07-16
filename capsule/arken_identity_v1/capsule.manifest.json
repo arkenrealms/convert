@@ -1,0 +1,17 @@
+{
+  "name": "Arken Universal Identity V1",
+  "key": "arken_identity_v1",
+  "version": "1.0.0",
+  "public_dependencies": [],
+  "private_dependencies": [],
+  "test_dependencies": [],
+  "optional_features": {},
+  "capabilities": [
+    "rfc9562_arken_id",
+    "canonical_uuid_text_and_bytes",
+    "injected_uuid_v7_generation",
+    "typed_zero_overhead_ids",
+    "stable_c_abi",
+    "host_wasm_compatible_core"
+  ]
+}
