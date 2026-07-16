@@ -1,9 +1,15 @@
 {
   "name": "Arken Schema Core V1",
   "key": "arken_schema_core_v1",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "public_dependencies": [],
   "private_dependencies": [],
   "test_dependencies": [],
-  "optional_features": {}
+  "optional_features": {},
+  "capabilities": [
+    "strong_registry_id_wrappers",
+    "core_owned_immutable_catalog_views",
+    "allocation_free_descriptor_lookup_primitives",
+    "shared_owning_and_generated_catalog_identity_validation"
+  ]
 }

@@ -8,6 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "arken_schema_core_v1/catalog_view.hpp"
 #include "arken_schema_core_v1/value.hpp"
 
 namespace arken::schema::core::v1
@@ -66,24 +67,6 @@ enum class StorageCodec
     SqliteFixedBlob,
     SqliteOrderedU64,
     SqliteOrderedDecimal128,
-};
-
-struct SemanticTypeId
-{
-    std::uint32_t value = 0;
-    [[nodiscard]] auto operator<=>(const SemanticTypeId&) const = default;
-};
-
-struct WireTypeId
-{
-    std::uint32_t value = 0;
-    [[nodiscard]] auto operator<=>(const WireTypeId&) const = default;
-};
-
-struct StorageCodecId
-{
-    std::uint32_t value = 0;
-    [[nodiscard]] auto operator<=>(const StorageCodecId&) const = default;
 };
 
 enum class NormalizationKind

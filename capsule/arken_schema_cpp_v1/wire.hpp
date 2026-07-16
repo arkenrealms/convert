@@ -49,8 +49,8 @@ struct wire_unknown_field
 
 struct wire_issue
 {
-    std::uint32_t model_type_id = 0;
-    std::uint32_t field_tag = 0;
+    schema_core::ModelTypeId model_type_id;
+    schema_core::FieldId field_tag;
     std::size_t offset = 0;
     std::string code;
     std::string message;
