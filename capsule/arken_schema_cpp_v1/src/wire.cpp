@@ -271,6 +271,43 @@ bool AppendSignedPayload(
     return true;
 }
 
+bool IsNumericEnumWire(wire_type_kind kind)
+{
+    return kind == wire_type_kind::u8 || kind == wire_type_kind::u16 ||
+        kind == wire_type_kind::u32;
+}
+
+std::optional<storage_value> NumericEnumWireValue(
+    const wire_message_descriptor& message,
+    const wire_field_descriptor& field,
+    const storage_value& value,
+    std::vector<wire_issue>& issues
+)
+{
+    if (field.type_kind != semantic_type_kind::enumeration ||
+        field.storage_codec != storage_codec_kind::sqlite_text ||
+        !IsNumericEnumWire(field.wire_type))
+    {
+        return value;
+    }
+    const auto* storage_name = std::get_if<std::string>(&value);
+    const auto found = storage_name == nullptr ? field.enum_values.end() :
+        std::find_if(field.enum_values.begin(), field.enum_values.end(), [&](const auto& candidate) {
+            return candidate.name == *storage_name;
+        });
+    if (found != field.enum_values.end())
+        return storage_value{static_cast<std::int64_t>(found->value_id)};
+    AddIssue(
+        issues,
+        message,
+        field.field_tag,
+        0,
+        "wire.enum_domain",
+        "Stored enum text is outside the governed wire domain."
+    );
+    return std::nullopt;
+}
+
 std::optional<std::vector<std::byte>> EncodePayload(
     const wire_message_descriptor& message,
     const wire_field_descriptor& field,
@@ -279,43 +316,46 @@ std::optional<std::vector<std::byte>> EncodePayload(
 )
 {
     std::vector<std::byte> output;
+    const auto converted = NumericEnumWireValue(message, field, value, issues);
+    if (!converted.has_value()) return std::nullopt;
+    const auto& wire_value = *converted;
     bool valid = true;
     switch (field.wire_type)
     {
     case wire_type_kind::boolean:
     {
-        const auto* boolean = std::get_if<bool>(&value);
+        const auto* boolean = std::get_if<bool>(&wire_value);
         valid = boolean != nullptr;
         if (valid) output.push_back(*boolean ? std::byte{1} : std::byte{0});
         break;
     }
     case wire_type_kind::u8:
-        valid = AppendUnsignedPayload<std::uint8_t>(output, value);
+        valid = AppendUnsignedPayload<std::uint8_t>(output, wire_value);
         break;
     case wire_type_kind::u16:
-        valid = AppendUnsignedPayload<std::uint16_t>(output, value);
+        valid = AppendUnsignedPayload<std::uint16_t>(output, wire_value);
         break;
     case wire_type_kind::u32:
-        valid = AppendUnsignedPayload<std::uint32_t>(output, value);
+        valid = AppendUnsignedPayload<std::uint32_t>(output, wire_value);
         break;
     case wire_type_kind::u64:
-        valid = AppendUnsignedPayload<std::uint64_t>(output, value);
+        valid = AppendUnsignedPayload<std::uint64_t>(output, wire_value);
         break;
     case wire_type_kind::i8:
-        valid = AppendSignedPayload<std::int8_t, std::uint8_t>(output, value);
+        valid = AppendSignedPayload<std::int8_t, std::uint8_t>(output, wire_value);
         break;
     case wire_type_kind::i16:
-        valid = AppendSignedPayload<std::int16_t, std::uint16_t>(output, value);
+        valid = AppendSignedPayload<std::int16_t, std::uint16_t>(output, wire_value);
         break;
     case wire_type_kind::i32:
-        valid = AppendSignedPayload<std::int32_t, std::uint32_t>(output, value);
+        valid = AppendSignedPayload<std::int32_t, std::uint32_t>(output, wire_value);
         break;
     case wire_type_kind::i64:
-        valid = AppendSignedPayload<std::int64_t, std::uint64_t>(output, value);
+        valid = AppendSignedPayload<std::int64_t, std::uint64_t>(output, wire_value);
         break;
     case wire_type_kind::f32:
     {
-        const auto* real = std::get_if<double>(&value);
+        const auto* real = std::get_if<double>(&wire_value);
         const float narrowed = real == nullptr ? 0.0f : static_cast<float>(*real);
         valid = real != nullptr && std::isfinite(*real) && std::isfinite(narrowed) &&
             static_cast<double>(narrowed) == *real;
@@ -324,14 +364,14 @@ std::optional<std::vector<std::byte>> EncodePayload(
     }
     case wire_type_kind::f64:
     {
-        const auto* real = std::get_if<double>(&value);
+        const auto* real = std::get_if<double>(&wire_value);
         valid = real != nullptr && std::isfinite(*real);
         if (valid) AppendBigEndian(output, BitCast<std::uint64_t>(*real));
         break;
     }
     case wire_type_kind::utf8:
     {
-        const auto* text = std::get_if<std::string>(&value);
+        const auto* text = std::get_if<std::string>(&wire_value);
         valid = text != nullptr && ValidUtf8(*text);
         if (valid)
             output.assign(
@@ -343,7 +383,7 @@ std::optional<std::vector<std::byte>> EncodePayload(
     case wire_type_kind::bytes:
     case wire_type_kind::fixed_bytes:
     {
-        const auto* bytes = std::get_if<storage_blob>(&value);
+        const auto* bytes = std::get_if<storage_blob>(&wire_value);
         valid = bytes != nullptr &&
             (field.wire_type != wire_type_kind::fixed_bytes || bytes->size() == field.fixed_size);
         if (valid) output.assign(bytes->begin(), bytes->end());
@@ -351,7 +391,7 @@ std::optional<std::vector<std::byte>> EncodePayload(
     }
     case wire_type_kind::decimal128:
     {
-        const auto* decimal = std::get_if<decimal_storage_value>(&value);
+        const auto* decimal = std::get_if<decimal_storage_value>(&wire_value);
         valid = decimal != nullptr && decimal->scale == field.scale;
         if (valid) output.assign(decimal->coefficient.begin(), decimal->coefficient.end());
         break;
@@ -402,6 +442,19 @@ std::optional<storage_value> DecodePayload(
         if (size == 2) value = ReadBigEndian<std::uint16_t>(payload);
         if (size == 4) value = ReadBigEndian<std::uint32_t>(payload);
         if (size == 8) value = ReadBigEndian<std::uint64_t>(payload);
+        if (field.type_kind == semantic_type_kind::enumeration &&
+            field.storage_codec == storage_codec_kind::sqlite_text)
+        {
+            const auto found = std::find_if(
+                field.enum_values.begin(),
+                field.enum_values.end(),
+                [value](const auto& candidate) { return candidate.value_id == value; }
+            );
+            if (found != field.enum_values.end()) return storage_value{std::string(found->name)};
+            AddIssue(issues, message, field.field_tag, offset, "wire.enum_domain",
+                     "Wire enum ID is outside the governed storage domain.");
+            return std::nullopt;
+        }
         if (field.type_kind == semantic_type_kind::u64) return storage_value{value};
         if (value > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
         {

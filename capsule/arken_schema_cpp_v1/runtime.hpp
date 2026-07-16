@@ -894,6 +894,7 @@ struct wire_field_descriptor
     std::uint32_t scale = 0;
     std::string_view name;
     semantic_type_kind type_kind = semantic_type_kind::u32;
+    storage_codec_kind storage_codec = storage_codec_kind::sqlite_integer;
     wire_type_kind wire_type = wire_type_kind::u32;
     wire_byte_order byte_order = wire_byte_order::big_endian;
     wire_compatibility_class compatibility = wire_compatibility_class::fixed_unsigned;
@@ -901,6 +902,7 @@ struct wire_field_descriptor
     wire_duplicate_policy duplicate_policy = wire_duplicate_policy::reject;
     serialization_policy serialization = serialization_policy::include;
     std::uint32_t maximum_items = 0;
+    std::span<const enum_value_descriptor> enum_values;
 };
 
 struct wire_message_descriptor
