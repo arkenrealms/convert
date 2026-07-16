@@ -7,7 +7,12 @@
   ],
   "private_dependencies": [],
   "test_dependencies": [],
-  "optional_features": {},
+  "optional_features": {
+    "runtime_only_consumer": {
+      "enabled": true,
+      "reason": "Allows generated contract consumers to reuse binding and wire codecs without linking the IDL generator."
+    }
+  },
   "capabilities": [
     "deterministic_cpp_schema_generation",
     "per_fragment_generated_headers",

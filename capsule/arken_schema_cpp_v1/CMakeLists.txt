@@ -1,3 +1,17 @@
+if(NOT COMMAND arken_embed_text_file)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/arken_native_defaults.cmake)
+endif()
+if(NOT DEFINED ARKEN_NATIVE_GENERATED_DIR OR ARKEN_NATIVE_GENERATED_DIR STREQUAL "")
+    set(ARKEN_NATIVE_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+endif()
+file(MAKE_DIRECTORY ${ARKEN_NATIVE_GENERATED_DIR})
+
+option(
+    ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY
+    "Build only the generated-contract runtime without the schema generator."
+    OFF
+)
+
 set(ARKEN_SCHEMA_CPP_V1_MANIFEST_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/capsule.manifest.json)
 set(ARKEN_SCHEMA_CPP_V1_MANIFEST_EMBED ${ARKEN_NATIVE_GENERATED_DIR}/arken_schema_cpp_v1_manifest_embed.h)
 
@@ -7,9 +21,7 @@ arken_embed_text_file(
     ARKEN_SCHEMA_CPP_V1_MANIFEST_JSON
 )
 
-if(EMSCRIPTEN)
-    set(ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET "")
-elseif(DEFINED ARKEN_NLOHMANN_TARGET AND TARGET ${ARKEN_NLOHMANN_TARGET})
+if(DEFINED ARKEN_NLOHMANN_TARGET AND TARGET ${ARKEN_NLOHMANN_TARGET})
     set(ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET ${ARKEN_NLOHMANN_TARGET})
 else()
     find_package(nlohmann_json CONFIG REQUIRED)
@@ -27,8 +39,8 @@ target_include_directories(arken_schema_cpp_v1_runtime
         ${CMAKE_CURRENT_SOURCE_DIR}/..
     PRIVATE
         ${ARKEN_NATIVE_GENERATED_DIR}
-        ${EXTERNAL_DIR}
 )
+target_compile_features(arken_schema_cpp_v1_runtime PUBLIC cxx_std_20)
 
 if(ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET)
     target_link_libraries(arken_schema_cpp_v1_runtime
@@ -36,7 +48,7 @@ if(ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET)
     )
 endif()
 
-if(EMSCRIPTEN)
+if(EMSCRIPTEN OR ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
     add_library(arken_schema_cpp_v1 INTERFACE)
     target_link_libraries(arken_schema_cpp_v1 INTERFACE arken_schema_cpp_v1_runtime)
 else()
@@ -54,7 +66,7 @@ else()
     )
 endif()
 
-if(NOT EMSCRIPTEN)
+if(NOT EMSCRIPTEN AND NOT ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
     add_executable(
         arken-schema-cpp-v1-codegen
         tools/generate_cpp_contract.cpp
@@ -67,7 +79,7 @@ if(NOT EMSCRIPTEN)
     )
 endif()
 
-if(BUILD_TESTING)
+if(BUILD_TESTING AND NOT ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
     enable_testing()
     find_package(GTest CONFIG QUIET)
     if(GTest_FOUND)
