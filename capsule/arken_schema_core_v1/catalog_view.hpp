@@ -118,6 +118,32 @@ template <typename Value>
     return &values[index[begin].ordinal];
 }
 
+template <typename Value, typename KeyProjection>
+[[nodiscard]] constexpr bool numeric_index_valid(
+    std::span<const Value> values,
+    std::span<const numeric_index_entry> index,
+    KeyProjection key_projection
+) noexcept
+{
+    if (index.size() != values.size()) return false;
+
+    std::uint32_t previous_key = 0;
+    for (std::size_t ordinal = 0; ordinal < index.size(); ++ordinal)
+    {
+        const auto& entry = index[ordinal];
+        if (entry.key == 0 || entry.ordinal >= values.size() ||
+            (ordinal != 0 && previous_key >= entry.key) ||
+            static_cast<std::uint32_t>(
+                key_projection(values[entry.ordinal])
+            ) != entry.key)
+        {
+            return false;
+        }
+        previous_key = entry.key;
+    }
+    return true;
+}
+
 template <typename Value>
 [[nodiscard]] constexpr const Value* find_named(
     std::span<const Value> values,
@@ -267,6 +293,57 @@ struct basic_schema_catalog_view
     {
         const auto* model = find_model(model_type_id);
         return model == nullptr ? nullptr : model->find_relation(relation_name);
+    }
+
+    [[nodiscard]] constexpr bool valid() const noexcept
+    {
+        if (!numeric_index_valid(
+                models,
+                model_id_index,
+                [](const auto& model) { return model.type_id.value; }
+            ) ||
+            !numeric_index_valid(
+                wire_messages,
+                wire_message_id_index,
+                [](const auto& message) { return message.model_type_id.value; }
+            ) ||
+            !numeric_index_valid(
+                commands,
+                command_id_index,
+                [](const auto& command) { return command.command_id.value; }
+            ) ||
+            !numeric_index_valid(
+                events,
+                event_id_index,
+                [](const auto& event) { return event.event_id.value; }
+            ))
+        {
+            return false;
+        }
+
+        for (const auto& model : models)
+        {
+            if (!numeric_index_valid(
+                    model.fields,
+                    model.field_id_index,
+                    [](const auto& field) { return field.field_id.value; }
+                ))
+            {
+                return false;
+            }
+        }
+        for (const auto& message : wire_messages)
+        {
+            if (!numeric_index_valid(
+                    message.fields,
+                    message.field_tag_index,
+                    [](const auto& field) { return field.field_tag.value; }
+                ))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 };
 
@@ -564,7 +641,7 @@ struct basic_schema_catalog_registry_view
             const auto* source = sources[ordinal];
             if (source == nullptr || source->schema_name.empty() ||
                 source->schema_version == 0 || source->semantic_fingerprint.empty() ||
-                source->allocation_fingerprint.empty())
+                source->allocation_fingerprint.empty() || !source->valid())
             {
                 return false;
             }
