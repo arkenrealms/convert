@@ -18,7 +18,6 @@ add_library(arken_schema_core_v1 STATIC
 target_include_directories(arken_schema_core_v1
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/..
-        ${EXTERNAL_DIR}
     PRIVATE
         ${ARKEN_NATIVE_GENERATED_DIR}
 )
@@ -38,7 +37,6 @@ if(BUILD_TESTING)
         target_include_directories(arken-schema-core-v1-tests
             PRIVATE
                 ${CMAKE_CURRENT_SOURCE_DIR}/..
-                ${EXTERNAL_DIR}
         )
         target_link_libraries(arken-schema-core-v1-tests
             PRIVATE
