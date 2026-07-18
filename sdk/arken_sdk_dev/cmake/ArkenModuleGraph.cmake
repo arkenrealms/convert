@@ -124,7 +124,19 @@ function(arken_resolve_enabled_capsules out_var)
     file(READ "${ARG_ROOT_MANIFEST}" _root_manifest_json)
     _arken_manifest_array_to_list(_root_public_dependencies "${_root_manifest_json}" "public_dependencies")
     _arken_manifest_array_to_list(_root_private_dependencies "${_root_manifest_json}" "private_dependencies")
-    foreach(_dependency IN LISTS _root_public_dependencies _root_private_dependencies)
+    set(_root_dependencies
+        ${_root_public_dependencies}
+        ${_root_private_dependencies}
+    )
+    if(BUILD_TESTING)
+        _arken_manifest_array_to_list(
+            _root_test_dependencies
+            "${_root_manifest_json}"
+            "test_dependencies"
+        )
+        list(APPEND _root_dependencies ${_root_test_dependencies})
+    endif()
+    foreach(_dependency IN LISTS _root_dependencies)
         _arken_visit_module("${_dependency}")
     endforeach()
 
