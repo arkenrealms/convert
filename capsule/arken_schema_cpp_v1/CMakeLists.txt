@@ -24,7 +24,9 @@ arken_embed_text_file(
 if(DEFINED ARKEN_NLOHMANN_TARGET AND TARGET ${ARKEN_NLOHMANN_TARGET})
     set(ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET ${ARKEN_NLOHMANN_TARGET})
 else()
+if(NOT TARGET nlohmann_json::nlohmann_json)
     find_package(nlohmann_json CONFIG REQUIRED)
+endif()
     set(ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET nlohmann_json::nlohmann_json)
 endif()
 
