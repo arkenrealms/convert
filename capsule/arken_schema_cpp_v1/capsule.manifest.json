@@ -1,7 +1,7 @@
 {
   "name": "Arken Schema C++ V1",
   "key": "arken_schema_cpp_v1",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "public_dependencies": [
     "arken_schema_idl_v1",
     "arken_schema_core_v1"
@@ -40,6 +40,9 @@
     "bounded_canonical_tlv_codecs",
     "preserved_unknown_wire_fields",
     "generated_wire_message_descriptors",
+    "backend_neutral_wire_value_representation",
+    "numeric_enum_name_wire_transcoding",
+    "fixed_bytes_hex_text_wire_transcoding",
     "generated_fabric_operation_descriptors",
     "generated_contract_fingerprints",
     "generated_operation_descriptors",
