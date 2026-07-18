@@ -1,6 +1,11 @@
 set(ARKEN_SCHEMA_CORE_V1_MANIFEST_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/capsule.manifest.json)
 set(ARKEN_SCHEMA_CORE_V1_MANIFEST_EMBED ${ARKEN_NATIVE_GENERATED_DIR}/arken_schema_core_v1_manifest_embed.h)
 
+if(NOT TARGET nlohmann_json::nlohmann_json)
+    find_package(nlohmann_json CONFIG REQUIRED)
+endif()
+set(ARKEN_NLOHMANN_TARGET nlohmann_json::nlohmann_json)
+
 arken_embed_text_file(
     ${ARKEN_SCHEMA_CORE_V1_MANIFEST_SOURCE}
     ${ARKEN_SCHEMA_CORE_V1_MANIFEST_EMBED}
