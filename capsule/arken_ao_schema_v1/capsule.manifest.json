@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "key": "arken_ao_schema_v1",
+  "capsuleId": "arken_ao_schema_v1",
+  "name": "Arken AO Schema V1",
+  "version": "1.0.0",
+  "kind": "deterministic-core",
+  "namespace": "arken::ao::schema::v1",
+  "portable": ["native", "wasm"],
+  "public_dependencies": ["arken_identity_v1"],
+  "private_dependencies": [],
+  "test_dependencies": [],
+  "capabilities": [
+    "canonical_ao_format_identity",
+    "deterministic_ao_format_registry",
+    "versioned_aogm_and_aotm_formats"
+  ],
+  "optional_features": {}
+}
