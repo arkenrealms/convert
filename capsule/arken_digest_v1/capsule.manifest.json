@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "key": "arken_digest_v1",
+  "capsuleId": "arken_digest_v1",
+  "name": "Arken Digest V1",
+  "version": "1.0.0",
+  "kind": "deterministic-core",
+  "namespace": "arken::digest::v1",
+  "portable": ["native", "wasm"],
+  "public_dependencies": ["arken_identity_v1"],
+  "private_dependencies": [],
+  "test_dependencies": [],
+  "capabilities": [
+    "incremental_sha256",
+    "canonical_sha256_text",
+    "sha256_content_addresses"
+  ],
+  "optional_features": {}
+}
