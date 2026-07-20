@@ -173,6 +173,15 @@ std::optional<Sha256ContentAddress> sha256_address(std::span<std::byte const> by
     return Sha256ContentAddress{*digest, static_cast<std::uint64_t>(bytes.size())};
 }
 
+bool constant_time_equal(Sha256Digest left, Sha256Digest right) noexcept
+{
+    volatile std::uint32_t difference = 0u;
+    for(std::size_t index = 0u; index < left.bytes.size(); ++index)
+        difference = difference |
+            static_cast<std::uint32_t>(left.bytes[index] ^ right.bytes[index]);
+    return difference == 0u;
+}
+
 bool format_sha256(Sha256Digest const& digest, std::span<char> output) noexcept
 {
     if(output.size() < sha256_canonical_text_size)

@@ -24,14 +24,14 @@ inline constexpr DigestAlgorithmId sha256_algorithm_id{arken::identity::v1::Arke
 struct Sha256Digest final
 {
     std::array<std::uint8_t, sha256_digest_size> bytes{};
-    [[nodiscard]] constexpr bool operator==(Sha256Digest const&) const noexcept = default;
+    [[nodiscard]] constexpr auto operator<=>(Sha256Digest const&) const noexcept = default;
 };
 
 struct Sha256ContentAddress final
 {
     Sha256Digest digest{};
     std::uint64_t byte_length = 0u;
-    [[nodiscard]] constexpr bool operator==(Sha256ContentAddress const&) const noexcept = default;
+    [[nodiscard]] constexpr auto operator<=>(Sha256ContentAddress const&) const noexcept = default;
 };
 
 class Sha256Hasher final
@@ -56,6 +56,9 @@ class Sha256Hasher final
     std::span<std::byte const> bytes) noexcept;
 [[nodiscard]] std::optional<Sha256ContentAddress> sha256_address(
     std::span<std::byte const> bytes) noexcept;
+[[nodiscard]] bool constant_time_equal(
+    Sha256Digest left,
+    Sha256Digest right) noexcept;
 [[nodiscard]] bool format_sha256(
     Sha256Digest const& digest,
     std::span<char> output) noexcept;
