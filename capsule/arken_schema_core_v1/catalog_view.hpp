@@ -83,14 +83,92 @@ template <typename Value, std::size_t Size>
     return {values.data(), values.size()};
 }
 
+template <typename Value>
+class descriptor_view
+{
+public:
+    constexpr descriptor_view() noexcept = default;
+
+    constexpr descriptor_view(std::span<const Value> values) noexcept
+        : base_(values.data()), count_(values.size())
+    {
+    }
+
+    constexpr descriptor_view(
+        const Value* base,
+        std::size_t offset,
+        std::size_t count
+    ) noexcept
+        : base_(base), offset_(offset), count_(count)
+    {
+    }
+
+    [[nodiscard]] constexpr const Value* data() const noexcept
+    {
+        return base_ == nullptr ? nullptr : base_ + offset_;
+    }
+
+    [[nodiscard]] constexpr std::size_t size() const noexcept
+    {
+        return count_;
+    }
+
+    [[nodiscard]] constexpr bool empty() const noexcept
+    {
+        return count_ == 0u;
+    }
+
+    [[nodiscard]] constexpr const Value* begin() const noexcept
+    {
+        return data();
+    }
+
+    [[nodiscard]] constexpr const Value* end() const noexcept
+    {
+        return count_ == 0U ? data() : data() + count_;
+    }
+
+    [[nodiscard]] constexpr const Value& front() const noexcept
+    {
+        return *data();
+    }
+
+    [[nodiscard]] constexpr const Value& back() const noexcept
+    {
+        return data()[count_ - 1u];
+    }
+
+    [[nodiscard]] constexpr const Value& operator[](
+        const std::size_t index
+    ) const noexcept
+    {
+        return data()[index];
+    }
+
+    [[nodiscard]] constexpr std::span<const Value> span() const noexcept
+    {
+        return {data(), count_};
+    }
+
+    [[nodiscard]] constexpr operator std::span<const Value>() const noexcept
+    {
+        return span();
+    }
+
+private:
+    const Value* base_ = nullptr;
+    std::size_t offset_ = 0u;
+    std::size_t count_ = 0u;
+};
+
 template <typename Value, std::size_t Size>
-[[nodiscard]] constexpr std::span<const Value> descriptor_slice(
+[[nodiscard]] constexpr descriptor_view<Value> descriptor_slice(
     const std::array<Value, Size>& values,
     std::size_t offset,
     std::size_t count
 ) noexcept
 {
-    return descriptor_span(values).subspan(offset, count);
+    return {values.data(), offset, count};
 }
 
 template <typename Value>
@@ -335,7 +413,7 @@ struct basic_schema_catalog_view
         for (const auto& message : wire_messages)
         {
             if (!numeric_index_valid(
-                    message.fields,
+                    message.fields.span(),
                     message.field_tag_index,
                     [](const auto& field) { return field.field_tag.value; }
                 ))
