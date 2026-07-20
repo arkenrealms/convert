@@ -24,14 +24,25 @@ inline constexpr DigestAlgorithmId sha256_algorithm_id{arken::identity::v1::Arke
 struct Sha256Digest final
 {
     std::array<std::uint8_t, sha256_digest_size> bytes{};
-    [[nodiscard]] constexpr bool operator==(Sha256Digest const&) const noexcept = default;
-    [[nodiscard]] constexpr std::strong_ordering operator<=>(
+
+    [[nodiscard]] constexpr bool operator==(Sha256Digest const& other) const noexcept
+    {
+        return bytes == other.bytes;
+    }
+
+    [[nodiscard]] constexpr std::strong_ordering operator<=> (
         Sha256Digest const& other) const noexcept
     {
         for(std::size_t index = 0u; index < bytes.size(); ++index)
         {
-            if(bytes[index] < other.bytes[index]) return std::strong_ordering::less;
-            if(bytes[index] > other.bytes[index]) return std::strong_ordering::greater;
+            if(bytes[index] < other.bytes[index])
+            {
+                return std::strong_ordering::less;
+            }
+            if(bytes[index] > other.bytes[index])
+            {
+                return std::strong_ordering::greater;
+            }
         }
         return std::strong_ordering::equal;
     }
@@ -41,13 +52,21 @@ struct Sha256ContentAddress final
 {
     Sha256Digest digest{};
     std::uint64_t byte_length = 0u;
+
     [[nodiscard]] constexpr bool operator==(
-        Sha256ContentAddress const&) const noexcept = default;
-    [[nodiscard]] constexpr std::strong_ordering operator<=>(
         Sha256ContentAddress const& other) const noexcept
     {
-        const auto digest_order = digest <=> other.digest;
-        if(digest_order != std::strong_ordering::equal) return digest_order;
+        return digest == other.digest && byte_length == other.byte_length;
+    }
+
+    [[nodiscard]] constexpr std::strong_ordering operator<=> (
+        Sha256ContentAddress const& other) const noexcept
+    {
+        if(auto const digest_order = digest <=> other.digest;
+            digest_order != std::strong_ordering::equal)
+        {
+            return digest_order;
+        }
         return byte_length <=> other.byte_length;
     }
 };

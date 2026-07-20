@@ -763,13 +763,21 @@ struct wire_message_descriptor {
   schema_core::ModelTypeId model_type_id;
   std::string_view name;
   std::string_view qualified_name;
-  std::span<const wire_field_descriptor> fields;
+  schema_core::descriptor_view<wire_field_descriptor> fields;
   std::span<const one_of_descriptor> one_ofs;
   std::span<const numeric_index_entry> field_tag_index;
 
   [[nodiscard]] constexpr const wire_field_descriptor *
   find_field(schema_core::FieldId field_tag) const noexcept {
-    return find_numeric(fields, field_tag_index, field_tag.value);
+    const auto *indexed =
+        find_numeric(fields.span(), field_tag_index, field_tag.value);
+    if (indexed != nullptr && indexed->field_tag == field_tag)
+      return indexed;
+    for (const auto &field : fields) {
+      if (field.field_tag == field_tag)
+        return &field;
+    }
+    return nullptr;
   }
 };
 
