@@ -40,17 +40,9 @@ Sha256Hasher::Sha256Hasher() noexcept
 
 void Sha256Hasher::compress(std::byte const* block) noexcept
 {
-    std::array<std::uint32_t, 64u> words{};
-    for(std::size_t index = 0u; index < 16u; ++index)
+    std::array<std::uint32_t, 16u> words{};
+    for(std::size_t index = 0u; index < words.size(); ++index)
         words[index] = load_be32(block + index * 4u);
-    for(std::size_t index = 16u; index < words.size(); ++index)
-    {
-        auto const first = std::rotr(words[index - 15u], 7) ^ std::rotr(words[index - 15u], 18)
-            ^ (words[index - 15u] >> 3u);
-        auto const second = std::rotr(words[index - 2u], 17) ^ std::rotr(words[index - 2u], 19)
-            ^ (words[index - 2u] >> 10u);
-        words[index] = words[index - 16u] + first + words[index - 7u] + second;
-    }
 
     auto a = state_[0u];
     auto b = state_[1u];
@@ -60,11 +52,22 @@ void Sha256Hasher::compress(std::byte const* block) noexcept
     auto f = state_[5u];
     auto g = state_[6u];
     auto h = state_[7u];
-    for(std::size_t index = 0u; index < words.size(); ++index)
+    for(std::size_t index = 0u; index < round_constants.size(); ++index)
     {
+        auto const slot = index & 15u;
+        if(index >= words.size())
+        {
+            auto const first_word = words[(index + 1u) & 15u];
+            auto const second_word = words[(index + 14u) & 15u];
+            auto const first = std::rotr(first_word, 7) ^ std::rotr(first_word, 18)
+                ^ (first_word >> 3u);
+            auto const second = std::rotr(second_word, 17) ^ std::rotr(second_word, 19)
+                ^ (second_word >> 10u);
+            words[slot] += first + words[(index + 9u) & 15u] + second;
+        }
         auto const sum_one = std::rotr(e, 6) ^ std::rotr(e, 11) ^ std::rotr(e, 25);
         auto const choose = (e & f) ^ (~e & g);
-        auto const temporary_one = h + sum_one + choose + round_constants[index] + words[index];
+        auto const temporary_one = h + sum_one + choose + round_constants[index] + words[slot];
         auto const sum_zero = std::rotr(a, 2) ^ std::rotr(a, 13) ^ std::rotr(a, 22);
         auto const majority = (a & b) ^ (a & c) ^ (b & c);
         auto const temporary_two = sum_zero + majority;
