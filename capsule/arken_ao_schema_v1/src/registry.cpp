@@ -6,13 +6,15 @@ namespace arken::ao::schema::v1
 {
 namespace
 {
-constexpr std::array<AoFormatDescriptor, 7u> format_descriptors{{
+constexpr std::array<AoFormatDescriptor, 8u> format_descriptors{{
     {aoab_format_id, "arken.ao.aoab", "AOAB", {2u, 0u, 0u}, 2u,
      {'A', 'O', 'A', 'B'}},
     {aodb_format_id, "arken.ao.aodb", "AODB", {2u, 0u, 0u}, 2u,
      {'A', 'O', 'D', 'B'}},
     {aodg_format_id, "arken.ao.aodg", "AODG", {1u, 0u, 0u}, 2u,
      {'A', 'O', 'D', 'G'}},
+    {aois_format_id, "arken.ao.aois", "AOIS", {1u, 0u, 0u}, 1u,
+     {'A', 'O', 'I', 'S'}},
     {aogm_format_id, "arken.ao.aogm", "AOGM", {1u, 0u, 0u}, 1u,
      {'A', 'O', 'G', 'M'}},
     {aopg_format_id, "arken.ao.aopg", "AOPG", {1u, 0u, 0u}, 2u,
