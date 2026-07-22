@@ -10,6 +10,8 @@
 
 namespace arken::ao::schema::v1
 {
+struct AlgorithmIdentityKind;
+using AlgorithmId = arken::identity::v1::TypedId<AlgorithmIdentityKind>;
 struct AoFormatIdentityKind;
 using AoFormatId = arken::identity::v1::TypedId<AoFormatIdentityKind>;
 struct AoChunkTypeIdentityKind;
@@ -17,6 +19,7 @@ using AoChunkTypeId = arken::identity::v1::TypedId<AoChunkTypeIdentityKind>;
 struct AoTableTypeIdentityKind;
 using AoTableTypeId = arken::identity::v1::TypedId<AoTableTypeIdentityKind>;
 
+static_assert(arken::identity::v1::typed_id_has_canonical_layout<AlgorithmIdentityKind>);
 static_assert(arken::identity::v1::typed_id_has_canonical_layout<AoFormatIdentityKind>);
 static_assert(arken::identity::v1::typed_id_has_canonical_layout<AoChunkTypeIdentityKind>);
 static_assert(arken::identity::v1::typed_id_has_canonical_layout<AoTableTypeIdentityKind>);
@@ -98,6 +101,14 @@ struct AoTableTypeLookup final
         return descriptor != nullptr;
     }
 };
+
+// Registered OASIS-FOUND-011 identity for the mandatory SHA-256 byte-digest
+// algorithm. Digest producers consume this registry value so embedded product
+// compositions and standalone UDE capsules serialize one identity.
+inline constexpr AlgorithmId sha256_algorithm_id{arken::identity::v1::ArkenId{{
+    0xaau, 0x86u, 0xd8u, 0xc9u, 0x0du, 0x5au, 0x87u, 0xa1u,
+    0x9cu, 0x57u, 0x89u, 0x95u, 0x6eu, 0x4du, 0xdcu, 0x1cu,
+}}};
 
 inline constexpr AoFormatId aoab_format_id{arken::identity::v1::ArkenId{{
     0x27u, 0x1fu, 0xceu, 0xecu, 0x68u, 0x3bu, 0x8bu, 0x71u,

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "arken/identity/v1/identity.hpp"
+#include "arken/ao/schema/v1/registry.hpp"
 
 #include <array>
 #include <compare>
@@ -14,12 +14,9 @@ namespace arken::digest::v1
 inline constexpr std::size_t sha256_digest_size = 32u;
 inline constexpr std::size_t sha256_canonical_text_size = 71u;
 
-struct DigestAlgorithmIdentityKind;
-using DigestAlgorithmId = arken::identity::v1::TypedId<DigestAlgorithmIdentityKind>;
-inline constexpr DigestAlgorithmId sha256_algorithm_id{arken::identity::v1::ArkenId{{
-    0x73u, 0x68u, 0x61u, 0x32u, 0x35u, 0x36u, 0x80u, 0x01u,
-    0x80u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x01u,
-}}};
+using AlgorithmId = arken::ao::schema::v1::AlgorithmId;
+inline constexpr AlgorithmId sha256_algorithm_id =
+    arken::ao::schema::v1::sha256_algorithm_id;
 
 struct Sha256Digest final
 {
