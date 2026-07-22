@@ -12,6 +12,7 @@
   "test_dependencies": [],
   "capabilities": [
     "canonical_ao_format_identity",
+    "registered_sha256_algorithm_identity",
     "deterministic_ao_format_registry",
     "versioned_aogm_and_aotm_formats"
   ],

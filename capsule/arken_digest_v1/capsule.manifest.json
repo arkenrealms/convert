@@ -7,7 +7,7 @@
   "kind": "deterministic-core",
   "namespace": "arken::digest::v1",
   "portable": ["native", "wasm"],
-  "public_dependencies": ["arken_identity_v1"],
+  "public_dependencies": ["arken_ao_schema_v1"],
   "private_dependencies": [],
   "test_dependencies": [],
   "capabilities": [
