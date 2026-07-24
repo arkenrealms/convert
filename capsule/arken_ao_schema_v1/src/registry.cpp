@@ -19,7 +19,7 @@ constexpr std::array<AoFormatDescriptor, 8u> format_descriptors{{
      {'A', 'O', 'G', 'M'}},
     {aopg_format_id, "arken.ao.aopg", "AOPG", {1u, 0u, 0u}, 2u,
      {'A', 'O', 'P', 'G'}},
-    {aotm_format_id, "arken.ao.aotm", "AOTM", {1u, 0u, 0u}, 1u,
+    {aotm_format_id, "arken.ao.aotm", "AOTM", {2u, 0u, 0u}, 2u,
      {'A', 'O', 'T', 'M'}},
     {aoui_format_id, "arken.ao.aoui", "AOUI", {1u, 0u, 0u}, 1u,
      {'A', 'O', 'U', 'I'}},
