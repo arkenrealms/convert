@@ -6,9 +6,11 @@ namespace arken::ao::schema::v1
 {
 namespace
 {
-constexpr std::array<AoFormatDescriptor, 8u> format_descriptors{{
+constexpr std::array<AoFormatDescriptor, 11u> format_descriptors{{
     {aoab_format_id, "arken.ao.aoab", "AOAB", {2u, 0u, 0u}, 2u,
      {'A', 'O', 'A', 'B'}},
+    {aoan_format_id, "arken.ao.aoan", "AOAN", {1u, 0u, 0u}, 1u,
+     {'A', 'O', 'A', 'N'}},
     {aodb_format_id, "arken.ao.aodb", "AODB", {2u, 0u, 0u}, 2u,
      {'A', 'O', 'D', 'B'}},
     {aodg_format_id, "arken.ao.aodg", "AODG", {1u, 0u, 0u}, 2u,
@@ -17,15 +19,19 @@ constexpr std::array<AoFormatDescriptor, 8u> format_descriptors{{
      {'A', 'O', 'I', 'S'}},
     {aogm_format_id, "arken.ao.aogm", "AOGM", {1u, 0u, 0u}, 1u,
      {'A', 'O', 'G', 'M'}},
+    {aopb_format_id, "arken.ao.aopb", "AOPB", {2u, 0u, 0u}, 2u,
+     {'A', 'O', 'P', 'B'}},
     {aopg_format_id, "arken.ao.aopg", "AOPG", {1u, 0u, 0u}, 2u,
      {'A', 'O', 'P', 'G'}},
+    {pspj_format_id, "arken.ao.pspj", "PSPJ", {4u, 0u, 0u}, 1u,
+     {'P', 'S', 'P', 'J'}},
     {aotm_format_id, "arken.ao.aotm", "AOTM", {2u, 0u, 0u}, 2u,
      {'A', 'O', 'T', 'M'}},
     {aoui_format_id, "arken.ao.aoui", "AOUI", {1u, 0u, 0u}, 1u,
      {'A', 'O', 'U', 'I'}},
 }};
 
-constexpr std::array<AoChunkTypeDescriptor, 26u> chunk_type_descriptors{{
+constexpr std::array<AoChunkTypeDescriptor, 33u> chunk_type_descriptors{{
     {core_stbl_chunk_type_id, "arken.ao.chunk.core.stbl", "STBL",
      {1u, 0u, 0u}, 1u, AoChunkScope::shared, {}, {'S', 'T', 'B', 'L'}},
     {core_deps_chunk_type_id, "arken.ao.chunk.core.deps", "DEPS",
@@ -57,6 +63,27 @@ constexpr std::array<AoChunkTypeDescriptor, 26u> chunk_type_descriptors{{
     {aoab_vari_v2_chunk_type_id, "arken.ao.chunk.aoab.vari", "VARI",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aoab_format_id,
      {'V', 'A', 'R', 'I'}},
+    {aopb_caps_v2_chunk_type_id, "arken.ao.chunk.aopb.caps", "CAPS",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aopb_format_id,
+     {'C', 'A', 'P', 'S'}},
+    {aopb_deps_v2_chunk_type_id, "arken.ao.chunk.aopb.deps", "DEPS",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aopb_format_id,
+     {'D', 'E', 'P', 'S'}},
+    {aopb_entr_v2_chunk_type_id, "arken.ao.chunk.aopb.entr", "ENTR",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aopb_format_id,
+     {'E', 'N', 'T', 'R'}},
+    {aopb_manf_v2_chunk_type_id, "arken.ao.chunk.aopb.manf", "PMNF",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aopb_format_id,
+     {'P', 'M', 'N', 'F'}},
+    {aopb_payl_v2_chunk_type_id, "arken.ao.chunk.aopb.payl", "PAYL",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aopb_format_id,
+     {'P', 'A', 'Y', 'L'}},
+    {aopb_poli_v2_chunk_type_id, "arken.ao.chunk.aopb.poli", "POLI",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aopb_format_id,
+     {'P', 'O', 'L', 'I'}},
+    {aopb_prov_v2_chunk_type_id, "arken.ao.chunk.aopb.prov", "PROV",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aopb_format_id,
+     {'P', 'R', 'O', 'V'}},
     {aodb_asst_chunk_type_id, "arken.ao.chunk.aodb.asst", "ASST",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aodb_format_id, {'A', 'S', 'S', 'T'}},
     {aodb_cols_chunk_type_id, "arken.ao.chunk.aodb.cols", "COLS",
