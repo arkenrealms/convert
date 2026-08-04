@@ -1,10 +1,20 @@
 function(arken_embed_text_file input_path output_path variable_name)
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${input_path})
-    file(READ ${input_path} _arken_embed_contents)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${input_path}")
+    file(READ "${input_path}" _arken_embed_contents)
     string(REPLACE "\\" "\\\\" _arken_embed_contents "${_arken_embed_contents}")
     string(REPLACE "\"" "\\\"" _arken_embed_contents "${_arken_embed_contents}")
     string(REPLACE "\n" "\\n\"\n\"" _arken_embed_contents "${_arken_embed_contents}")
-    file(WRITE ${output_path} "#pragma once\nstatic const char ${variable_name}[] =\n\"${_arken_embed_contents}\";\n")
+    set(
+        _arken_embed_output
+        "#pragma once\nstatic const char ${variable_name}[] =\n\"${_arken_embed_contents}\";\n"
+    )
+    set(_arken_embed_existing)
+    if(EXISTS "${output_path}")
+        file(READ "${output_path}" _arken_embed_existing)
+    endif()
+    if(NOT "${_arken_embed_existing}" STREQUAL "${_arken_embed_output}")
+        file(WRITE "${output_path}" "${_arken_embed_output}")
+    endif()
 endfunction()
 
 function(arken_join_emscripten_exports exports_list output_var)
