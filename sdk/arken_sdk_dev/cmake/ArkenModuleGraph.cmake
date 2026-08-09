@@ -39,6 +39,113 @@ function(_arken_register_module_manifest manifest_path kind)
     set_property(GLOBAL PROPERTY "ARKEN_MODULE_DIR_${_key_ident}" "${_module_name}")
 endfunction()
 
+function(_arken_validate_root_app_boundary root_manifest)
+    get_filename_component(_root_manifest_name "${root_manifest}" NAME)
+    if(NOT _root_manifest_name STREQUAL "app.manifest.json")
+        return()
+    endif()
+    get_filename_component(_root_app_dir "${root_manifest}" DIRECTORY)
+    get_filename_component(_app_collection_root "${_root_app_dir}" DIRECTORY)
+    get_filename_component(_app_collection_name "${_app_collection_root}" NAME)
+    if(NOT _app_collection_name STREQUAL "app")
+        return()
+    endif()
+    get_filename_component(_root_app_name "${_root_app_dir}" NAME)
+    file(READ "${root_manifest}" _root_manifest_json)
+    _arken_manifest_array_to_list(
+        _root_public_dependencies
+        "${_root_manifest_json}"
+        "public_dependencies"
+    )
+    _arken_manifest_array_to_list(
+        _root_private_dependencies
+        "${_root_manifest_json}"
+        "private_dependencies"
+    )
+    _arken_manifest_array_to_list(
+        _root_test_dependencies
+        "${_root_manifest_json}"
+        "test_dependencies"
+    )
+    set(
+        _root_declared_dependencies
+        ${_root_public_dependencies}
+        ${_root_private_dependencies}
+        ${_root_test_dependencies}
+    )
+    file(
+        GLOB
+        _sibling_app_manifests
+        LIST_DIRECTORIES FALSE
+        "${_app_collection_root}/*/app.manifest.json"
+    )
+    if(CMAKE_SCRIPT_MODE_FILE)
+        file(
+            GLOB_RECURSE
+            _root_app_cmake_inputs
+            LIST_DIRECTORIES FALSE
+            "${_root_app_dir}/CMakeLists.txt"
+            "${_root_app_dir}/*.cmake"
+        )
+    else()
+        file(
+            GLOB_RECURSE
+            _root_app_cmake_inputs
+            LIST_DIRECTORIES FALSE
+            CONFIGURE_DEPENDS
+            "${_root_app_dir}/CMakeLists.txt"
+            "${_root_app_dir}/*.cmake"
+        )
+    endif()
+    foreach(_sibling_manifest IN LISTS _sibling_app_manifests)
+        get_filename_component(_sibling_app_dir "${_sibling_manifest}" DIRECTORY)
+        get_filename_component(_sibling_app_name "${_sibling_app_dir}" NAME)
+        if(_sibling_app_name STREQUAL _root_app_name)
+            continue()
+        endif()
+        file(READ "${_sibling_manifest}" _sibling_manifest_json)
+        string(JSON _sibling_app_key GET "${_sibling_manifest_json}" key)
+        list(FIND
+            _root_declared_dependencies
+            "${_sibling_app_key}"
+            _declared_dependency_index
+        )
+        if(NOT _declared_dependency_index EQUAL -1)
+            message(FATAL_ERROR
+                "Application-to-application dependency is forbidden: "
+                "'${_root_app_name}' declares app '${_sibling_app_name}' "
+                "(${_sibling_app_key}) as a module dependency. Move the "
+                "shared capability into a capsule or library."
+            )
+        endif()
+        foreach(_cmake_input IN LISTS _root_app_cmake_inputs)
+            file(READ "${_cmake_input}" _cmake_source)
+            foreach(_forbidden_reference IN ITEMS
+                    "app/${_sibling_app_name}/"
+                    "app/${_sibling_app_name}\""
+                    "app/${_sibling_app_name}'"
+                    "../${_sibling_app_name}/"
+                    "../${_sibling_app_name}\""
+                    "../${_sibling_app_name}'")
+                string(FIND
+                    "${_cmake_source}"
+                    "${_forbidden_reference}"
+                    _forbidden_reference_index
+                )
+                if(NOT _forbidden_reference_index EQUAL -1)
+                    message(FATAL_ERROR
+                        "Application-to-application CMake path is forbidden: "
+                        "'${_root_app_name}' references sibling app "
+                        "'${_sibling_app_name}' in '${_cmake_input}'. Move "
+                        "the shared target, fixture, generated asset, or "
+                        "build helper into its owning capsule or library."
+                    )
+                endif()
+            endforeach()
+        endforeach()
+    endforeach()
+endfunction()
+
 function(_arken_visit_module module_key)
     string(MAKE_C_IDENTIFIER "${module_key}" _key_ident)
 
@@ -104,6 +211,8 @@ function(arken_resolve_enabled_capsules out_var)
     if(NOT ARG_LIB_ROOT)
         set(ARG_LIB_ROOT "")
     endif()
+
+    _arken_validate_root_app_boundary("${ARG_ROOT_MANIFEST}")
 
     set_property(GLOBAL PROPERTY ARKEN_GRAPH_VISITING "")
     set_property(GLOBAL PROPERTY ARKEN_GRAPH_VISITED "")
