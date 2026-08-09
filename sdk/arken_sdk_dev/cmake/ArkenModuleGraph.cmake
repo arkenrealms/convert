@@ -39,7 +39,7 @@ function(_arken_register_module_manifest manifest_path kind)
     set_property(GLOBAL PROPERTY "ARKEN_MODULE_DIR_${_key_ident}" "${_module_name}")
 endfunction()
 
-function(_arken_validate_root_app_boundary root_manifest)
+function(_arken_validate_root_app_boundary root_manifest capsule_root)
     get_filename_component(_root_manifest_name "${root_manifest}" NAME)
     if(NOT _root_manifest_name STREQUAL "app.manifest.json")
         return()
@@ -73,6 +73,18 @@ function(_arken_validate_root_app_boundary root_manifest)
         ${_root_private_dependencies}
         ${_root_test_dependencies}
     )
+    set(_capsule_dependency_keys "")
+    file(
+        GLOB
+        _capsule_dependency_manifests
+        LIST_DIRECTORIES FALSE
+        "${capsule_root}/*/capsule.manifest.json"
+    )
+    foreach(_capsule_dependency_manifest IN LISTS _capsule_dependency_manifests)
+        file(READ "${_capsule_dependency_manifest}" _capsule_dependency_json)
+        string(JSON _capsule_dependency_key GET "${_capsule_dependency_json}" key)
+        list(APPEND _capsule_dependency_keys "${_capsule_dependency_key}")
+    endforeach()
     file(
         GLOB
         _sibling_app_manifests
@@ -97,6 +109,24 @@ function(_arken_validate_root_app_boundary root_manifest)
             "${_root_app_dir}/*.cmake"
         )
     endif()
+    set(_root_app_source_cmake_inputs "")
+    foreach(_root_app_cmake_input IN LISTS _root_app_cmake_inputs)
+        file(
+            RELATIVE_PATH
+            _root_app_cmake_relative
+            "${_root_app_dir}"
+            "${_root_app_cmake_input}"
+        )
+        if(_root_app_cmake_relative MATCHES
+                "(^|/)(\\.tmp|CMakeFiles|_deps|build[^/]*|e2e-artifacts|native-build|node_modules|package-cache|proof)(/|$)")
+            continue()
+        endif()
+        list(APPEND
+            _root_app_source_cmake_inputs
+            "${_root_app_cmake_input}"
+        )
+    endforeach()
+    set(_root_app_cmake_inputs ${_root_app_source_cmake_inputs})
     foreach(_sibling_manifest IN LISTS _sibling_app_manifests)
         get_filename_component(_sibling_app_dir "${_sibling_manifest}" DIRECTORY)
         get_filename_component(_sibling_app_name "${_sibling_app_dir}" NAME)
@@ -104,43 +134,78 @@ function(_arken_validate_root_app_boundary root_manifest)
             continue()
         endif()
         file(READ "${_sibling_manifest}" _sibling_manifest_json)
-        string(JSON _sibling_app_key GET "${_sibling_manifest_json}" key)
-        list(FIND
-            _root_declared_dependencies
-            "${_sibling_app_key}"
-            _declared_dependency_index
+        string(
+            JSON
+            _sibling_app_key
+            ERROR_VARIABLE
+            _sibling_app_key_error
+            GET
+            "${_sibling_manifest_json}"
+            key
         )
-        if(NOT _declared_dependency_index EQUAL -1)
-            message(FATAL_ERROR
-                "Application-to-application dependency is forbidden: "
-                "'${_root_app_name}' declares app '${_sibling_app_name}' "
-                "(${_sibling_app_key}) as a module dependency. Move the "
-                "shared capability into a capsule or library."
+        if(NOT _sibling_app_key_error STREQUAL "NOTFOUND")
+            string(
+                JSON
+                _sibling_app_key
+                ERROR_VARIABLE
+                _sibling_app_key_error
+                GET
+                "${_sibling_manifest_json}"
+                appId
             )
         endif()
-        foreach(_cmake_input IN LISTS _root_app_cmake_inputs)
-            file(READ "${_cmake_input}" _cmake_source)
-            foreach(_forbidden_reference IN ITEMS
-                    "app/${_sibling_app_name}/"
-                    "app/${_sibling_app_name}\""
-                    "app/${_sibling_app_name}'"
-                    "../${_sibling_app_name}/"
-                    "../${_sibling_app_name}\""
-                    "../${_sibling_app_name}'")
-                string(FIND
-                    "${_cmake_source}"
-                    "${_forbidden_reference}"
-                    _forbidden_reference_index
+        if(_sibling_app_key_error STREQUAL "NOTFOUND")
+            list(FIND
+                _root_declared_dependencies
+                "${_sibling_app_key}"
+                _declared_dependency_index
+            )
+            list(FIND
+                _capsule_dependency_keys
+                "${_sibling_app_key}"
+                _capsule_dependency_index
+            )
+            if(NOT _declared_dependency_index EQUAL -1
+                    AND _capsule_dependency_index EQUAL -1)
+                message(FATAL_ERROR
+                    "Application-to-application dependency is forbidden: "
+                    "'${_root_app_name}' declares app '${_sibling_app_name}' "
+                    "(${_sibling_app_key}) as a module dependency. Move the "
+                    "shared capability into a capsule or library."
                 )
-                if(NOT _forbidden_reference_index EQUAL -1)
-                    message(FATAL_ERROR
-                        "Application-to-application CMake path is forbidden: "
-                        "'${_root_app_name}' references sibling app "
-                        "'${_sibling_app_name}' in '${_cmake_input}'. Move "
-                        "the shared target, fixture, generated asset, or "
-                        "build helper into its owning capsule or library."
-                    )
+            endif()
+        endif()
+        foreach(_cmake_input IN LISTS _root_app_cmake_inputs)
+            file(STRINGS "${_cmake_input}" _cmake_source_lines)
+            foreach(_cmake_source_line IN LISTS _cmake_source_lines)
+                string(STRIP "${_cmake_source_line}" _cmake_source_line)
+                if(_cmake_source_line MATCHES "^#"
+                        OR _cmake_source_line MATCHES
+                            "(^|[ \t])MATCHES([ \t]|$)")
+                    continue()
                 endif()
+                foreach(_forbidden_reference IN ITEMS
+                        "app/${_sibling_app_name}/"
+                        "app/${_sibling_app_name}\""
+                        "app/${_sibling_app_name}'"
+                        "../${_sibling_app_name}/"
+                        "../${_sibling_app_name}\""
+                        "../${_sibling_app_name}'")
+                    string(FIND
+                        "${_cmake_source_line}"
+                        "${_forbidden_reference}"
+                        _forbidden_reference_index
+                    )
+                    if(NOT _forbidden_reference_index EQUAL -1)
+                        message(FATAL_ERROR
+                            "Application-to-application CMake path is forbidden: "
+                            "'${_root_app_name}' references sibling app "
+                            "'${_sibling_app_name}' in '${_cmake_input}'. Move "
+                            "the shared target, fixture, generated asset, or "
+                            "build helper into its owning capsule or library."
+                        )
+                    endif()
+                endforeach()
             endforeach()
         endforeach()
     endforeach()
@@ -212,7 +277,10 @@ function(arken_resolve_enabled_capsules out_var)
         set(ARG_LIB_ROOT "")
     endif()
 
-    _arken_validate_root_app_boundary("${ARG_ROOT_MANIFEST}")
+    _arken_validate_root_app_boundary(
+        "${ARG_ROOT_MANIFEST}"
+        "${ARG_CAPSULE_ROOT}"
+    )
 
     set_property(GLOBAL PROPERTY ARKEN_GRAPH_VISITING "")
     set_property(GLOBAL PROPERTY ARKEN_GRAPH_VISITED "")
