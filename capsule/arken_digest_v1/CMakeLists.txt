@@ -14,11 +14,33 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(arken_digest_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+option(
+    ARKEN_DIGEST_V1_BUILD_TESTS
+    "Build focused Arken Digest v1 tests"
+    OFF
+)
+
 if(BUILD_TESTING OR ARKEN_DIGEST_V1_BUILD_TESTS OR OASIS_NATIVE_BUILD_HOST_TESTS)
+    enable_testing()
     add_executable(arken-digest-v1-tests tests/digest_tests.cpp)
     target_link_libraries(arken-digest-v1-tests PRIVATE arken_digest_v1)
     if(NOT MSVC)
         target_compile_options(arken-digest-v1-tests PRIVATE -UNDEBUG)
     endif()
     add_test(NAME ArkenDigestV1.Core COMMAND arken-digest-v1-tests)
+    find_program(ARKEN_DIGEST_V1_NODE_EXECUTABLE NAMES node)
+    if(ARKEN_DIGEST_V1_NODE_EXECUTABLE)
+        add_test(
+            NAME arken-digest-v1-browser-sha256-tests
+            COMMAND ${ARKEN_DIGEST_V1_NODE_EXECUTABLE}
+                --test
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/sha256_tests.mjs
+        )
+        set_tests_properties(
+            arken-digest-v1-browser-sha256-tests
+            PROPERTIES
+                LABELS "digest;sha256;browser;unit-test"
+                TIMEOUT 30
+        )
+    endif()
 endif()
