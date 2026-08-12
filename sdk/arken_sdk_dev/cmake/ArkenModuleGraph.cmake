@@ -93,40 +93,71 @@ function(_arken_validate_root_app_boundary root_manifest capsule_root)
     )
     if(CMAKE_SCRIPT_MODE_FILE)
         file(
-            GLOB_RECURSE
+            GLOB
             _root_app_cmake_inputs
             LIST_DIRECTORIES FALSE
             "${_root_app_dir}/CMakeLists.txt"
             "${_root_app_dir}/*.cmake"
         )
+        file(
+            GLOB
+            _root_app_top_level_entries
+            LIST_DIRECTORIES TRUE
+            "${_root_app_dir}/*"
+        )
     else()
         file(
-            GLOB_RECURSE
+            GLOB
             _root_app_cmake_inputs
             LIST_DIRECTORIES FALSE
             CONFIGURE_DEPENDS
             "${_root_app_dir}/CMakeLists.txt"
             "${_root_app_dir}/*.cmake"
         )
-    endif()
-    set(_root_app_source_cmake_inputs "")
-    foreach(_root_app_cmake_input IN LISTS _root_app_cmake_inputs)
         file(
-            RELATIVE_PATH
-            _root_app_cmake_relative
-            "${_root_app_dir}"
-            "${_root_app_cmake_input}"
+            GLOB
+            _root_app_top_level_entries
+            LIST_DIRECTORIES TRUE
+            CONFIGURE_DEPENDS
+            "${_root_app_dir}/*"
         )
-        if(_root_app_cmake_relative MATCHES
-                "(^|/)(\\.tmp|CMakeFiles|_deps|build[^/]*|e2e-artifacts|native-build|node_modules|package-cache|proof)(/|$)")
+    endif()
+    foreach(_root_app_top_level_entry IN LISTS _root_app_top_level_entries)
+        if(NOT IS_DIRECTORY "${_root_app_top_level_entry}")
             continue()
         endif()
+        get_filename_component(
+            _root_app_top_level_name
+            "${_root_app_top_level_entry}"
+            NAME
+        )
+        if(_root_app_top_level_name MATCHES
+                "^(\\.tmp|CMakeFiles|_deps|build[^/]*|e2e-artifacts|native-build|node_modules|package-cache|proof)$")
+            continue()
+        endif()
+        if(CMAKE_SCRIPT_MODE_FILE)
+            file(
+                GLOB_RECURSE
+                _root_app_nested_cmake_inputs
+                LIST_DIRECTORIES FALSE
+                "${_root_app_top_level_entry}/*.cmake"
+            )
+        else()
+            file(
+                GLOB_RECURSE
+                _root_app_nested_cmake_inputs
+                LIST_DIRECTORIES FALSE
+                CONFIGURE_DEPENDS
+                "${_root_app_top_level_entry}/*.cmake"
+            )
+        endif()
         list(APPEND
-            _root_app_source_cmake_inputs
-            "${_root_app_cmake_input}"
+            _root_app_cmake_inputs
+            ${_root_app_nested_cmake_inputs}
         )
     endforeach()
-    set(_root_app_cmake_inputs ${_root_app_source_cmake_inputs})
+    list(REMOVE_DUPLICATES _root_app_cmake_inputs)
+    list(SORT _root_app_cmake_inputs)
     foreach(_sibling_manifest IN LISTS _sibling_app_manifests)
         get_filename_component(_sibling_app_dir "${_sibling_manifest}" DIRECTORY)
         get_filename_component(_sibling_app_name "${_sibling_app_dir}" NAME)
