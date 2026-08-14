@@ -257,9 +257,18 @@ function(_arken_visit_module module_key)
         message(FATAL_ERROR "Detected a module dependency cycle involving '${module_key}'.")
     endif()
 
-    get_property(_manifest_path GLOBAL PROPERTY "ARKEN_MODULE_PATH_${_key_ident}")
-    if(_manifest_path STREQUAL "")
+    get_property(
+        _manifest_path_is_set
+        GLOBAL
+        PROPERTY "ARKEN_MODULE_PATH_${_key_ident}"
+        SET
+    )
+    if(NOT _manifest_path_is_set)
         message(FATAL_ERROR "Unknown module dependency '${module_key}'.")
+    endif()
+    get_property(_manifest_path GLOBAL PROPERTY "ARKEN_MODULE_PATH_${_key_ident}")
+    if("${_manifest_path}" STREQUAL "")
+        message(FATAL_ERROR "Module dependency '${module_key}' has no manifest path.")
     endif()
 
     get_property(_kind GLOBAL PROPERTY "ARKEN_MODULE_KIND_${_key_ident}")
