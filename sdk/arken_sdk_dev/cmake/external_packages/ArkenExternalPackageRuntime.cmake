@@ -2,6 +2,179 @@ include_guard(GLOBAL)
 
 include("${CMAKE_CURRENT_LIST_DIR}/ArkenExternalPackageJson.cmake")
 
+function(_arken_extpkg_runtime_metadata_target out_var target_name)
+    if(NOT TARGET "${target_name}")
+        message(FATAL_ERROR
+            "External package component target is missing: ${target_name}")
+    endif()
+    get_target_property(_aliased "${target_name}" ALIASED_TARGET)
+    if(_aliased)
+        set(${out_var} "${_aliased}" PARENT_SCOPE)
+    else()
+        set(${out_var} "${target_name}" PARENT_SCOPE)
+    endif()
+endfunction()
+
+function(arken_generate_external_package_cpp_identity)
+    set(options)
+    set(oneValueArgs
+        TARGET
+        PACKAGE_TARGET
+        OUTPUT_HEADER
+        IDENTITY_TYPE
+        OUT_HEADER
+    )
+    set(multiValueArgs OUTPUT_RELATIVE_PATHS)
+    cmake_parse_arguments(
+        ARG
+        "${options}"
+        "${oneValueArgs}"
+        "${multiValueArgs}"
+        ${ARGN}
+    )
+    foreach(_required IN ITEMS TARGET PACKAGE_TARGET OUTPUT_HEADER IDENTITY_TYPE)
+        if(NOT ARG_${_required})
+            message(FATAL_ERROR
+                "arken_generate_external_package_cpp_identity requires "
+                "${_required}")
+        endif()
+    endforeach()
+    if(NOT ARG_TARGET MATCHES "^[A-Za-z_][A-Za-z0-9_.+-]*$"
+            OR NOT ARG_IDENTITY_TYPE MATCHES "^[a-z][a-z0-9_]*$")
+        message(FATAL_ERROR
+            "External package C++ identity target or type is invalid")
+    endif()
+    if(TARGET "${ARG_TARGET}")
+        message(FATAL_ERROR
+            "External package C++ identity target already exists: "
+            "${ARG_TARGET}")
+    endif()
+    if(IS_ABSOLUTE "${ARG_OUTPUT_HEADER}")
+        cmake_path(
+            NORMAL_PATH
+            ARG_OUTPUT_HEADER
+            OUTPUT_VARIABLE _output_header
+        )
+    else()
+        cmake_path(
+            ABSOLUTE_PATH
+            ARG_OUTPUT_HEADER
+            BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+            NORMALIZE
+            OUTPUT_VARIABLE _output_header
+        )
+    endif()
+    cmake_path(
+        RELATIVE_PATH
+        _output_header
+        BASE_DIRECTORY "${CMAKE_BINARY_DIR}"
+        OUTPUT_VARIABLE _output_header_relative
+    )
+    if(_output_header_relative MATCHES "^\\.\\.(/|$)")
+        message(FATAL_ERROR
+            "External package C++ identity header must remain inside the "
+            "active build tree: ${_output_header}")
+    endif()
+
+    _arken_extpkg_runtime_metadata_target(
+        _metadata_target
+        "${ARG_PACKAGE_TARGET}"
+    )
+    foreach(_property IN ITEMS
+            ARKEN_EXTERNAL_PACKAGE_RECIPE_ID
+            ARKEN_EXTERNAL_PACKAGE_RECIPE_SHA256
+            ARKEN_EXTERNAL_PACKAGE_INSTANCE_ID
+            ARKEN_EXTERNAL_PACKAGE_SOURCE_IDENTITY
+            ARKEN_EXTERNAL_PACKAGE_ADAPTER_ID
+            ARKEN_EXTERNAL_PACKAGE_RECEIPT_ROOT
+            ARKEN_EXTERNAL_PACKAGE_RUNTIME_ROOT
+            ARKEN_EXTERNAL_PACKAGE_BUILD_TARGET)
+        get_target_property(_value "${_metadata_target}" "${_property}")
+        if(NOT _value)
+            message(FATAL_ERROR
+                "External package target ${ARG_PACKAGE_TARGET} lacks "
+                "${_property}")
+        endif()
+        set("_${_property}" "${_value}")
+    endforeach()
+
+    set(_requested_outputs "${ARG_OUTPUT_RELATIVE_PATHS}")
+    list(REMOVE_DUPLICATES _requested_outputs)
+    list(SORT _requested_outputs)
+    foreach(_relative IN LISTS _requested_outputs)
+        if(_relative STREQUAL ""
+                OR IS_ABSOLUTE "${_relative}"
+                OR _relative MATCHES "(^|/)\\.\\.(/|$)"
+                OR _relative MATCHES "[|;\n\r]")
+            message(FATAL_ERROR
+                "External package C++ identity output path is unsafe: "
+                "${_relative}")
+        endif()
+    endforeach()
+    _arken_extpkg_json_string_array(
+        _requested_outputs_json
+        "${_requested_outputs}"
+    )
+
+    set(_manifest_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/_arken/external-package-identity-manifests")
+    file(MAKE_DIRECTORY "${_manifest_dir}")
+    set(_manifest_path "${_manifest_dir}/${ARG_TARGET}.json")
+    foreach(_field IN ITEMS
+            _ARKEN_EXTERNAL_PACKAGE_RECIPE_ID
+            _ARKEN_EXTERNAL_PACKAGE_RECIPE_SHA256
+            _ARKEN_EXTERNAL_PACKAGE_INSTANCE_ID
+            _ARKEN_EXTERNAL_PACKAGE_SOURCE_IDENTITY
+            _ARKEN_EXTERNAL_PACKAGE_ADAPTER_ID
+            _ARKEN_EXTERNAL_PACKAGE_RECEIPT_ROOT
+            _ARKEN_EXTERNAL_PACKAGE_RUNTIME_ROOT
+            _output_header
+            ARG_IDENTITY_TYPE)
+        _arken_extpkg_json_escape("${_field}_json" "${${_field}}")
+    endforeach()
+    string(CONCAT _manifest
+        "{\n"
+        "  \"schemaVersion\": 1,\n"
+        "  \"identityType\": \"${ARG_IDENTITY_TYPE_json}\",\n"
+        "  \"recipeId\": \"${_ARKEN_EXTERNAL_PACKAGE_RECIPE_ID_json}\",\n"
+        "  \"recipeSha256\": \"${_ARKEN_EXTERNAL_PACKAGE_RECIPE_SHA256_json}\",\n"
+        "  \"packageInstanceId\": \"${_ARKEN_EXTERNAL_PACKAGE_INSTANCE_ID_json}\",\n"
+        "  \"adapterId\": \"${_ARKEN_EXTERNAL_PACKAGE_ADAPTER_ID_json}\",\n"
+        "  \"sourceIdentity\": \"${_ARKEN_EXTERNAL_PACKAGE_SOURCE_IDENTITY_json}\",\n"
+        "  \"packageRoot\": \"${_ARKEN_EXTERNAL_PACKAGE_RUNTIME_ROOT_json}\",\n"
+        "  \"receiptPath\": \"${_ARKEN_EXTERNAL_PACKAGE_RECEIPT_ROOT_json}/package.build.receipt.json\",\n"
+        "  \"outputHeader\": \"${_output_header_json}\",\n"
+        "  \"requestedOutputs\": ${_requested_outputs_json}\n"
+        "}\n"
+    )
+    _arken_extpkg_write_if_different("${_manifest_path}" "${_manifest}")
+
+    add_custom_target(
+        "${ARG_TARGET}"
+        COMMAND
+            "${CMAKE_COMMAND}"
+            "-DMANIFEST_PATH=${_manifest_path}"
+            -P
+            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ArkenExternalPackageGenerateIdentityHeader.cmake"
+        BYPRODUCTS "${_output_header}"
+        DEPENDS
+            "${_manifest_path}"
+            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ArkenExternalPackageGenerateIdentityHeader.cmake"
+        VERBATIM
+    )
+    add_dependencies(
+        "${ARG_TARGET}"
+        "${_ARKEN_EXTERNAL_PACKAGE_BUILD_TARGET}"
+    )
+    set_property(
+        TARGET "${ARG_TARGET}"
+        PROPERTY ARKEN_EXTERNAL_PACKAGE_IDENTITY_HEADER "${_output_header}"
+    )
+    if(ARG_OUT_HEADER)
+        set(${ARG_OUT_HEADER} "${_output_header}" PARENT_SCOPE)
+    endif()
+endfunction()
+
 function(arken_stage_external_package_runtime)
     set(options)
     set(oneValueArgs
@@ -57,12 +230,10 @@ function(arken_stage_external_package_runtime)
                 "External package runtime component target is missing: "
                 "${_component_target}")
         endif()
-        get_target_property(_aliased "${_component_target}" ALIASED_TARGET)
-        if(_aliased)
-            set(_metadata_target "${_aliased}")
-        else()
-            set(_metadata_target "${_component_target}")
-        endif()
+        _arken_extpkg_runtime_metadata_target(
+            _metadata_target
+            "${_component_target}"
+        )
         get_target_property(_component_recipe
             "${_metadata_target}" ARKEN_EXTERNAL_PACKAGE_RECIPE_ID)
         get_target_property(_component_instance
