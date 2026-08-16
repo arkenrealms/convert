@@ -3,6 +3,7 @@ include_guard(GLOBAL)
 set(_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR "${CMAKE_CURRENT_LIST_DIR}/external_packages")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageJson.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageInventory.cmake")
+include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageReleaseEvidence.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageSource.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackagePatch.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageAdapters.cmake")
@@ -899,7 +900,10 @@ endfunction()
 function(_arken_extpkg_generate_receipts graph_receipt spdx_receipt current_platform cache_root package_root)
     get_property(_request_ids GLOBAL PROPERTY ARKEN_EXTPKG_REQUEST_IDS)
     get_property(_recipe_ids GLOBAL PROPERTY ARKEN_EXTPKG_RESOLVED)
+    list(REMOVE_DUPLICATES _request_ids)
+    list(SORT _request_ids)
     list(REMOVE_DUPLICATES _recipe_ids)
+    list(SORT _recipe_ids)
 
     set(_requests_json "")
     set(_request_index 0)
@@ -1014,6 +1018,7 @@ function(arken_resolve_external_packages)
         INVENTORY_PATH
         OUTPUT_GRAPH_RECEIPT
         OUTPUT_INVENTORY_RECEIPT
+        OUTPUT_RELEASE_EVIDENCE
         OUTPUT_SPDX_INPUT
     )
     set(multiValueArgs MODULE_MANIFESTS)
@@ -1080,6 +1085,12 @@ function(arken_resolve_external_packages)
             OUTPUT_RECEIPT "${_inventory_receipt}"
         )
     endif()
+    if(ARG_OUTPUT_RELEASE_EVIDENCE)
+        set(_release_evidence "${ARG_OUTPUT_RELEASE_EVIDENCE}")
+    else()
+        set(_release_evidence
+            "${_package_root}/external-packages.release-evidence.json")
+    endif()
 
     _arken_extpkg_reset_graph_state()
     _arken_extpkg_current_platform(_current_platform)
@@ -1109,12 +1120,26 @@ function(arken_resolve_external_packages)
         "${_cache_root}"
         "${_package_root}"
     )
+    if(ARG_INVENTORY_PATH)
+        set(_release_inventory_args
+            INVENTORY_RECEIPT "${_inventory_receipt}")
+    else()
+        set(_release_inventory_args "")
+    endif()
+    arken_generate_external_package_release_evidence(
+        GRAPH_RECEIPT "${_graph_receipt}"
+        SPDX_INPUT "${_spdx_receipt}"
+        ${_release_inventory_args}
+        WORKSPACE_ROOT "${ARG_WORKSPACE_ROOT}"
+        OUTPUT_PATH "${_release_evidence}"
+    )
     if(NOT TARGET arken-external-package-inspect)
         add_custom_target(
             arken-external-package-inspect
             COMMAND
                 "${CMAKE_COMMAND}"
                 "-DGRAPH_RECEIPT=${_graph_receipt}"
+                "-DRELEASE_EVIDENCE=${_release_evidence}"
                 -P "${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageInspect.cmake"
             VERBATIM
         )
@@ -1143,6 +1168,8 @@ function(arken_resolve_external_packages)
     set_property(GLOBAL PROPERTY ARKEN_EXTERNAL_PACKAGE_GRAPH_RESOLVED TRUE)
     set(ARKEN_EXTERNAL_PACKAGE_GRAPH_RECEIPT "${_graph_receipt}" PARENT_SCOPE)
     set(ARKEN_EXTERNAL_PACKAGE_SPDX_INPUT "${_spdx_receipt}" PARENT_SCOPE)
+    set(ARKEN_EXTERNAL_PACKAGE_RELEASE_EVIDENCE
+        "${_release_evidence}" PARENT_SCOPE)
     if(ARG_INVENTORY_PATH)
         set(ARKEN_EXTERNAL_PACKAGE_INVENTORY_RECEIPT
             "${_inventory_receipt}" PARENT_SCOPE)
