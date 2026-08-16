@@ -57,11 +57,37 @@ function(arken_configure_pinned_nlohmann_json)
             BEFORE INTERFACE "${_arken_nlohmann_include_dir}"
         )
         target_compile_features(arken_nlohmann_json_header_only INTERFACE cxx_std_11)
+        set_property(
+            TARGET arken_nlohmann_json_header_only
+            PROPERTY ARKEN_NLOHMANN_JSON_VERSION
+                "${ARKEN_NLOHMANN_JSON_VERSION}"
+        )
+        set_property(
+            TARGET arken_nlohmann_json_header_only
+            PROPERTY ARKEN_NLOHMANN_JSON_UPSTREAM_COMMIT
+                "${ARKEN_NLOHMANN_JSON_UPSTREAM_COMMIT}"
+        )
+        set_property(
+            TARGET arken_nlohmann_json_header_only
+            PROPERTY ARKEN_NLOHMANN_JSON_HEADER_SHA256
+                "${ARKEN_NLOHMANN_JSON_SHA256}"
+        )
+        set_property(
+            TARGET arken_nlohmann_json_header_only
+            PROPERTY ARKEN_NLOHMANN_JSON_FWD_HEADER_SHA256
+                "${ARKEN_NLOHMANN_JSON_FWD_SHA256}"
+        )
     endif()
     if(NOT TARGET nlohmann_json::nlohmann_json)
         add_library(nlohmann_json::nlohmann_json ALIAS arken_nlohmann_json_header_only)
     endif()
 
     set(ARKEN_NLOHMANN_INCLUDE_DIR "${_arken_nlohmann_include_dir}" PARENT_SCOPE)
-    set(ARKEN_NLOHMANN_TARGET "nlohmann_json::nlohmann_json" PARENT_SCOPE)
+    if(TARGET arken::external_nlohmann_json_v1)
+        set(ARKEN_NLOHMANN_TARGET
+            "arken::external_nlohmann_json_v1" PARENT_SCOPE)
+    else()
+        set(ARKEN_NLOHMANN_TARGET
+            "nlohmann_json::nlohmann_json" PARENT_SCOPE)
+    endif()
 endfunction()
