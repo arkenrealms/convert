@@ -400,6 +400,24 @@ function(_arken_extpkg_materialize_cmake_source
         )
     endif()
     _arken_extpkg_json_type(_options_type "${recipe_json}" adapter options)
+    set(_configured_options "")
+    set(_configuration_material
+        "adapter=cmake-source-v1"
+        "cmake=${CMAKE_VERSION}"
+        "generator=${CMAKE_GENERATOR}"
+        "system=${CMAKE_SYSTEM_NAME}"
+        "processor=${CMAKE_SYSTEM_PROCESSOR}"
+        "cCompiler=${CMAKE_C_COMPILER}"
+        "cCompilerId=${CMAKE_C_COMPILER_ID}"
+        "cCompilerVersion=${CMAKE_C_COMPILER_VERSION}"
+        "cxxCompiler=${CMAKE_CXX_COMPILER}"
+        "cxxCompilerId=${CMAKE_CXX_COMPILER_ID}"
+        "cxxCompilerVersion=${CMAKE_CXX_COMPILER_VERSION}"
+        "sysroot=${CMAKE_OSX_SYSROOT}"
+        "deploymentTarget=${CMAKE_OSX_DEPLOYMENT_TARGET}"
+        "architectures=${CMAKE_OSX_ARCHITECTURES}"
+        "vcsParentDiscovery=disabled"
+    )
     if(_options_type STREQUAL "OBJECT")
         string(JSON _option_count LENGTH "${recipe_json}" adapter options)
         if(_option_count GREATER 0)
@@ -418,9 +436,9 @@ function(_arken_extpkg_materialize_cmake_source
                     )
                 endif()
                 if(_value_type STREQUAL "BOOLEAN")
-                    set("${_option}" "${_value}")
+                    set(_cache_type BOOL)
                 elseif(_value_type STREQUAL "STRING" OR _value_type STREQUAL "NUMBER")
-                    set("${_option}" "${_value}")
+                    set(_cache_type STRING)
                 else()
                     _arken_extpkg_error(
                         "arken.external_packages.cmake_source.option_invalid"
@@ -429,6 +447,41 @@ function(_arken_extpkg_materialize_cmake_source
                         "Typed CMake options accept boolean, string, or number values only: ${_option}"
                     )
                 endif()
+                get_property(
+                    _cache_was_set
+                    CACHE "${_option}"
+                    PROPERTY TYPE
+                    SET
+                )
+                set(
+                    "_arken_extpkg_cache_was_set_${_option}"
+                    "${_cache_was_set}"
+                )
+                if(_cache_was_set)
+                    foreach(_property IN ITEMS TYPE VALUE HELPSTRING ADVANCED)
+                        get_property(
+                            _prior
+                            CACHE "${_option}"
+                            PROPERTY "${_property}"
+                        )
+                        set(
+                            "_arken_extpkg_cache_${_property}_${_option}"
+                            "${_prior}"
+                        )
+                    endforeach()
+                endif()
+                set(
+                    "${_option}"
+                    "${_value}"
+                    CACHE "${_cache_type}"
+                    "Arken external package ${recipe_id} reviewed option"
+                    FORCE
+                )
+                list(APPEND _configured_options "${_option}")
+                list(APPEND
+                    _configuration_material
+                    "option.${_option}=${_value}"
+                )
             endforeach()
         endif()
     elseif(NOT _options_type STREQUAL "")
@@ -439,6 +492,13 @@ function(_arken_extpkg_materialize_cmake_source
             "adapter.options must be an object."
         )
     endif()
+    list(SORT _configuration_material)
+    string(JOIN "|" _configuration_text ${_configuration_material})
+    string(SHA256 _configuration_sha256 "${_configuration_text}")
+    set(
+        _configuration_identity
+        "cmake-source-v1:${_configuration_sha256}"
+    )
     string(JSON _component_count LENGTH "${recipe_json}" components)
     math(EXPR _last "${_component_count} - 1")
     foreach(_index RANGE 0 ${_last})
@@ -458,7 +518,57 @@ function(_arken_extpkg_materialize_cmake_source
             )
         endif()
     endforeach()
-    add_subdirectory("${_cmake_root}" "${package_build_root}/cmake-source" EXCLUDE_FROM_ALL)
+    set(_prior_git_ceiling "$ENV{GIT_CEILING_DIRECTORIES}")
+    set(_git_ceiling_was_defined FALSE)
+    if(DEFINED ENV{GIT_CEILING_DIRECTORIES})
+        set(_git_ceiling_was_defined TRUE)
+    endif()
+    set(ENV{GIT_CEILING_DIRECTORIES} "${source_root}")
+    add_subdirectory(
+        "${_cmake_root}"
+        "${package_build_root}/cmake-source"
+        EXCLUDE_FROM_ALL
+    )
+    if(_git_ceiling_was_defined)
+        set(ENV{GIT_CEILING_DIRECTORIES} "${_prior_git_ceiling}")
+    else()
+        unset(ENV{GIT_CEILING_DIRECTORIES})
+    endif()
+    foreach(_option IN LISTS _configured_options)
+        if(_arken_extpkg_cache_was_set_${_option})
+            set(_prior_type
+                "${_arken_extpkg_cache_TYPE_${_option}}")
+            if(_prior_type STREQUAL "BOOL"
+                    OR _prior_type STREQUAL "FILEPATH"
+                    OR _prior_type STREQUAL "PATH"
+                    OR _prior_type STREQUAL "STRING"
+                    OR _prior_type STREQUAL "INTERNAL")
+                set(_restore_type "${_prior_type}")
+            else()
+                set(_restore_type STRING)
+            endif()
+            set(
+                "${_option}"
+                "${_arken_extpkg_cache_VALUE_${_option}}"
+                CACHE "${_restore_type}"
+                "${_arken_extpkg_cache_HELPSTRING_${_option}}"
+                FORCE
+            )
+            if(NOT _prior_type STREQUAL _restore_type)
+                set_property(
+                    CACHE "${_option}"
+                    PROPERTY TYPE "${_prior_type}"
+                )
+            endif()
+            if(_arken_extpkg_cache_ADVANCED_${_option})
+                mark_as_advanced(FORCE "${_option}")
+            else()
+                mark_as_advanced(CLEAR "${_option}")
+            endif()
+        else()
+            unset("${_option}" CACHE)
+        endif()
+    endforeach()
     foreach(_index RANGE 0 ${_last})
         string(JSON _component GET "${recipe_json}" components ${_index})
         _arken_extpkg_component_common(_name _target _kind "${_component}" "${recipe_id}" "${_index}")
@@ -496,6 +606,7 @@ function(_arken_extpkg_materialize_cmake_source
                     "-DINSTANCE_ID=${instance_id}"
                     "-DADAPTER_ID=cmake-source-v1"
                     "-DSOURCE_IDENTITY=${source_identity}"
+                    "-DCONFIGURATION_IDENTITY=${_configuration_identity}"
                     "-DOUTPUT_FILES_JOINED=$<TARGET_FILE:${_upstream}>"
                     -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ArkenExternalPackageBuildReceipt.cmake"
                 DEPENDS "${_upstream}"
@@ -503,6 +614,21 @@ function(_arken_extpkg_materialize_cmake_source
             )
             add_custom_target("${_receipt_target}" DEPENDS "${_receipt}")
             add_dependencies("${_wrapper}" "${_receipt_target}")
+            set_property(
+                TARGET "${_wrapper}"
+                PROPERTY ARKEN_EXTERNAL_PACKAGE_COMPONENT_RECEIPT_PATH
+                    "${_receipt}"
+            )
+            set_property(
+                TARGET "${_wrapper}"
+                PROPERTY ARKEN_EXTERNAL_PACKAGE_COMPONENT_OUTPUT_ROOT
+                    "${package_build_root}/cmake-source"
+            )
+            set_property(
+                TARGET "${_wrapper}"
+                PROPERTY ARKEN_EXTERNAL_PACKAGE_COMPONENT_BUILD_TARGET
+                    "${_receipt_target}"
+            )
         endif()
     endforeach()
 endfunction()
@@ -1134,6 +1260,22 @@ function(_arken_extpkg_materialize_recipe
             TARGET "${_metadata_target}"
             PROPERTY ARKEN_EXTERNAL_PACKAGE_RECEIPT_ROOT "${receipt_root}"
         )
+        get_target_property(
+            _component_receipt_path
+            "${_metadata_target}"
+            ARKEN_EXTERNAL_PACKAGE_COMPONENT_RECEIPT_PATH
+        )
+        if(NOT _component_receipt_path)
+            set(
+                _component_receipt_path
+                "${receipt_root}/package.build.receipt.json"
+            )
+        endif()
+        set_property(
+            TARGET "${_metadata_target}"
+            PROPERTY ARKEN_EXTERNAL_PACKAGE_RECEIPT_PATH
+                "${_component_receipt_path}"
+        )
         set_property(
             TARGET "${_metadata_target}"
             PROPERTY ARKEN_EXTERNAL_RUNTIME_FILES "${_runtime_files}"
@@ -1146,9 +1288,33 @@ function(_arken_extpkg_materialize_recipe
             TARGET "${_metadata_target}"
             PROPERTY ARKEN_EXTERNAL_PACKAGE_RUNTIME_ROOT "${_runtime_root}"
         )
+        get_target_property(
+            _component_output_root
+            "${_metadata_target}"
+            ARKEN_EXTERNAL_PACKAGE_COMPONENT_OUTPUT_ROOT
+        )
+        if(NOT _component_output_root)
+            set(_component_output_root "${_runtime_root}")
+        endif()
         set_property(
             TARGET "${_metadata_target}"
-            PROPERTY ARKEN_EXTERNAL_PACKAGE_BUILD_TARGET "${_package_build_target}"
+            PROPERTY ARKEN_EXTERNAL_PACKAGE_OUTPUT_ROOT
+                "${_component_output_root}"
+        )
+        get_target_property(
+            _component_build_target
+            "${_metadata_target}"
+            ARKEN_EXTERNAL_PACKAGE_COMPONENT_BUILD_TARGET
+        )
+        if(_component_build_target)
+            set(_effective_build_target "${_component_build_target}")
+        else()
+            set(_effective_build_target "${_package_build_target}")
+        endif()
+        set_property(
+            TARGET "${_metadata_target}"
+            PROPERTY ARKEN_EXTERNAL_PACKAGE_BUILD_TARGET
+                "${_effective_build_target}"
         )
     endforeach()
 endfunction()

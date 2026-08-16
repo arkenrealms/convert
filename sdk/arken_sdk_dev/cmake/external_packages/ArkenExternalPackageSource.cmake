@@ -297,6 +297,14 @@ function(_arken_extpkg_materialize_archive_source
     offline
 )
     _arken_extpkg_json_required_string(_expected_sha "${recipe_json}" "${recipe_id}" source sha256)
+    _arken_extpkg_json_optional_string(
+        _expected_commit
+        "${recipe_json}"
+        ""
+        "${recipe_id}:source"
+        source
+        commit
+    )
     string(LENGTH "${_expected_sha}" _expected_sha_length)
     if(NOT _expected_sha MATCHES "^[0-9a-f]+$"
             OR NOT _expected_sha_length EQUAL 64)
@@ -335,9 +343,21 @@ function(_arken_extpkg_materialize_archive_source
             file(READ "${_receipt}" _receipt_json)
             string(JSON _receipt_sha ERROR_VARIABLE _receipt_error GET "${_receipt_json}" archiveSha256)
             string(JSON _tree_sha ERROR_VARIABLE _tree_error GET "${_receipt_json}" treeSha256)
+            string(
+                JSON
+                _receipt_commit
+                ERROR_VARIABLE
+                _commit_error
+                GET
+                "${_receipt_json}"
+                commit
+            )
             if(NOT _receipt_error STREQUAL "NOTFOUND"
                     OR NOT _tree_error STREQUAL "NOTFOUND"
-                    OR NOT "${_receipt_sha}" STREQUAL "${_expected_sha}")
+                    OR NOT "${_receipt_sha}" STREQUAL "${_expected_sha}"
+                    OR (NOT _expected_commit STREQUAL ""
+                        AND (NOT _commit_error STREQUAL "NOTFOUND"
+                            OR NOT _receipt_commit STREQUAL _expected_commit)))
                 _arken_extpkg_quarantine_cache_entry("${_entry}" "source receipt mismatch")
             else()
                 set(_source_root "${_entry}/source")
@@ -364,8 +384,12 @@ function(_arken_extpkg_materialize_archive_source
                             "${_source_root}"
                             "${recipe_id}"
                         )
+                        set(_identity "${_expected_sha}:${_tree_sha}")
+                        if(NOT _expected_commit STREQUAL "")
+                            string(APPEND _identity ":${_expected_commit}")
+                        endif()
                         set(${out_root} "${_source_root}" PARENT_SCOPE)
-                        set(${out_identity} "${_expected_sha}:${_tree_sha}" PARENT_SCOPE)
+                        set(${out_identity} "${_identity}" PARENT_SCOPE)
                         set(${out_receipt} "${_receipt}" PARENT_SCOPE)
                         message(STATUS "Arken external package ${recipe_id}: resolved from verified cache")
                         return()
@@ -479,13 +503,15 @@ function(_arken_extpkg_materialize_archive_source
         "${recipe_id}"
     )
     _arken_extpkg_tree_identity(_tree_sha "${_temporary}/source" "${recipe_id}")
+    _arken_extpkg_json_escape(_expected_commit_json "${_expected_commit}")
     set(_receipt_json
         "{\n"
         "  \"schemaVersion\": 1,\n"
         "  \"sourceObjectId\": \"sha256:${_expected_sha}\",\n"
         "  \"archiveSha256\": \"${_expected_sha}\",\n"
         "  \"archiveBytes\": ${_archive_size},\n"
-        "  \"treeSha256\": \"${_tree_sha}\"\n"
+        "  \"treeSha256\": \"${_tree_sha}\",\n"
+        "  \"commit\": \"${_expected_commit_json}\"\n"
         "}\n"
     )
     string(JOIN "" _receipt_json ${_receipt_json})
@@ -507,8 +533,12 @@ function(_arken_extpkg_materialize_archive_source
     if(NOT _subdirectory STREQUAL "")
         set(_source_root "${_source_root}/${_subdirectory}")
     endif()
+    set(_identity "${_expected_sha}:${_tree_sha}")
+    if(NOT _expected_commit STREQUAL "")
+        string(APPEND _identity ":${_expected_commit}")
+    endif()
     set(${out_root} "${_source_root}" PARENT_SCOPE)
-    set(${out_identity} "${_expected_sha}:${_tree_sha}" PARENT_SCOPE)
+    set(${out_identity} "${_identity}" PARENT_SCOPE)
     set(${out_receipt} "${_receipt}" PARENT_SCOPE)
     message(STATUS "Arken external package ${recipe_id}: acquired exact verified source")
 endfunction()
@@ -525,6 +555,14 @@ function(_arken_extpkg_prepare_source
     workspace_root
     offline
 )
+    _arken_extpkg_json_optional_string(
+        _source_commit
+        "${recipe_json}"
+        ""
+        "${recipe_id}:source"
+        source
+        commit
+    )
     set(_override_root "")
     if(DEFINED ARKEN_EXTERNAL_PACKAGE_LOCAL_OVERRIDES
             AND NOT ARKEN_EXTERNAL_PACKAGE_LOCAL_OVERRIDES STREQUAL "")
@@ -590,8 +628,12 @@ function(_arken_extpkg_prepare_source
                 "Override expected tree SHA-256 ${_expected_override_tree}, observed ${_override_tree}."
             )
         endif()
+        set(_override_identity "local-override:${_override_tree}")
+        if(NOT _source_commit STREQUAL "")
+            string(APPEND _override_identity ":${_source_commit}")
+        endif()
         set(${out_root} "${_override_root}" PARENT_SCOPE)
-        set(${out_identity} "local-override:${_override_tree}" PARENT_SCOPE)
+        set(${out_identity} "${_override_identity}" PARENT_SCOPE)
         set(${out_receipt} "" PARENT_SCOPE)
         message(STATUS "Arken external package ${recipe_id}: using explicit verified local override")
         return()
@@ -624,6 +666,9 @@ function(_arken_extpkg_prepare_source
         _arken_extpkg_tree_identity(_tree_sha "${_root}" "${recipe_id}")
         _arken_extpkg_verify_expected_source_tree("${recipe_json}" "${_root}" "${recipe_id}")
         set(_identity "${_kind}:${_tree_sha}")
+        if(NOT _source_commit STREQUAL "")
+            string(APPEND _identity ":${_source_commit}")
+        endif()
         set(_receipt "")
         message(STATUS "Arken external package ${recipe_id}: using verified ${_kind}")
     elseif(_kind STREQUAL "system-sdk" OR _kind STREQUAL "tool-profile")

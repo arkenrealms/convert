@@ -127,6 +127,21 @@ if(ADAPTER_ID STREQUAL "configure-make-v1")
         "  }"
     )
     string(JOIN "" _configuration_json ${_configuration_json})
+elseif(DEFINED CONFIGURATION_IDENTITY
+        AND NOT CONFIGURATION_IDENTITY STREQUAL "")
+    string(SHA256 _configuration_sha256 "${CONFIGURATION_IDENTITY}")
+    _arken_extpkg_json_escape(
+        _configuration_identity_json
+        "${CONFIGURATION_IDENTITY}"
+    )
+    set(_configuration_json
+        ",\n"
+        "  \"configuration\": {\n"
+        "    \"identity\": \"${_configuration_identity_json}\",\n"
+        "    \"sha256\": \"${_configuration_sha256}\"\n"
+        "  }"
+    )
+    string(JOIN "" _configuration_json ${_configuration_json})
 endif()
 set(_receipt
     "{\n"
