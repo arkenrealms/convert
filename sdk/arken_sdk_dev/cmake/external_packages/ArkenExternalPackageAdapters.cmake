@@ -492,6 +492,247 @@ function(_arken_extpkg_materialize_cmake_source
             "adapter.options must be an object."
         )
     endif()
+    _arken_extpkg_json_type(_tool_options_type "${recipe_json}" adapter toolOptions)
+    if(_tool_options_type STREQUAL "OBJECT")
+        string(JSON _tool_option_count LENGTH "${recipe_json}" adapter toolOptions)
+        if(_tool_option_count GREATER 0)
+            math(EXPR _tool_option_last "${_tool_option_count} - 1")
+            foreach(_index RANGE 0 ${_tool_option_last})
+                string(JSON _option MEMBER "${recipe_json}" adapter toolOptions ${_index})
+                string(JSON _tool_target GET "${recipe_json}" adapter toolOptions "${_option}")
+                if(NOT _option MATCHES "^[A-Za-z_][A-Za-z0-9_]*$"
+                        OR _option MATCHES "^(CMAKE|ARKEN)_")
+                    _arken_extpkg_error(
+                        "arken.external_packages.cmake_source.tool_option_name_invalid"
+                        "adapter"
+                        "${recipe_id}"
+                        "CMake-source tool option '${_option}' is not an upstream-scoped cache option."
+                    )
+                endif()
+                list(FIND _configured_options "${_option}" _duplicate_option_index)
+                if(NOT _duplicate_option_index EQUAL -1)
+                    _arken_extpkg_error(
+                        "arken.external_packages.cmake_source.tool_option_duplicate"
+                        "adapter"
+                        "${recipe_id}"
+                        "CMake-source tool option '${_option}' is also declared in adapter.options."
+                    )
+                endif()
+                if(NOT _tool_target MATCHES "^arken::external_[A-Za-z0-9_]+$"
+                        OR NOT TARGET "${_tool_target}")
+                    _arken_extpkg_error(
+                        "arken.external_packages.cmake_source.tool_target_missing"
+                        "adapter"
+                        "${recipe_id}"
+                        "CMake-source tool option '${_option}' requires a materialized Arken external tool target: ${_tool_target}"
+                    )
+                endif()
+                get_target_property(
+                    _tool_location
+                    "${_tool_target}"
+                    IMPORTED_LOCATION
+                )
+                get_target_property(
+                    _tool_sha256
+                    "${_tool_target}"
+                    ARKEN_EXTERNAL_TOOL_SHA256
+                )
+                get_target_property(
+                    _tool_version_identity
+                    "${_tool_target}"
+                    ARKEN_EXTERNAL_TOOL_VERSION_IDENTITY
+                )
+                string(LENGTH "${_tool_sha256}" _tool_sha_length)
+                string(LENGTH "${_tool_version_identity}" _tool_version_length)
+                if(NOT IS_ABSOLUTE "${_tool_location}"
+                        OR NOT EXISTS "${_tool_location}"
+                        OR IS_DIRECTORY "${_tool_location}"
+                        OR NOT _tool_sha256 MATCHES "^[0-9a-f]+$"
+                        OR NOT _tool_sha_length EQUAL 64
+                        OR NOT _tool_version_identity MATCHES "^[0-9a-f]+$"
+                        OR NOT _tool_version_length EQUAL 64)
+                    _arken_extpkg_error(
+                        "arken.external_packages.cmake_source.tool_target_invalid"
+                        "adapter"
+                        "${recipe_id}"
+                        "CMake-source tool option '${_option}' requires an identity-recorded imported executable."
+                    )
+                endif()
+                file(SHA256 "${_tool_location}" _observed_tool_sha256)
+                if(NOT "${_observed_tool_sha256}" STREQUAL "${_tool_sha256}")
+                    _arken_extpkg_error(
+                        "arken.external_packages.cmake_source.tool_identity_changed"
+                        "adapter"
+                        "${recipe_id}"
+                        "CMake-source tool '${_tool_location}' changed after package resolution: expected ${_tool_sha256}, observed ${_observed_tool_sha256}."
+                    )
+                endif()
+                get_property(
+                    _cache_was_set
+                    CACHE "${_option}"
+                    PROPERTY TYPE
+                    SET
+                )
+                set(
+                    "_arken_extpkg_cache_was_set_${_option}"
+                    "${_cache_was_set}"
+                )
+                if(_cache_was_set)
+                    foreach(_property IN ITEMS TYPE VALUE HELPSTRING ADVANCED)
+                        get_property(
+                            _prior
+                            CACHE "${_option}"
+                            PROPERTY "${_property}"
+                        )
+                        set(
+                            "_arken_extpkg_cache_${_property}_${_option}"
+                            "${_prior}"
+                        )
+                    endforeach()
+                endif()
+                set(
+                    "${_option}"
+                    "${_tool_location}"
+                    CACHE FILEPATH
+                    "Arken external package ${recipe_id} identity-recorded build tool"
+                    FORCE
+                )
+                list(APPEND _configured_options "${_option}")
+                list(APPEND
+                    _configuration_material
+                    "toolOption.${_option}.target=${_tool_target}"
+                    "toolOption.${_option}.path=${_tool_location}"
+                    "toolOption.${_option}.sha256=${_tool_sha256}"
+                    "toolOption.${_option}.versionIdentity=${_tool_version_identity}"
+                )
+            endforeach()
+        endif()
+    elseif(NOT _tool_options_type STREQUAL "")
+        _arken_extpkg_error(
+            "arken.external_packages.cmake_source.tool_options_invalid"
+            "adapter"
+            "${recipe_id}"
+            "adapter.toolOptions must be an object."
+        )
+    endif()
+    _arken_extpkg_json_type(_path_options_type "${recipe_json}" adapter pathOptions)
+    if(_path_options_type STREQUAL "OBJECT")
+        string(JSON _path_option_count LENGTH "${recipe_json}" adapter pathOptions)
+        if(_path_option_count GREATER 0)
+            math(EXPR _path_option_last "${_path_option_count} - 1")
+            foreach(_index RANGE 0 ${_path_option_last})
+                string(JSON _option MEMBER "${recipe_json}" adapter pathOptions ${_index})
+                string(JSON _path_target GET "${recipe_json}" adapter pathOptions "${_option}")
+                if(NOT _option MATCHES "^[A-Za-z_][A-Za-z0-9_]*$"
+                        OR _option MATCHES "^(CMAKE|ARKEN)_")
+                    _arken_extpkg_error(
+                        "arken.external_packages.cmake_source.path_option_name_invalid"
+                        "adapter"
+                        "${recipe_id}"
+                        "CMake-source path option '${_option}' is not an upstream-scoped cache option."
+                    )
+                endif()
+                list(FIND _configured_options "${_option}" _duplicate_option_index)
+                if(NOT _duplicate_option_index EQUAL -1)
+                    _arken_extpkg_error(
+                        "arken.external_packages.cmake_source.path_option_duplicate"
+                        "adapter"
+                        "${recipe_id}"
+                        "CMake-source path option '${_option}' is already declared by another adapter option."
+                    )
+                endif()
+                if(NOT _path_target MATCHES "^arken::external_[A-Za-z0-9_]+$"
+                        OR NOT TARGET "${_path_target}")
+                    _arken_extpkg_error(
+                        "arken.external_packages.cmake_source.path_target_missing"
+                        "adapter"
+                        "${recipe_id}"
+                        "CMake-source path option '${_option}' requires a materialized Arken external path target: ${_path_target}"
+                    )
+                endif()
+                get_target_property(
+                    _path_location
+                    "${_path_target}"
+                    ARKEN_EXTERNAL_PACKAGE_DIRECTORY
+                )
+                get_target_property(
+                    _path_sha256
+                    "${_path_target}"
+                    ARKEN_EXTERNAL_DIRECTORY_SHA256
+                )
+                string(LENGTH "${_path_sha256}" _path_sha_length)
+                if(NOT IS_ABSOLUTE "${_path_location}"
+                        OR NOT IS_DIRECTORY "${_path_location}"
+                        OR IS_SYMLINK "${_path_location}"
+                        OR NOT _path_sha256 MATCHES "^[0-9a-f]+$"
+                        OR NOT _path_sha_length EQUAL 64)
+                    _arken_extpkg_error(
+                        "arken.external_packages.cmake_source.path_target_invalid"
+                        "adapter"
+                        "${recipe_id}"
+                        "CMake-source path option '${_option}' requires an identity-recorded package directory."
+                    )
+                endif()
+                _arken_extpkg_tree_identity(
+                    _observed_path_sha256
+                    "${_path_location}"
+                    "${recipe_id}:${_option}"
+                )
+                if(NOT "${_observed_path_sha256}" STREQUAL "${_path_sha256}")
+                    _arken_extpkg_error(
+                        "arken.external_packages.cmake_source.path_identity_changed"
+                        "adapter"
+                        "${recipe_id}"
+                        "CMake-source package directory '${_path_location}' changed after resolution: expected ${_path_sha256}, observed ${_observed_path_sha256}."
+                    )
+                endif()
+                get_property(
+                    _cache_was_set
+                    CACHE "${_option}"
+                    PROPERTY TYPE
+                    SET
+                )
+                set(
+                    "_arken_extpkg_cache_was_set_${_option}"
+                    "${_cache_was_set}"
+                )
+                if(_cache_was_set)
+                    foreach(_property IN ITEMS TYPE VALUE HELPSTRING ADVANCED)
+                        get_property(
+                            _prior
+                            CACHE "${_option}"
+                            PROPERTY "${_property}"
+                        )
+                        set(
+                            "_arken_extpkg_cache_${_property}_${_option}"
+                            "${_prior}"
+                        )
+                    endforeach()
+                endif()
+                set(
+                    "${_option}"
+                    "${_path_location}"
+                    CACHE PATH
+                    "Arken external package ${recipe_id} identity-recorded package directory"
+                    FORCE
+                )
+                list(APPEND _configured_options "${_option}")
+                list(APPEND
+                    _configuration_material
+                    "pathOption.${_option}.target=${_path_target}"
+                    "pathOption.${_option}.path=${_path_location}"
+                    "pathOption.${_option}.sha256=${_path_sha256}"
+                )
+            endforeach()
+        endif()
+    elseif(NOT _path_options_type STREQUAL "")
+        _arken_extpkg_error(
+            "arken.external_packages.cmake_source.path_options_invalid"
+            "adapter"
+            "${recipe_id}"
+            "adapter.pathOptions must be an object."
+        )
+    endif()
     list(SORT _configuration_material)
     string(JOIN "|" _configuration_text ${_configuration_material})
     string(SHA256 _configuration_sha256 "${_configuration_text}")
@@ -633,6 +874,62 @@ function(_arken_extpkg_materialize_cmake_source
     endforeach()
 endfunction()
 
+function(_arken_extpkg_measure_tool_component
+    out_sha256
+    out_version_identity
+    program
+    component
+    recipe_id
+    component_name
+)
+    if(NOT IS_ABSOLUTE "${program}"
+            OR NOT EXISTS "${program}"
+            OR IS_DIRECTORY "${program}")
+        _arken_extpkg_error(
+            "arken.external_packages.tool.missing"
+            "adapter"
+            "${recipe_id}"
+            "Resolved tool is unavailable: ${program}"
+        )
+    endif()
+    file(SHA256 "${program}" _observed_sha)
+    _arken_extpkg_json_optional_string(_expected_sha "${component}" "" "${recipe_id}:${component_name}" expectedSha256)
+    if(NOT "${_expected_sha}" STREQUAL ""
+            AND NOT "${_observed_sha}" STREQUAL "${_expected_sha}")
+        _arken_extpkg_error(
+            "arken.external_packages.tool.hash_mismatch"
+            "adapter"
+            "${recipe_id}"
+            "Tool '${program}' expected SHA-256 ${_expected_sha}, observed ${_observed_sha}."
+        )
+    endif()
+    _arken_extpkg_json_array_to_list(_version_arguments "${component}" "${recipe_id}:${component_name}" versionArguments)
+    _arken_extpkg_json_optional_string(_version_regex "${component}" "" "${recipe_id}:${component_name}" expectedVersionRegex)
+    set(_version_output "")
+    if(NOT _version_regex STREQUAL "")
+        execute_process(
+            COMMAND "${program}" ${_version_arguments}
+            RESULT_VARIABLE _version_result
+            OUTPUT_VARIABLE _version_stdout
+            ERROR_VARIABLE _version_stderr
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_STRIP_TRAILING_WHITESPACE
+        )
+        set(_version_output "${_version_stdout}\n${_version_stderr}")
+        if(NOT _version_result EQUAL 0 OR NOT _version_output MATCHES "${_version_regex}")
+            _arken_extpkg_error(
+                "arken.external_packages.tool.version_mismatch"
+                "adapter"
+                "${recipe_id}"
+                "Tool '${program}' did not match expected version expression '${_version_regex}'."
+            )
+        endif()
+    endif()
+    string(SHA256 _version_identity "${_version_output}")
+    set(${out_sha256} "${_observed_sha}" PARENT_SCOPE)
+    set(${out_version_identity} "${_version_identity}" PARENT_SCOPE)
+endfunction()
+
 function(_arken_extpkg_resolve_tool_component
     out_program
     out_sha256
@@ -664,49 +961,15 @@ function(_arken_extpkg_resolve_tool_component
         endif()
         find_program(_program NAMES ${_program_names} NO_CACHE REQUIRED)
     endif()
-    if(NOT EXISTS "${_program}" OR IS_DIRECTORY "${_program}")
-        _arken_extpkg_error(
-            "arken.external_packages.tool.missing"
-            "adapter"
-            "${recipe_id}"
-            "Resolved tool is unavailable: ${_program}"
-        )
-    endif()
     cmake_path(NORMAL_PATH _program OUTPUT_VARIABLE _program)
-    file(SHA256 "${_program}" _observed_sha)
-    _arken_extpkg_json_optional_string(_expected_sha "${component}" "" "${recipe_id}:${component_name}" expectedSha256)
-    if(NOT "${_expected_sha}" STREQUAL ""
-            AND NOT "${_observed_sha}" STREQUAL "${_expected_sha}")
-        _arken_extpkg_error(
-            "arken.external_packages.tool.hash_mismatch"
-            "adapter"
-            "${recipe_id}"
-            "Tool '${_program}' expected SHA-256 ${_expected_sha}, observed ${_observed_sha}."
-        )
-    endif()
-    _arken_extpkg_json_array_to_list(_version_arguments "${component}" "${recipe_id}:${component_name}" versionArguments)
-    _arken_extpkg_json_optional_string(_version_regex "${component}" "" "${recipe_id}:${component_name}" expectedVersionRegex)
-    set(_version_output "")
-    if(NOT _version_regex STREQUAL "")
-        execute_process(
-            COMMAND "${_program}" ${_version_arguments}
-            RESULT_VARIABLE _version_result
-            OUTPUT_VARIABLE _version_stdout
-            ERROR_VARIABLE _version_stderr
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            ERROR_STRIP_TRAILING_WHITESPACE
-        )
-        set(_version_output "${_version_stdout}\n${_version_stderr}")
-        if(NOT _version_result EQUAL 0 OR NOT _version_output MATCHES "${_version_regex}")
-            _arken_extpkg_error(
-                "arken.external_packages.tool.version_mismatch"
-                "adapter"
-                "${recipe_id}"
-                "Tool '${_program}' did not match expected version expression '${_version_regex}'."
-            )
-        endif()
-    endif()
-    string(SHA256 _version_identity "${_version_output}")
+    _arken_extpkg_measure_tool_component(
+        _observed_sha
+        _version_identity
+        "${_program}"
+        "${component}"
+        "${recipe_id}"
+        "${component_name}"
+    )
     set(${out_program} "${_program}" PARENT_SCOPE)
     set(${out_sha256} "${_observed_sha}" PARENT_SCOPE)
     set(${out_version_identity} "${_version_identity}" PARENT_SCOPE)
@@ -841,8 +1104,26 @@ function(_arken_extpkg_materialize_imported_components
                 "${_relative}" "${recipe_id}:${_name}" executablePath
             )
             set(_location "${root}/${_relative}")
+            cmake_path(NORMAL_PATH _location OUTPUT_VARIABLE _location)
+            _arken_extpkg_measure_tool_component(
+                _tool_sha256
+                _tool_version_identity
+                "${_location}"
+                "${_component}"
+                "${recipe_id}"
+                "${_name}"
+            )
             add_executable("${_target}" IMPORTED GLOBAL)
             set_property(TARGET "${_target}" PROPERTY IMPORTED_LOCATION "${_location}")
+            set_property(
+                TARGET "${_target}"
+                PROPERTY ARKEN_EXTERNAL_TOOL_SHA256 "${_tool_sha256}"
+            )
+            set_property(
+                TARGET "${_target}"
+                PROPERTY ARKEN_EXTERNAL_TOOL_VERSION_IDENTITY
+                    "${_tool_version_identity}"
+            )
         elseif(_kind STREQUAL "static")
             _arken_extpkg_json_required_string(_relative "${_component}" "${recipe_id}:${_name}" libraryPath)
             _arken_extpkg_validate_relative_component_path(
@@ -1062,6 +1343,431 @@ function(_arken_extpkg_materialize_configure_make
     )
 endfunction()
 
+function(_arken_extpkg_materialize_zig_package_cache
+    recipe_json
+    recipe_id
+    source_root
+    selected_components
+    cache_root
+)
+    _arken_extpkg_json_required_string(
+        _zig_tool_target
+        "${recipe_json}"
+        "${recipe_id}"
+        adapter
+        zigToolTarget
+    )
+    if(NOT TARGET "${_zig_tool_target}")
+        _arken_extpkg_error(
+            "arken.external_packages.zig_cache.tool_missing"
+            "adapter"
+            "${recipe_id}"
+            "Zig package cache requires a materialized Zig tool target: ${_zig_tool_target}"
+        )
+    endif()
+    get_target_property(_zig_program "${_zig_tool_target}" IMPORTED_LOCATION)
+    get_target_property(
+        _zig_sha256
+        "${_zig_tool_target}"
+        ARKEN_EXTERNAL_TOOL_SHA256
+    )
+    get_target_property(
+        _zig_version_identity
+        "${_zig_tool_target}"
+        ARKEN_EXTERNAL_TOOL_VERSION_IDENTITY
+    )
+    string(LENGTH "${_zig_sha256}" _zig_sha_length)
+    string(LENGTH "${_zig_version_identity}" _zig_version_length)
+    if(NOT IS_ABSOLUTE "${_zig_program}"
+            OR NOT EXISTS "${_zig_program}"
+            OR IS_DIRECTORY "${_zig_program}"
+            OR NOT _zig_sha256 MATCHES "^[0-9a-f]+$"
+            OR NOT _zig_sha_length EQUAL 64
+            OR NOT _zig_version_identity MATCHES "^[0-9a-f]+$"
+            OR NOT _zig_version_length EQUAL 64)
+        _arken_extpkg_error(
+            "arken.external_packages.zig_cache.tool_invalid"
+            "adapter"
+            "${recipe_id}"
+            "Zig package cache requires an identity-recorded imported Zig executable."
+        )
+    endif()
+    file(SHA256 "${_zig_program}" _observed_zig_sha256)
+    if(NOT "${_observed_zig_sha256}" STREQUAL "${_zig_sha256}")
+        _arken_extpkg_error(
+            "arken.external_packages.zig_cache.tool_identity_changed"
+            "adapter"
+            "${recipe_id}"
+            "Zig executable changed after package resolution: expected ${_zig_sha256}, observed ${_observed_zig_sha256}."
+        )
+    endif()
+
+    _arken_extpkg_json_required_string(
+        _lock_relative
+        "${recipe_json}"
+        "${recipe_id}"
+        adapter
+        lockFile
+    )
+    _arken_extpkg_validate_relative_component_path(
+        "${_lock_relative}"
+        "${recipe_id}"
+        lockFile
+    )
+    set(_lock_path "${source_root}/${_lock_relative}")
+    if(NOT EXISTS "${_lock_path}"
+            OR IS_DIRECTORY "${_lock_path}"
+            OR IS_SYMLINK "${_lock_path}")
+        _arken_extpkg_error(
+            "arken.external_packages.zig_cache.lock_missing"
+            "adapter"
+            "${recipe_id}"
+            "Zig package cache lock file is missing: ${_lock_relative}"
+        )
+    endif()
+    _arken_extpkg_add_configure_dependency("${_lock_path}")
+    file(READ "${_lock_path}" _lock_json)
+    file(SHA256 "${_lock_path}" _lock_sha256)
+    _arken_extpkg_validate_object_keys(
+        "${_lock_json}"
+        "${recipe_id}:zig-package-lock"
+        "schemaVersion;packages"
+    )
+    string(
+        JSON
+        _lock_schema
+        ERROR_VARIABLE
+        _lock_schema_error
+        GET
+        "${_lock_json}"
+        schemaVersion
+    )
+    if(NOT _lock_schema_error STREQUAL "NOTFOUND"
+            OR NOT _lock_schema EQUAL 1)
+        _arken_extpkg_error(
+            "arken.external_packages.zig_cache.lock_schema_invalid"
+            "adapter"
+            "${recipe_id}"
+            "Zig package cache lock schemaVersion must be 1."
+        )
+    endif()
+    string(
+        JSON
+        _packages_type
+        ERROR_VARIABLE
+        _packages_type_error
+        TYPE
+        "${_lock_json}"
+        packages
+    )
+    if(NOT _packages_type_error STREQUAL "NOTFOUND"
+            OR NOT _packages_type STREQUAL "ARRAY")
+        _arken_extpkg_error(
+            "arken.external_packages.zig_cache.packages_invalid"
+            "adapter"
+            "${recipe_id}"
+            "Zig package cache lock packages must be an array."
+        )
+    endif()
+    string(JSON _package_count LENGTH "${_lock_json}" packages)
+    if(_package_count LESS 1 OR _package_count GREATER 128)
+        _arken_extpkg_error(
+            "arken.external_packages.zig_cache.package_count_invalid"
+            "adapter"
+            "${recipe_id}"
+            "Zig package cache lock requires between 1 and 128 packages."
+        )
+    endif()
+    set(_package_names "")
+    set(_package_hashes "")
+    set(_package_urls "")
+    set(_package_records_json "")
+    math(EXPR _package_last "${_package_count} - 1")
+    foreach(_index RANGE 0 ${_package_last})
+        string(JSON _package GET "${_lock_json}" packages ${_index})
+        _arken_extpkg_validate_object_keys(
+            "${_package}"
+            "${recipe_id}:zig-package-lock.packages[${_index}]"
+            "name;url;zigHash"
+        )
+        _arken_extpkg_json_required_string(
+            _name
+            "${_package}"
+            "${recipe_id}:zig-package-lock.packages[${_index}]"
+            name
+        )
+        _arken_extpkg_json_required_string(
+            _url
+            "${_package}"
+            "${recipe_id}:zig-package-lock.packages[${_index}]"
+            url
+        )
+        _arken_extpkg_json_required_string(
+            _zig_hash
+            "${_package}"
+            "${recipe_id}:zig-package-lock.packages[${_index}]"
+            zigHash
+        )
+        string(LENGTH "${_zig_hash}" _zig_hash_length)
+        if(NOT _name MATCHES "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                OR _name MATCHES "[;\n\r|]"
+                OR _url MATCHES "[;\n\r|]"
+                OR NOT _zig_hash MATCHES "^[A-Za-z0-9][A-Za-z0-9._-]+$"
+                OR _zig_hash_length GREATER 192)
+            _arken_extpkg_error(
+                "arken.external_packages.zig_cache.package_record_invalid"
+                "adapter"
+                "${recipe_id}"
+                "Zig package cache records require safe names, URLs, and Zig content hashes."
+            )
+        endif()
+        if(NOT _url MATCHES "^https://"
+                AND NOT _url MATCHES "^git\\+https://")
+            if(NOT ARKEN_EXTERNAL_PACKAGES_ALLOW_TEST_SOURCES
+                    OR NOT _url MATCHES "^file://")
+                _arken_extpkg_error(
+                    "arken.external_packages.zig_cache.url_scheme_rejected"
+                    "acquisition"
+                    "${recipe_id}"
+                    "Zig package URLs must use HTTPS or git+HTTPS. Local file URLs are admitted only for controlled tests."
+                )
+            endif()
+        endif()
+        list(FIND _package_hashes "${_zig_hash}" _hash_duplicate)
+        list(FIND _package_urls "${_url}" _url_duplicate)
+        if(NOT _hash_duplicate EQUAL -1 OR NOT _url_duplicate EQUAL -1)
+            _arken_extpkg_error(
+                "arken.external_packages.zig_cache.package_duplicate"
+                "adapter"
+                "${recipe_id}"
+                "Zig package cache lock contains a duplicate URL or content hash."
+            )
+        endif()
+        list(APPEND _package_names "${_name}")
+        list(APPEND _package_hashes "${_zig_hash}")
+        list(APPEND _package_urls "${_url}")
+        _arken_extpkg_json_escape(_name_json "${_name}")
+        _arken_extpkg_json_escape(_url_json "${_url}")
+        _arken_extpkg_json_escape(_zig_hash_json "${_zig_hash}")
+        if(_index GREATER 0)
+            string(APPEND _package_records_json ",\n")
+        endif()
+        string(APPEND _package_records_json
+            "    {\"name\":\"${_name_json}\",\"url\":\"${_url_json}\",\"zigHash\":\"${_zig_hash_json}\"}"
+        )
+    endforeach()
+
+    string(
+        SHA256
+        _cache_key
+        "${_lock_sha256}|${_zig_sha256}|${_zig_version_identity}"
+    )
+    set(_cache_parent "${cache_root}/zig-packages/sha256")
+    set(_entry "${_cache_parent}/${_cache_key}")
+    set(_packages_root "${_entry}/p")
+    set(_receipt "${_entry}/zig-package-cache.receipt.json")
+    set(_complete "${_entry}/.complete")
+    file(MAKE_DIRECTORY "${cache_root}/locks" "${_cache_parent}")
+    file(
+        LOCK
+        "${cache_root}/locks/zig-packages-${_cache_key}.lock"
+        GUARD FUNCTION
+        TIMEOUT 600
+    )
+
+    set(_entry_valid FALSE)
+    if(EXISTS "${_entry}")
+        if(EXISTS "${_receipt}"
+                AND EXISTS "${_complete}"
+                AND IS_DIRECTORY "${_packages_root}"
+                AND NOT IS_SYMLINK "${_packages_root}")
+            file(READ "${_receipt}" _receipt_json)
+            string(JSON _receipt_lock ERROR_VARIABLE _receipt_lock_error
+                GET "${_receipt_json}" lockSha256)
+            string(JSON _receipt_zig ERROR_VARIABLE _receipt_zig_error
+                GET "${_receipt_json}" zigSha256)
+            string(JSON _receipt_tree ERROR_VARIABLE _receipt_tree_error
+                GET "${_receipt_json}" packagesTreeSha256)
+            string(JSON _receipt_count ERROR_VARIABLE _receipt_count_error
+                GET "${_receipt_json}" packageCount)
+            set(_expected_directories_present TRUE)
+            foreach(_zig_hash IN LISTS _package_hashes)
+                if(NOT IS_DIRECTORY "${_packages_root}/${_zig_hash}"
+                        OR IS_SYMLINK "${_packages_root}/${_zig_hash}")
+                    set(_expected_directories_present FALSE)
+                endif()
+            endforeach()
+            if(_receipt_lock_error STREQUAL "NOTFOUND"
+                    AND _receipt_zig_error STREQUAL "NOTFOUND"
+                    AND _receipt_tree_error STREQUAL "NOTFOUND"
+                    AND _receipt_count_error STREQUAL "NOTFOUND"
+                    AND _receipt_lock STREQUAL _lock_sha256
+                    AND _receipt_zig STREQUAL _zig_sha256
+                    AND _receipt_count EQUAL _package_count
+                    AND _expected_directories_present)
+                _arken_extpkg_tree_identity(
+                    _observed_tree
+                    "${_packages_root}"
+                    "${recipe_id}"
+                )
+                if(_observed_tree STREQUAL _receipt_tree)
+                    set(_entry_valid TRUE)
+                endif()
+            endif()
+        endif()
+        if(NOT _entry_valid)
+            _arken_extpkg_quarantine_cache_entry(
+                "${_entry}"
+                "Zig package cache receipt, package set, or tree mismatch"
+            )
+        endif()
+    endif()
+
+    if(NOT _entry_valid)
+        if(DEFINED ARKEN_EXTERNAL_PACKAGES_OFFLINE
+                AND ARKEN_EXTERNAL_PACKAGES_OFFLINE)
+            _arken_extpkg_error(
+                "arken.external_packages.offline.zig_cache_missing"
+                "acquisition"
+                "${recipe_id}"
+                "Offline mode is enabled and exact Zig package cache ${_cache_key} is absent. Populate it in an authorized online build, then retry."
+            )
+        endif()
+        string(RANDOM LENGTH 12 ALPHABET 0123456789abcdef _nonce)
+        set(_temporary "${_entry}.partial-${_nonce}")
+        file(REMOVE_RECURSE "${_temporary}")
+        file(MAKE_DIRECTORY "${_temporary}")
+        foreach(_url _zig_hash IN ZIP_LISTS _package_urls _package_hashes)
+            set(_fetch_succeeded FALSE)
+            set(_fetch_diagnostic "")
+            foreach(_attempt RANGE 1 2)
+                execute_process(
+                    COMMAND
+                        "${_zig_program}"
+                        fetch
+                        --global-cache-dir
+                        "${_temporary}"
+                        "${_url}"
+                    RESULT_VARIABLE _fetch_result
+                    OUTPUT_VARIABLE _fetch_output
+                    ERROR_VARIABLE _fetch_error
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                    ERROR_STRIP_TRAILING_WHITESPACE
+                    TIMEOUT 300
+                )
+                if(_fetch_result EQUAL 0
+                        AND _fetch_output STREQUAL _zig_hash
+                        AND IS_DIRECTORY "${_temporary}/p/${_zig_hash}"
+                        AND NOT IS_SYMLINK "${_temporary}/p/${_zig_hash}")
+                    set(_fetch_succeeded TRUE)
+                    break()
+                endif()
+                set(_fetch_diagnostic
+                    "attempt ${_attempt}: result=${_fetch_result}, "
+                    "observed='${_fetch_output}', diagnostic='${_fetch_error}'")
+                file(REMOVE_RECURSE "${_temporary}/p/${_zig_hash}")
+            endforeach()
+            if(NOT _fetch_succeeded)
+                file(REMOVE_RECURSE "${_temporary}")
+                _arken_extpkg_error(
+                    "arken.external_packages.zig_cache.fetch_failed"
+                    "acquisition"
+                    "${recipe_id}"
+                    "Zig package fetch failed or returned the wrong content identity for ${_url}. Expected ${_zig_hash}; ${_fetch_diagnostic}"
+                )
+            endif()
+        endforeach()
+        _arken_extpkg_tree_identity(
+            _packages_tree_sha256
+            "${_temporary}/p"
+            "${recipe_id}"
+        )
+        _arken_extpkg_json_escape(_zig_program_json "${_zig_program}")
+        set(_receipt_json
+            "{\n"
+            "  \"schemaVersion\": 1,\n"
+            "  \"recipeId\": \"${recipe_id}\",\n"
+            "  \"lockSha256\": \"${_lock_sha256}\",\n"
+            "  \"zigExecutable\": \"${_zig_program_json}\",\n"
+            "  \"zigSha256\": \"${_zig_sha256}\",\n"
+            "  \"zigVersionIdentity\": \"${_zig_version_identity}\",\n"
+            "  \"packageCount\": ${_package_count},\n"
+            "  \"packagesTreeSha256\": \"${_packages_tree_sha256}\",\n"
+            "  \"packages\": [\n${_package_records_json}\n  ]\n"
+            "}\n"
+        )
+        string(JOIN "" _receipt_json ${_receipt_json})
+        file(WRITE
+            "${_temporary}/zig-package-cache.receipt.json"
+            "${_receipt_json}"
+        )
+        file(WRITE "${_temporary}/.complete" "${_cache_key}\n")
+        file(RENAME "${_temporary}" "${_entry}" RESULT _rename_result)
+        if(NOT _rename_result STREQUAL "0")
+            file(REMOVE_RECURSE "${_temporary}")
+            if(NOT EXISTS "${_receipt}" OR NOT EXISTS "${_complete}")
+                _arken_extpkg_error(
+                    "arken.external_packages.zig_cache.publish_failed"
+                    "cache"
+                    "${recipe_id}"
+                    "Atomic Zig package cache publication failed: ${_rename_result}"
+                )
+            endif()
+        endif()
+    else()
+        file(READ "${_receipt}" _receipt_json)
+        string(JSON _packages_tree_sha256
+            GET "${_receipt_json}" packagesTreeSha256)
+        message(STATUS
+            "Arken external package ${recipe_id}: resolved exact Zig packages from verified cache")
+    endif()
+
+    string(JSON _component_count LENGTH "${recipe_json}" components)
+    math(EXPR _component_last "${_component_count} - 1")
+    foreach(_index RANGE 0 ${_component_last})
+        string(JSON _component GET "${recipe_json}" components ${_index})
+        _arken_extpkg_component_common(
+            _name
+            _target
+            _kind
+            "${_component}"
+            "${recipe_id}"
+            "${_index}"
+        )
+        _arken_extpkg_component_selected(
+            _selected
+            "${_name}"
+            "${selected_components}"
+        )
+        if(NOT _selected)
+            continue()
+        endif()
+        if(NOT _kind STREQUAL "interface")
+            _arken_extpkg_error(
+                "arken.external_packages.zig_cache.component_kind_invalid"
+                "adapter"
+                "${recipe_id}"
+                "Zig package cache components must use kind 'interface'."
+            )
+        endif()
+        add_library("${_target}" INTERFACE IMPORTED GLOBAL)
+        set_property(
+            TARGET "${_target}"
+            PROPERTY ARKEN_EXTERNAL_PACKAGE_DIRECTORY "${_packages_root}"
+        )
+        set_property(
+            TARGET "${_target}"
+            PROPERTY ARKEN_EXTERNAL_DIRECTORY_SHA256
+                "${_packages_tree_sha256}"
+        )
+        set_property(
+            TARGET "${_target}"
+            PROPERTY ARKEN_EXTERNAL_PACKAGE_COMPONENT_RECEIPT_PATH
+                "${_receipt}"
+        )
+    endforeach()
+endfunction()
+
 function(_arken_extpkg_materialize_recipe
     recipe_json
     recipe_id
@@ -1148,6 +1854,14 @@ function(_arken_extpkg_materialize_recipe
             "${source_root}"
             "${selected_components}"
             "${package_build_root}"
+            "${cache_root}"
+        )
+    elseif(_adapter_kind STREQUAL "zig-package-cache")
+        _arken_extpkg_materialize_zig_package_cache(
+            "${recipe_json}"
+            "${recipe_id}"
+            "${source_root}"
+            "${selected_components}"
             "${cache_root}"
         )
     elseif(_adapter_kind STREQUAL "verified-prebuilt")

@@ -45,7 +45,7 @@ function(_arken_extpkg_validate_consumer_record record manifest_path index curre
     _arken_extpkg_validate_object_keys(
         "${record}"
         "${_subject}"
-        "recipe;scope;components;platforms;reason"
+        "recipe;scope;components;platforms;reason;enabledWhen"
     )
     _arken_extpkg_json_required_string(_recipe "${record}" "${_subject}" recipe)
     _arken_extpkg_json_required_string(_scope "${record}" "${_subject}" scope)
@@ -89,6 +89,36 @@ function(_arken_extpkg_validate_consumer_record record manifest_path index curre
         endif()
     endforeach()
     set(_enabled TRUE)
+    set(_condition_value TRUE)
+    _arken_extpkg_json_optional_string(
+        _enabled_when
+        "${record}"
+        ""
+        "${_subject}"
+        enabledWhen
+    )
+    if(NOT _enabled_when STREQUAL "")
+        if(NOT _enabled_when MATCHES "^[A-Z][A-Z0-9_]*$")
+            _arken_extpkg_error(
+                "arken.external_packages.consumer.condition_invalid"
+                "manifest"
+                "${_subject}"
+                "enabledWhen must name one uppercase CMake option."
+            )
+        endif()
+        if(NOT DEFINED ${_enabled_when})
+            _arken_extpkg_error(
+                "arken.external_packages.consumer.condition_undefined"
+                "manifest"
+                "${_subject}"
+                "enabledWhen names undefined CMake option '${_enabled_when}'."
+            )
+        endif()
+        if(NOT ${_enabled_when})
+            set(_condition_value FALSE)
+            set(_enabled FALSE)
+        endif()
+    endif()
     if(_scope STREQUAL "test" AND NOT BUILD_TESTING)
         set(_enabled FALSE)
     endif()
@@ -100,13 +130,15 @@ function(_arken_extpkg_validate_consumer_record record manifest_path index curre
     endif()
     _arken_extpkg_json_optional_string(_reason "${record}" "" "${_subject}" reason)
     string(SHA256 _request_id
-        "${manifest_path}|${index}|${_recipe}|${_scope}|${_components}|${_platforms}"
+        "${manifest_path}|${index}|${_recipe}|${_scope}|${_components}|${_platforms}|${_enabled_when}|${_condition_value}"
     )
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_RECIPE_${_request_id}" "${_recipe}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_SCOPE_${_request_id}" "${_scope}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_COMPONENTS_${_request_id}" "${_components}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_PLATFORMS_${_request_id}" "${_platforms}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_REASON_${_request_id}" "${_reason}")
+    set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_ENABLED_WHEN_${_request_id}" "${_enabled_when}")
+    set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_CONDITION_VALUE_${_request_id}" "${_condition_value}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_MANIFEST_${_request_id}" "${manifest_path}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_ENABLED_${_request_id}" "${_enabled}")
     set_property(GLOBAL APPEND PROPERTY ARKEN_EXTPKG_REQUEST_IDS "${_request_id}")
@@ -249,7 +281,7 @@ function(_arken_extpkg_validate_recipe recipe_id recipe_path recipe_json current
     _arken_extpkg_validate_object_keys(
         "${recipe_json}"
         "${recipe_id}:adapter"
-        "kind;version;options;configureArguments;forbiddenConfigureArguments;installMode;cmakeSubdirectory;findPackage;makeToolTarget;patchToolTarget"
+        "kind;version;options;toolOptions;pathOptions;configureArguments;forbiddenConfigureArguments;installMode;cmakeSubdirectory;findPackage;makeToolTarget;patchToolTarget;zigToolTarget;lockFile"
         adapter
     )
     _arken_extpkg_validate_object_keys(
@@ -292,6 +324,7 @@ function(_arken_extpkg_validate_recipe recipe_id recipe_path recipe_json current
             AND NOT _adapter_kind STREQUAL "tracked-source"
             AND NOT _adapter_kind STREQUAL "cmake-source"
             AND NOT _adapter_kind STREQUAL "configure-make"
+            AND NOT _adapter_kind STREQUAL "zig-package-cache"
             AND NOT _adapter_kind STREQUAL "verified-prebuilt"
             AND NOT _adapter_kind STREQUAL "system-sdk"
             AND NOT _adapter_kind STREQUAL "tool-profile")
@@ -625,8 +658,9 @@ function(_arken_extpkg_toolchain_identity out_var)
     set(${out_var} "${_identity}" PARENT_SCOPE)
 endfunction()
 
-function(_arken_extpkg_validate_adapter_tool_dependencies recipe_json recipe_id dependencies)
-    foreach(_field IN ITEMS makeToolTarget patchToolTarget)
+function(_arken_extpkg_validate_adapter_target_dependencies recipe_json recipe_id dependencies)
+    set(_adapter_targets "")
+    foreach(_field IN ITEMS makeToolTarget patchToolTarget zigToolTarget)
         _arken_extpkg_json_optional_string(
             _tool_target
             "${recipe_json}"
@@ -638,26 +672,53 @@ function(_arken_extpkg_validate_adapter_tool_dependencies recipe_json recipe_id 
         if(_tool_target STREQUAL "")
             continue()
         endif()
-        get_property(
-            _tool_recipe
-            GLOBAL
-            PROPERTY "ARKEN_EXTPKG_TARGET_RECIPE_${_tool_target}"
-        )
-        if(_tool_recipe STREQUAL "")
+        list(APPEND _adapter_targets "${_tool_target}")
+    endforeach()
+    foreach(_mapping IN ITEMS toolOptions pathOptions)
+        _arken_extpkg_json_type(_mapping_type "${recipe_json}" adapter "${_mapping}")
+        if(_mapping_type STREQUAL "")
+            continue()
+        endif()
+        if(NOT _mapping_type STREQUAL "OBJECT")
             _arken_extpkg_error(
-                "arken.external_packages.adapter.tool_owner_missing"
+                "arken.external_packages.adapter.target_mapping_invalid"
                 "resolution"
                 "${recipe_id}"
-                "Adapter tool target '${_tool_target}' is not owned by a resolved recipe."
+                "adapter.${_mapping} must be an object."
             )
         endif()
-        list(FIND dependencies "${_tool_recipe}" _dependency_index)
-        if(_dependency_index EQUAL -1)
+        string(JSON _mapping_count LENGTH "${recipe_json}" adapter "${_mapping}")
+        if(_mapping_count GREATER 0)
+            math(EXPR _mapping_last "${_mapping_count} - 1")
+            foreach(_index RANGE 0 ${_mapping_last})
+                string(JSON _mapping_key MEMBER "${recipe_json}" adapter "${_mapping}" ${_index})
+                string(JSON _mapping_target GET "${recipe_json}" adapter "${_mapping}" "${_mapping_key}")
+                list(APPEND _adapter_targets "${_mapping_target}")
+            endforeach()
+        endif()
+    endforeach()
+    list(REMOVE_DUPLICATES _adapter_targets)
+    foreach(_adapter_target IN LISTS _adapter_targets)
+        get_property(
+            _owner_recipe
+            GLOBAL
+            PROPERTY "ARKEN_EXTPKG_TARGET_RECIPE_${_adapter_target}"
+        )
+        if(_owner_recipe STREQUAL "")
             _arken_extpkg_error(
-                "arken.external_packages.adapter.tool_dependency_missing"
+                "arken.external_packages.adapter.target_owner_missing"
                 "resolution"
                 "${recipe_id}"
-                "Adapter tool target '${_tool_target}' is owned by '${_tool_recipe}', which must be an explicit recipe dependency so its exact instance participates in package identity."
+                "Adapter target '${_adapter_target}' is not owned by a resolved recipe."
+            )
+        endif()
+        list(FIND dependencies "${_owner_recipe}" _dependency_index)
+        if(_dependency_index EQUAL -1)
+            _arken_extpkg_error(
+                "arken.external_packages.adapter.target_dependency_missing"
+                "resolution"
+                "${recipe_id}"
+                "Adapter target '${_adapter_target}' is owned by '${_owner_recipe}', which must be an explicit recipe dependency so its exact instance participates in package identity."
             )
         endif()
     endforeach()
@@ -715,7 +776,7 @@ function(_arken_extpkg_resolve_recipe
     get_property(_recipe_sha GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_SHA_${_recipe_ident}")
     get_property(_adapter_id GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_ADAPTER_${_recipe_ident}")
     get_property(_distribution GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_DISTRIBUTION_${_recipe_ident}")
-    _arken_extpkg_validate_adapter_tool_dependencies(
+    _arken_extpkg_validate_adapter_target_dependencies(
         "${_recipe_json}"
         "${recipe_id}"
         "${_dependencies}"
@@ -846,17 +907,21 @@ function(_arken_extpkg_generate_receipts graph_receipt spdx_receipt current_plat
         get_property(_components GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_COMPONENTS_${_request_id}")
         get_property(_platforms GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_PLATFORMS_${_request_id}")
         get_property(_reason GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_REASON_${_request_id}")
+        get_property(_enabled_when GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_ENABLED_WHEN_${_request_id}")
+        get_property(_condition_value GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_CONDITION_VALUE_${_request_id}")
         get_property(_manifest GLOBAL PROPERTY "ARKEN_EXTPKG_REQUEST_MANIFEST_${_request_id}")
         _arken_extpkg_json_escape(_manifest_json "${_manifest}")
         _arken_extpkg_json_escape(_reason_json "${_reason}")
+        _arken_extpkg_json_escape(_enabled_when_json "${_enabled_when}")
         _arken_extpkg_json_string_array(_components_json "${_components}")
         _arken_extpkg_json_string_array(_platforms_json "${_platforms}")
         if(_request_index GREATER 0)
             string(APPEND _requests_json ",\n")
         endif()
         string(TOLOWER "${_enabled}" _enabled_json)
+        string(TOLOWER "${_condition_value}" _condition_value_json)
         string(APPEND _requests_json
-            "    {\"requestId\":\"${_request_id}\",\"recipeId\":\"${_recipe}\",\"scope\":\"${_scope}\",\"components\":${_components_json},\"platforms\":${_platforms_json},\"reason\":\"${_reason_json}\",\"enabled\":${_enabled_json},\"manifest\":\"${_manifest_json}\"}"
+            "    {\"requestId\":\"${_request_id}\",\"recipeId\":\"${_recipe}\",\"scope\":\"${_scope}\",\"components\":${_components_json},\"platforms\":${_platforms_json},\"reason\":\"${_reason_json}\",\"enabledWhen\":\"${_enabled_when_json}\",\"conditionValue\":${_condition_value_json},\"enabled\":${_enabled_json},\"manifest\":\"${_manifest_json}\"}"
         )
         math(EXPR _request_index "${_request_index} + 1")
     endforeach()
