@@ -796,6 +796,48 @@ function(_arken_extpkg_materialize_configure_make
             )
         endif()
     endforeach()
+    _arken_extpkg_json_optional_string(
+        _install_mode
+        "${recipe_json}"
+        "direct"
+        "${recipe_id}:adapter"
+        adapter
+        installMode
+    )
+    if(NOT _install_mode STREQUAL "direct"
+            AND NOT _install_mode STREQUAL "destdir")
+        _arken_extpkg_error(
+            "arken.external_packages.configure_make.install_mode_invalid"
+            "adapter"
+            "${recipe_id}"
+            "Configure/Make installMode must be 'direct' or 'destdir'."
+        )
+    endif()
+    if(DEFINED ARKEN_EXTERNAL_PACKAGE_BUILD_JOBS
+            AND NOT ARKEN_EXTERNAL_PACKAGE_BUILD_JOBS STREQUAL "")
+        set(_build_jobs "${ARKEN_EXTERNAL_PACKAGE_BUILD_JOBS}")
+    elseif(DEFINED ENV{CMAKE_BUILD_PARALLEL_LEVEL}
+            AND NOT "$ENV{CMAKE_BUILD_PARALLEL_LEVEL}" STREQUAL "")
+        set(_build_jobs "$ENV{CMAKE_BUILD_PARALLEL_LEVEL}")
+    else()
+        cmake_host_system_information(
+            RESULT _logical_core_count
+            QUERY NUMBER_OF_LOGICAL_CORES
+        )
+        if(_logical_core_count GREATER 8)
+            set(_build_jobs 8)
+        else()
+            set(_build_jobs "${_logical_core_count}")
+        endif()
+    endif()
+    if(NOT _build_jobs MATCHES "^[1-9][0-9]*$")
+        _arken_extpkg_error(
+            "arken.external_packages.configure_make.build_jobs_invalid"
+            "adapter"
+            "${recipe_id}"
+            "ARKEN_EXTERNAL_PACKAGE_BUILD_JOBS must be a positive integer."
+        )
+    endif()
     set(_install_root "${cache_root}/packages/${instance_id}/install")
     set(_materialization_root "${package_build_root}/materialized")
     file(MAKE_DIRECTORY "${cache_root}/locks" "${cache_root}/packages" "${_materialization_root}")
@@ -870,6 +912,8 @@ function(_arken_extpkg_materialize_configure_make
             "-DSOURCE_IDENTITY=${source_identity}"
             "-DSOURCE_ROOT=${source_root}"
             "-DMAKE_PROGRAM=${_make_program}"
+            "-DBUILD_JOBS=${_build_jobs}"
+            "-DINSTALL_MODE=${_install_mode}"
             "-DCONFIGURE_ARGUMENTS_JOINED=${_configure_arguments_joined}"
             "-DOUTPUT_RELATIVE_PATHS_JOINED=${_output_relative_joined}"
             "-DINCLUDE_RELATIVE_PATHS_JOINED=${_include_relative_joined}"
@@ -999,8 +1043,11 @@ function(_arken_extpkg_materialize_recipe
 
     if(_adapter_kind STREQUAL "configure-make")
         set(_runtime_root "${cache_root}/packages/${instance_id}/install")
+        set(_package_build_target "arken-external-package-${recipe_id}")
+        _arken_extpkg_identifier(_package_build_target "${_package_build_target}")
     else()
         set(_runtime_root "${source_root}")
+        set(_package_build_target "")
     endif()
     string(JSON _component_count LENGTH "${recipe_json}" components)
     math(EXPR _component_last "${_component_count} - 1")
@@ -1090,6 +1137,18 @@ function(_arken_extpkg_materialize_recipe
         set_property(
             TARGET "${_metadata_target}"
             PROPERTY ARKEN_EXTERNAL_RUNTIME_FILES "${_runtime_files}"
+        )
+        set_property(
+            TARGET "${_metadata_target}"
+            PROPERTY ARKEN_EXTERNAL_RUNTIME_RELATIVE_FILES "${_runtime_relative}"
+        )
+        set_property(
+            TARGET "${_metadata_target}"
+            PROPERTY ARKEN_EXTERNAL_PACKAGE_RUNTIME_ROOT "${_runtime_root}"
+        )
+        set_property(
+            TARGET "${_metadata_target}"
+            PROPERTY ARKEN_EXTERNAL_PACKAGE_BUILD_TARGET "${_package_build_target}"
         )
     endforeach()
 endfunction()

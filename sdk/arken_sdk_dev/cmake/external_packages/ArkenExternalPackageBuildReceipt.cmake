@@ -61,6 +61,73 @@ endforeach()
 string(SHA256 _outputs_sha256 "${_output_identity_input}")
 
 _arken_extpkg_json_escape(_source_identity_json "${SOURCE_IDENTITY}")
+set(_configuration_json "")
+if(ADAPTER_ID STREQUAL "configure-make-v1")
+    if(NOT DEFINED INSTALL_MODE
+            OR (NOT INSTALL_MODE STREQUAL "direct"
+                AND NOT INSTALL_MODE STREQUAL "destdir"))
+        message(FATAL_ERROR
+            "Configure/Make package receipts require install mode direct or destdir"
+        )
+    endif()
+    set(_configure_arguments "")
+    if(DEFINED CONFIGURE_ARGUMENTS_JOINED
+            AND NOT CONFIGURE_ARGUMENTS_JOINED STREQUAL "")
+        string(REPLACE "|" ";" _configure_arguments "${CONFIGURE_ARGUMENTS_JOINED}")
+    endif()
+    _arken_extpkg_json_string_array(
+        _configure_arguments_json
+        "${_configure_arguments}"
+    )
+    set(_configuration_identity_input "installMode=${INSTALL_MODE}\n")
+    foreach(_argument IN LISTS _configure_arguments)
+        string(APPEND _configuration_identity_input "argument=${_argument}\n")
+    endforeach()
+    set(_logs_json "")
+    set(_log_index 0)
+    foreach(_log_kind IN ITEMS stdout stderr)
+        string(TOUPPER "${_log_kind}" _log_kind_upper)
+        set(_log_path_variable "CONFIGURE_${_log_kind_upper}_PATH")
+        if(NOT DEFINED ${_log_path_variable}
+                OR NOT EXISTS "${${_log_path_variable}}"
+                OR IS_DIRECTORY "${${_log_path_variable}}"
+                OR IS_SYMLINK "${${_log_path_variable}}")
+            message(FATAL_ERROR
+                "Configure/Make package receipt is missing configure ${_log_kind} log"
+            )
+        endif()
+        file(SHA256 "${${_log_path_variable}}" _log_sha256)
+        file(SIZE "${${_log_path_variable}}" _log_bytes)
+        if(DEFINED RECORDED_LOG_ROOT AND NOT RECORDED_LOG_ROOT STREQUAL "")
+            set(_recorded_log
+                "${RECORDED_LOG_ROOT}/configure.${_log_kind}.log")
+        else()
+            set(_recorded_log "${${_log_path_variable}}")
+        endif()
+        _arken_extpkg_json_escape(_recorded_log_json "${_recorded_log}")
+        if(_log_index GREATER 0)
+            string(APPEND _logs_json ",\n")
+        endif()
+        string(APPEND _logs_json
+            "      {\"kind\":\"${_log_kind}\",\"path\":\"${_recorded_log_json}\",\"bytes\":${_log_bytes},\"sha256\":\"${_log_sha256}\"}"
+        )
+        string(APPEND _configuration_identity_input
+            "log=${_recorded_log}:${_log_bytes}:${_log_sha256}\n"
+        )
+        math(EXPR _log_index "${_log_index} + 1")
+    endforeach()
+    string(SHA256 _configuration_sha256 "${_configuration_identity_input}")
+    set(_configuration_json
+        ",\n"
+        "  \"configuration\": {\n"
+        "    \"installMode\": \"${INSTALL_MODE}\",\n"
+        "    \"arguments\": ${_configure_arguments_json},\n"
+        "    \"logs\": [\n${_logs_json}\n    ],\n"
+        "    \"sha256\": \"${_configuration_sha256}\"\n"
+        "  }"
+    )
+    string(JOIN "" _configuration_json ${_configuration_json})
+endif()
 set(_receipt
     "{\n"
     "  \"schemaVersion\": 1,\n"
@@ -70,7 +137,7 @@ set(_receipt
     "  \"adapterId\": \"${ADAPTER_ID}\",\n"
     "  \"sourceIdentity\": \"${_source_identity_json}\",\n"
     "  \"outputsSha256\": \"${_outputs_sha256}\",\n"
-    "  \"outputs\": [\n${_outputs_json}\n  ]\n"
+    "  \"outputs\": [\n${_outputs_json}\n  ]${_configuration_json}\n"
     "}\n"
 )
 string(JOIN "" _receipt ${_receipt})

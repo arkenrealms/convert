@@ -5,6 +5,7 @@ include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageJson.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageSource.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackagePatch.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageAdapters.cmake")
+include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageRuntime.cmake")
 
 function(_arken_extpkg_default_cache_root out_var)
     if(DEFINED ARKEN_EXTERNAL_PACKAGE_CACHE_ROOT
@@ -248,7 +249,7 @@ function(_arken_extpkg_validate_recipe recipe_id recipe_path recipe_json current
     _arken_extpkg_validate_object_keys(
         "${recipe_json}"
         "${recipe_id}:adapter"
-        "kind;version;options;configureArguments;cmakeSubdirectory;findPackage;makeToolTarget;patchToolTarget"
+        "kind;version;options;configureArguments;forbiddenConfigureArguments;installMode;cmakeSubdirectory;findPackage;makeToolTarget;patchToolTarget"
         adapter
     )
     _arken_extpkg_validate_object_keys(
@@ -280,6 +281,79 @@ function(_arken_extpkg_validate_recipe recipe_id recipe_path recipe_json current
             "schema"
             "${recipe_id}"
             "Adapter '${_adapter_kind}' is not in the reviewed v1 adapter set."
+        )
+    endif()
+    _arken_extpkg_json_array_to_list(
+        _configure_arguments
+        "${recipe_json}"
+        "${recipe_id}:adapter"
+        adapter
+        configureArguments
+    )
+    _arken_extpkg_require_unique_list(
+        "${_configure_arguments}"
+        "${recipe_id}:adapter"
+        configureArguments
+    )
+    _arken_extpkg_json_array_to_list(
+        _forbidden_configure_arguments
+        "${recipe_json}"
+        "${recipe_id}:adapter"
+        adapter
+        forbiddenConfigureArguments
+    )
+    _arken_extpkg_require_unique_list(
+        "${_forbidden_configure_arguments}"
+        "${recipe_id}:adapter"
+        forbiddenConfigureArguments
+    )
+    foreach(_argument IN LISTS _configure_arguments _forbidden_configure_arguments)
+        if(_argument STREQUAL "" OR _argument MATCHES "[|;\n\r]")
+            _arken_extpkg_error(
+                "arken.external_packages.configure_make.argument_invalid"
+                "schema"
+                "${recipe_id}"
+                "Configure arguments must be non-empty single argv values without separators or newlines."
+            )
+        endif()
+    endforeach()
+    foreach(_forbidden IN LISTS _forbidden_configure_arguments)
+        list(FIND _configure_arguments "${_forbidden}" _forbidden_index)
+        if(NOT _forbidden_index EQUAL -1)
+            _arken_extpkg_error(
+                "arken.external_packages.license.forbidden_configure_argument"
+                "license"
+                "${recipe_id}"
+                "Configure argument '${_forbidden}' is forbidden by the reviewed package license profile."
+            )
+        endif()
+    endforeach()
+    _arken_extpkg_json_optional_string(
+        _install_mode
+        "${recipe_json}"
+        "direct"
+        "${recipe_id}:adapter"
+        adapter
+        installMode
+    )
+    if(NOT _install_mode STREQUAL "direct"
+            AND NOT _install_mode STREQUAL "destdir")
+        _arken_extpkg_error(
+            "arken.external_packages.configure_make.install_mode_invalid"
+            "schema"
+            "${recipe_id}"
+            "Configure/Make installMode must be 'direct' or 'destdir'."
+        )
+    endif()
+    if(NOT _adapter_kind STREQUAL "configure-make"
+            AND (NOT _configure_arguments STREQUAL ""
+                OR NOT _forbidden_configure_arguments STREQUAL ""
+                OR NOT _install_mode STREQUAL "direct"))
+        _arken_extpkg_error(
+            "arken.external_packages.adapter.configure_fields_invalid"
+            "schema"
+            "${recipe_id}"
+            "Configure arguments, license fences, and installMode belong only to the configure-make adapter."
         )
     endif()
     _arken_extpkg_json_required_string(_license_spdx "${recipe_json}" "${recipe_id}" license spdx)
