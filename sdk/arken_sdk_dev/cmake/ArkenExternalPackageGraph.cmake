@@ -243,7 +243,7 @@ function(_arken_extpkg_validate_recipe recipe_id recipe_path recipe_json current
     _arken_extpkg_validate_object_keys(
         "${recipe_json}"
         "${recipe_id}:source"
-        "kind;root;path;urls;sha256;treeSha256;subdirectory;files;maxArchiveBytes;maxEntries;maxExtractedBytes;allowSafeSymlinks"
+        "kind;root;path;urls;sha256;commit;treeSha256;subdirectory;files;maxArchiveBytes;maxEntries;maxExtractedBytes;allowSafeSymlinks"
         source
     )
     _arken_extpkg_validate_object_keys(
@@ -259,6 +259,25 @@ function(_arken_extpkg_validate_recipe recipe_id recipe_path recipe_json current
         license
     )
     _arken_extpkg_json_required_string(_adapter_kind "${recipe_json}" "${recipe_id}" adapter kind)
+    _arken_extpkg_json_optional_string(
+        _source_commit
+        "${recipe_json}"
+        ""
+        "${recipe_id}:source"
+        source
+        commit
+    )
+    string(LENGTH "${_source_commit}" _source_commit_length)
+    if(NOT _source_commit STREQUAL ""
+            AND (NOT _source_commit MATCHES "^[0-9a-f]+$"
+                OR NOT _source_commit_length EQUAL 40))
+        _arken_extpkg_error(
+            "arken.external_packages.source.commit_invalid"
+            "schema"
+            "${recipe_id}"
+            "source.commit must be exactly 40 lowercase hexadecimal characters."
+        )
+    endif()
     _arken_extpkg_json_optional_integer(_adapter_version "${recipe_json}" 1 "${recipe_id}" adapter version)
     if(_adapter_version LESS 1)
         _arken_extpkg_error(

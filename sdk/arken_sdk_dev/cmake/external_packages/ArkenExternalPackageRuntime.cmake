@@ -88,7 +88,9 @@ function(arken_generate_external_package_cpp_identity)
             ARKEN_EXTERNAL_PACKAGE_ADAPTER_ID
             ARKEN_EXTERNAL_PACKAGE_RECEIPT_ROOT
             ARKEN_EXTERNAL_PACKAGE_RUNTIME_ROOT
-            ARKEN_EXTERNAL_PACKAGE_BUILD_TARGET)
+            ARKEN_EXTERNAL_PACKAGE_BUILD_TARGET
+            ARKEN_EXTERNAL_PACKAGE_RECEIPT_PATH
+            ARKEN_EXTERNAL_PACKAGE_OUTPUT_ROOT)
         get_target_property(_value "${_metadata_target}" "${_property}")
         if(NOT _value)
             message(FATAL_ERROR
@@ -128,6 +130,8 @@ function(arken_generate_external_package_cpp_identity)
             _ARKEN_EXTERNAL_PACKAGE_ADAPTER_ID
             _ARKEN_EXTERNAL_PACKAGE_RECEIPT_ROOT
             _ARKEN_EXTERNAL_PACKAGE_RUNTIME_ROOT
+            _ARKEN_EXTERNAL_PACKAGE_RECEIPT_PATH
+            _ARKEN_EXTERNAL_PACKAGE_OUTPUT_ROOT
             _output_header
             ARG_IDENTITY_TYPE)
         _arken_extpkg_json_escape("${_field}_json" "${${_field}}")
@@ -142,7 +146,8 @@ function(arken_generate_external_package_cpp_identity)
         "  \"adapterId\": \"${_ARKEN_EXTERNAL_PACKAGE_ADAPTER_ID_json}\",\n"
         "  \"sourceIdentity\": \"${_ARKEN_EXTERNAL_PACKAGE_SOURCE_IDENTITY_json}\",\n"
         "  \"packageRoot\": \"${_ARKEN_EXTERNAL_PACKAGE_RUNTIME_ROOT_json}\",\n"
-        "  \"receiptPath\": \"${_ARKEN_EXTERNAL_PACKAGE_RECEIPT_ROOT_json}/package.build.receipt.json\",\n"
+        "  \"outputRoot\": \"${_ARKEN_EXTERNAL_PACKAGE_OUTPUT_ROOT_json}\",\n"
+        "  \"receiptPath\": \"${_ARKEN_EXTERNAL_PACKAGE_RECEIPT_PATH_json}\",\n"
         "  \"outputHeader\": \"${_output_header_json}\",\n"
         "  \"requestedOutputs\": ${_requested_outputs_json}\n"
         "}\n"
