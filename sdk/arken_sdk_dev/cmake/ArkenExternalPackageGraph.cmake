@@ -2,6 +2,7 @@ include_guard(GLOBAL)
 
 set(_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR "${CMAKE_CURRENT_LIST_DIR}/external_packages")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageJson.cmake")
+include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageInventory.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageSource.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackagePatch.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageAdapters.cmake")
@@ -1010,7 +1011,9 @@ function(arken_resolve_external_packages)
         RECIPE_ROOT
         CACHE_ROOT
         WORKSPACE_ROOT
+        INVENTORY_PATH
         OUTPUT_GRAPH_RECEIPT
+        OUTPUT_INVENTORY_RECEIPT
         OUTPUT_SPDX_INPUT
     )
     set(multiValueArgs MODULE_MANIFESTS)
@@ -1063,6 +1066,20 @@ function(arken_resolve_external_packages)
     else()
         set(_spdx_receipt "${_package_root}/external-packages.spdx-input.json")
     endif()
+    if(ARG_INVENTORY_PATH)
+        if(ARG_OUTPUT_INVENTORY_RECEIPT)
+            set(_inventory_receipt "${ARG_OUTPUT_INVENTORY_RECEIPT}")
+        else()
+            set(_inventory_receipt
+                "${_package_root}/external-dependency-inventory.receipt.json")
+        endif()
+        arken_validate_external_package_inventory(
+            INVENTORY_PATH "${ARG_INVENTORY_PATH}"
+            RECIPE_ROOT "${ARG_RECIPE_ROOT}"
+            WORKSPACE_ROOT "${ARG_WORKSPACE_ROOT}"
+            OUTPUT_RECEIPT "${_inventory_receipt}"
+        )
+    endif()
 
     _arken_extpkg_reset_graph_state()
     _arken_extpkg_current_platform(_current_platform)
@@ -1112,7 +1129,22 @@ function(arken_resolve_external_packages)
             VERBATIM
         )
     endif()
+    if(ARG_INVENTORY_PATH
+            AND NOT TARGET arken-external-package-inventory)
+        add_custom_target(
+            arken-external-package-inventory
+            COMMAND
+                "${CMAKE_COMMAND}"
+                "-DINVENTORY_RECEIPT=${_inventory_receipt}"
+                -P "${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageInventoryInspect.cmake"
+            VERBATIM
+        )
+    endif()
     set_property(GLOBAL PROPERTY ARKEN_EXTERNAL_PACKAGE_GRAPH_RESOLVED TRUE)
     set(ARKEN_EXTERNAL_PACKAGE_GRAPH_RECEIPT "${_graph_receipt}" PARENT_SCOPE)
     set(ARKEN_EXTERNAL_PACKAGE_SPDX_INPUT "${_spdx_receipt}" PARENT_SCOPE)
+    if(ARG_INVENTORY_PATH)
+        set(ARKEN_EXTERNAL_PACKAGE_INVENTORY_RECEIPT
+            "${_inventory_receipt}" PARENT_SCOPE)
+    endif()
 endfunction()
