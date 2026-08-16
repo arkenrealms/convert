@@ -72,7 +72,7 @@ function(_arken_extpkg_component_common out_name out_target out_kind component_j
     _arken_extpkg_validate_object_keys(
         "${component_json}"
         "${_subject}"
-        "name;target;kind;includeDirectories;sources;compileDefinitions;compileOptions;linkLibraries;runtimeFiles;libraryPath;upstreamTarget;systemTarget;executablePath;programNames;expectedSha256;expectedVersionRegex;versionArguments"
+        "name;target;kind;includeDirectories;systemIncludeDirectories;sources;compileFeatures;compileDefinitions;compileOptions;compileOptionsByCompilerId;linkLibraries;runtimeFiles;libraryPath;upstreamTarget;systemTarget;executablePath;programNames;expectedSha256;expectedVersionRegex;versionArguments"
     )
     _arken_extpkg_json_required_string(_name "${component_json}" "${_subject}" name)
     _arken_extpkg_json_required_string(_target "${component_json}" "${_subject}" target)
@@ -83,16 +83,117 @@ function(_arken_extpkg_component_common out_name out_target out_kind component_j
     set(${out_kind} "${_kind}" PARENT_SCOPE)
 endfunction()
 
+function(_arken_extpkg_component_compiler_options out_var component_json subject)
+    _arken_extpkg_json_type(
+        _options_by_compiler_type
+        "${component_json}"
+        compileOptionsByCompilerId
+    )
+    if(_options_by_compiler_type STREQUAL "")
+        set(${out_var} "" PARENT_SCOPE)
+        return()
+    endif()
+    if(NOT _options_by_compiler_type STREQUAL "OBJECT")
+        _arken_extpkg_error(
+            "arken.external_packages.component.compiler_options_invalid"
+            "schema"
+            "${subject}"
+            "compileOptionsByCompilerId must be an object."
+        )
+    endif()
+    string(JSON _compiler_count LENGTH "${component_json}" compileOptionsByCompilerId)
+    if(_compiler_count GREATER 0)
+        math(EXPR _compiler_last "${_compiler_count} - 1")
+        foreach(_index RANGE 0 ${_compiler_last})
+            string(
+                JSON
+                _compiler_id
+                MEMBER
+                "${component_json}"
+                compileOptionsByCompilerId
+                ${_index}
+            )
+            if(NOT _compiler_id STREQUAL "AppleClang"
+                    AND NOT _compiler_id STREQUAL "Clang"
+                    AND NOT _compiler_id STREQUAL "GNU"
+                    AND NOT _compiler_id STREQUAL "MSVC")
+                _arken_extpkg_error(
+                    "arken.external_packages.component.compiler_id_invalid"
+                    "schema"
+                    "${subject}"
+                    "Unsupported compileOptionsByCompilerId key '${_compiler_id}'."
+                )
+            endif()
+            _arken_extpkg_json_array_to_list(
+                _validated_options
+                "${component_json}"
+                "${subject}"
+                compileOptionsByCompilerId
+                "${_compiler_id}"
+            )
+            _arken_extpkg_require_unique_list(
+                "${_validated_options}"
+                "${subject}"
+                "compileOptionsByCompilerId.${_compiler_id}"
+            )
+        endforeach()
+    endif()
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "")
+        set(${out_var} "" PARENT_SCOPE)
+        return()
+    endif()
+    _arken_extpkg_json_array_to_list(
+        _selected_options
+        "${component_json}"
+        "${subject}"
+        compileOptionsByCompilerId
+        "${CMAKE_CXX_COMPILER_ID}"
+    )
+    set(${out_var} "${_selected_options}" PARENT_SCOPE)
+endfunction()
+
 function(_arken_extpkg_attach_usage target component_json root subject)
     _arken_extpkg_component_paths(_include_dirs "${component_json}" includeDirectories "${root}" "${subject}")
-    if(NOT _include_dirs STREQUAL "")
-        set_property(TARGET "${target}" PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${_include_dirs}")
+    _arken_extpkg_component_paths(
+        _system_include_dirs
+        "${component_json}"
+        systemIncludeDirectories
+        "${root}"
+        "${subject}"
+    )
+    set(_all_include_dirs ${_include_dirs} ${_system_include_dirs})
+    if(NOT _all_include_dirs STREQUAL "")
+        set_property(
+            TARGET "${target}"
+            PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${_all_include_dirs}"
+        )
+    endif()
+    if(NOT _system_include_dirs STREQUAL "")
+        set_property(
+            TARGET "${target}"
+            PROPERTY INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_system_include_dirs}"
+        )
+    endif()
+    _arken_extpkg_json_array_to_list(
+        _features
+        "${component_json}"
+        "${subject}"
+        compileFeatures
+    )
+    if(NOT _features STREQUAL "")
+        set_property(TARGET "${target}" PROPERTY INTERFACE_COMPILE_FEATURES "${_features}")
     endif()
     _arken_extpkg_json_array_to_list(_definitions "${component_json}" "${subject}" compileDefinitions)
     if(NOT _definitions STREQUAL "")
         set_property(TARGET "${target}" PROPERTY INTERFACE_COMPILE_DEFINITIONS "${_definitions}")
     endif()
     _arken_extpkg_json_array_to_list(_options "${component_json}" "${subject}" compileOptions)
+    _arken_extpkg_component_compiler_options(
+        _compiler_options
+        "${component_json}"
+        "${subject}"
+    )
+    list(APPEND _options ${_compiler_options})
     if(NOT _options STREQUAL "")
         set_property(TARGET "${target}" PROPERTY INTERFACE_COMPILE_OPTIONS "${_options}")
     endif()
@@ -224,11 +325,36 @@ function(_arken_extpkg_materialize_selected_source_components
         if(NOT _include_dirs STREQUAL "")
             target_include_directories("${_internal}" PUBLIC ${_include_dirs})
         endif()
+        _arken_extpkg_component_paths(
+            _system_include_dirs
+            "${_component}"
+            systemIncludeDirectories
+            "${source_root}"
+            "${recipe_id}:${_name}"
+        )
+        if(NOT _system_include_dirs STREQUAL "")
+            target_include_directories("${_internal}" SYSTEM PUBLIC ${_system_include_dirs})
+        endif()
+        _arken_extpkg_json_array_to_list(
+            _features
+            "${_component}"
+            "${recipe_id}:${_name}"
+            compileFeatures
+        )
+        if(NOT _features STREQUAL "")
+            target_compile_features("${_internal}" PUBLIC ${_features})
+        endif()
         _arken_extpkg_json_array_to_list(_definitions "${_component}" "${recipe_id}:${_name}" compileDefinitions)
         if(NOT _definitions STREQUAL "")
             target_compile_definitions("${_internal}" PRIVATE ${_definitions})
         endif()
         _arken_extpkg_json_array_to_list(_options "${_component}" "${recipe_id}:${_name}" compileOptions)
+        _arken_extpkg_component_compiler_options(
+            _compiler_options
+            "${_component}"
+            "${recipe_id}:${_name}"
+        )
+        list(APPEND _options ${_compiler_options})
         if(NOT _options STREQUAL "")
             target_compile_options("${_internal}" PRIVATE ${_options})
         endif()
@@ -313,9 +439,26 @@ function(_arken_extpkg_materialize_cmake_source
             "adapter.options must be an object."
         )
     endif()
-    add_subdirectory("${_cmake_root}" "${package_build_root}/cmake-source" EXCLUDE_FROM_ALL)
     string(JSON _component_count LENGTH "${recipe_json}" components)
     math(EXPR _last "${_component_count} - 1")
+    foreach(_index RANGE 0 ${_last})
+        string(JSON _component GET "${recipe_json}" components ${_index})
+        _arken_extpkg_component_common(_name _target _kind "${_component}" "${recipe_id}" "${_index}")
+        _arken_extpkg_component_selected(_selected "${_name}" "${selected_components}")
+        if(NOT _selected)
+            continue()
+        endif()
+        _arken_extpkg_json_required_string(_upstream "${_component}" "${recipe_id}:${_name}" upstreamTarget)
+        if(TARGET "${_upstream}")
+            _arken_extpkg_error(
+                "arken.external_packages.cmake_source.ambient_target_conflict"
+                "adapter"
+                "${recipe_id}"
+                "Upstream target '${_upstream}' existed before the reviewed source package was added."
+            )
+        endif()
+    endforeach()
+    add_subdirectory("${_cmake_root}" "${package_build_root}/cmake-source" EXCLUDE_FROM_ALL)
     foreach(_index RANGE 0 ${_last})
         string(JSON _component GET "${recipe_json}" components ${_index})
         _arken_extpkg_component_common(_name _target _kind "${_component}" "${recipe_id}" "${_index}")
@@ -931,6 +1074,10 @@ function(_arken_extpkg_materialize_recipe
         set_property(
             TARGET "${_metadata_target}"
             PROPERTY ARKEN_EXTERNAL_PACKAGE_SOURCE_IDENTITY "${source_identity}"
+        )
+        set_property(
+            TARGET "${_metadata_target}"
+            PROPERTY ARKEN_EXTERNAL_PACKAGE_SOURCE_ROOT "${source_root}"
         )
         set_property(
             TARGET "${_metadata_target}"
