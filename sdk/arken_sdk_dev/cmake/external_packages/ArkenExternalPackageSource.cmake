@@ -423,29 +423,34 @@ function(_arken_extpkg_materialize_archive_source
                 )
             endif()
         endif()
-        file(
-            DOWNLOAD
-            "${_url}"
-            "${_download}"
-            TLS_VERIFY ON
-            TIMEOUT 300
-            INACTIVITY_TIMEOUT 30
-            STATUS _status
-        )
-        list(GET _status 0 _status_code)
-        if(_status_code EQUAL 0)
-            file(SHA256 "${_download}" _download_sha)
-            if("${_download_sha}" STREQUAL "${_expected_sha}")
-                set(_downloaded TRUE)
-                break()
-            endif()
-            set(_last_error
-                "mirror content hash mismatch; expected ${_expected_sha}, observed ${_download_sha}"
+        foreach(_attempt RANGE 1 2)
+            file(
+                DOWNLOAD
+                "${_url}"
+                "${_download}"
+                TLS_VERIFY ON
+                TIMEOUT 600
+                INACTIVITY_TIMEOUT 60
+                STATUS _status
             )
-        else()
-            set(_last_error "${_status}")
+            list(GET _status 0 _status_code)
+            if(_status_code EQUAL 0)
+                file(SHA256 "${_download}" _download_sha)
+                if("${_download_sha}" STREQUAL "${_expected_sha}")
+                    set(_downloaded TRUE)
+                    break()
+                endif()
+                set(_last_error
+                    "attempt ${_attempt}: mirror content hash mismatch; expected ${_expected_sha}, observed ${_download_sha}"
+                )
+            else()
+                set(_last_error "attempt ${_attempt}: ${_status}")
+            endif()
+            file(REMOVE "${_download}")
+        endforeach()
+        if(_downloaded)
+            break()
         endif()
-        file(REMOVE "${_download}")
     endforeach()
     if(NOT _downloaded)
         _arken_extpkg_error(
