@@ -72,7 +72,7 @@ function(_arken_extpkg_component_common out_name out_target out_kind component_j
     _arken_extpkg_validate_object_keys(
         "${component_json}"
         "${_subject}"
-        "name;target;kind;includeDirectories;systemIncludeDirectories;sources;compileFeatures;compileDefinitions;compileOptions;compileOptionsByCompilerId;linkLibraries;runtimeFiles;libraryPath;upstreamTarget;systemTarget;executablePath;programNames;expectedSha256;expectedVersionRegex;versionArguments"
+        "name;target;kind;includeDirectories;systemIncludeDirectories;buildIncludeDirectories;buildSystemIncludeDirectories;buildFiles;sources;compileFeatures;compileDefinitions;compileOptions;compileOptionsByCompilerId;linkLibraries;linkOptions;runtimeFiles;libraryPath;upstreamTarget;systemTarget;executablePath;programNames;expectedSha256;expectedVersionRegex;versionArguments"
     )
     _arken_extpkg_json_required_string(_name "${component_json}" "${_subject}" name)
     _arken_extpkg_json_required_string(_target "${component_json}" "${_subject}" target)
@@ -81,6 +81,44 @@ function(_arken_extpkg_component_common out_name out_target out_kind component_j
     set(${out_name} "${_name}" PARENT_SCOPE)
     set(${out_target} "${_target}" PARENT_SCOPE)
     set(${out_kind} "${_kind}" PARENT_SCOPE)
+endfunction()
+
+function(_arken_extpkg_attach_build_usage target component_json build_root subject)
+    _arken_extpkg_component_paths(
+        _build_include_dirs
+        "${component_json}"
+        buildIncludeDirectories
+        "${build_root}"
+        "${subject}"
+    )
+    _arken_extpkg_component_paths(
+        _build_system_include_dirs
+        "${component_json}"
+        buildSystemIncludeDirectories
+        "${build_root}"
+        "${subject}"
+    )
+    if(NOT _build_include_dirs STREQUAL "")
+        set_property(
+            TARGET "${target}"
+            APPEND
+            PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${_build_include_dirs}"
+        )
+    endif()
+    if(NOT _build_system_include_dirs STREQUAL "")
+        set_property(
+            TARGET "${target}"
+            APPEND
+            PROPERTY INTERFACE_INCLUDE_DIRECTORIES
+                "${_build_system_include_dirs}"
+        )
+        set_property(
+            TARGET "${target}"
+            APPEND
+            PROPERTY INTERFACE_SYSTEM_INCLUDE_DIRECTORIES
+                "${_build_system_include_dirs}"
+        )
+    endif()
 endfunction()
 
 function(_arken_extpkg_component_compiler_options out_var component_json subject)
@@ -200,6 +238,18 @@ function(_arken_extpkg_attach_usage target component_json root subject)
     _arken_extpkg_json_array_to_list(_links "${component_json}" "${subject}" linkLibraries)
     if(NOT _links STREQUAL "")
         set_property(TARGET "${target}" PROPERTY INTERFACE_LINK_LIBRARIES "${_links}")
+    endif()
+    _arken_extpkg_json_array_to_list(
+        _link_options
+        "${component_json}"
+        "${subject}"
+        linkOptions
+    )
+    if(NOT _link_options STREQUAL "")
+        set_property(
+            TARGET "${target}"
+            PROPERTY INTERFACE_LINK_OPTIONS "${_link_options}"
+        )
     endif()
 endfunction()
 
@@ -1097,6 +1147,17 @@ function(_arken_extpkg_materialize_imported_components
         if(_kind STREQUAL "interface")
             add_library("${_target}" INTERFACE IMPORTED GLOBAL)
             _arken_extpkg_attach_usage("${_target}" "${_component}" "${_usage_root}" "${recipe_id}:${_name}")
+            if(NOT root STREQUAL _usage_root)
+                _arken_extpkg_attach_build_usage(
+                    "${_target}"
+                    "${_component}"
+                    "${root}"
+                    "${recipe_id}:${_name}"
+                )
+            endif()
+            if(NOT build_dependency STREQUAL "")
+                add_dependencies("${_target}" "${build_dependency}")
+            endif()
             continue()
         elseif(_kind STREQUAL "executable")
             _arken_extpkg_json_required_string(_relative "${_component}" "${recipe_id}:${_name}" executablePath)
@@ -1105,25 +1166,27 @@ function(_arken_extpkg_materialize_imported_components
             )
             set(_location "${root}/${_relative}")
             cmake_path(NORMAL_PATH _location OUTPUT_VARIABLE _location)
-            _arken_extpkg_measure_tool_component(
-                _tool_sha256
-                _tool_version_identity
-                "${_location}"
-                "${_component}"
-                "${recipe_id}"
-                "${_name}"
-            )
             add_executable("${_target}" IMPORTED GLOBAL)
             set_property(TARGET "${_target}" PROPERTY IMPORTED_LOCATION "${_location}")
-            set_property(
-                TARGET "${_target}"
-                PROPERTY ARKEN_EXTERNAL_TOOL_SHA256 "${_tool_sha256}"
-            )
-            set_property(
-                TARGET "${_target}"
-                PROPERTY ARKEN_EXTERNAL_TOOL_VERSION_IDENTITY
-                    "${_tool_version_identity}"
-            )
+            if(build_dependency STREQUAL "")
+                _arken_extpkg_measure_tool_component(
+                    _tool_sha256
+                    _tool_version_identity
+                    "${_location}"
+                    "${_component}"
+                    "${recipe_id}"
+                    "${_name}"
+                )
+                set_property(
+                    TARGET "${_target}"
+                    PROPERTY ARKEN_EXTERNAL_TOOL_SHA256 "${_tool_sha256}"
+                )
+                set_property(
+                    TARGET "${_target}"
+                    PROPERTY ARKEN_EXTERNAL_TOOL_VERSION_IDENTITY
+                        "${_tool_version_identity}"
+                )
+            endif()
         elseif(_kind STREQUAL "static")
             _arken_extpkg_json_required_string(_relative "${_component}" "${recipe_id}:${_name}" libraryPath)
             _arken_extpkg_validate_relative_component_path(
@@ -1133,6 +1196,14 @@ function(_arken_extpkg_materialize_imported_components
             add_library("${_target}" STATIC IMPORTED GLOBAL)
             set_property(TARGET "${_target}" PROPERTY IMPORTED_LOCATION "${_location}")
             _arken_extpkg_attach_usage("${_target}" "${_component}" "${_usage_root}" "${recipe_id}:${_name}")
+            if(NOT root STREQUAL _usage_root)
+                _arken_extpkg_attach_build_usage(
+                    "${_target}"
+                    "${_component}"
+                    "${root}"
+                    "${recipe_id}:${_name}"
+                )
+            endif()
         elseif(_kind STREQUAL "shared")
             _arken_extpkg_json_required_string(_relative "${_component}" "${recipe_id}:${_name}" libraryPath)
             _arken_extpkg_validate_relative_component_path(
@@ -1142,6 +1213,14 @@ function(_arken_extpkg_materialize_imported_components
             add_library("${_target}" SHARED IMPORTED GLOBAL)
             set_property(TARGET "${_target}" PROPERTY IMPORTED_LOCATION "${_location}")
             _arken_extpkg_attach_usage("${_target}" "${_component}" "${_usage_root}" "${recipe_id}:${_name}")
+            if(NOT root STREQUAL _usage_root)
+                _arken_extpkg_attach_build_usage(
+                    "${_target}"
+                    "${_component}"
+                    "${root}"
+                    "${recipe_id}:${_name}"
+                )
+            endif()
         else()
             _arken_extpkg_error(
                 "arken.external_packages.component.kind_invalid"
@@ -1297,7 +1376,26 @@ function(_arken_extpkg_materialize_configure_make
                 "Configure/Make include path must be install-root relative: ${_include_relative}"
             )
         endif()
-        file(MAKE_DIRECTORY "${_materialization_root}/${_include_relative}")
+        set(
+            _materialized_include
+            "${_materialization_root}/${_include_relative}"
+        )
+        if(IS_SYMLINK "${_materialized_include}"
+                AND NOT IS_DIRECTORY "${_materialized_include}")
+            file(REMOVE "${_materialized_include}")
+        endif()
+        if(EXISTS "${_materialized_include}"
+                AND NOT IS_DIRECTORY "${_materialized_include}")
+            _arken_extpkg_error(
+                "arken.external_packages.configure_make.materialization_conflict"
+                "adapter"
+                "${recipe_id}"
+                "Configure/Make include materialization is not a directory: "
+                "${_materialized_include}"
+            )
+        elseif(NOT IS_DIRECTORY "${_materialized_include}")
+            file(MAKE_DIRECTORY "${_materialized_include}")
+        endif()
     endforeach()
     string(REPLACE ";" "|" _configure_arguments_joined "${_configure_arguments}")
     string(REPLACE ";" "|" _output_relative_joined "${_output_relative_paths}")
@@ -1330,6 +1428,7 @@ function(_arken_extpkg_materialize_configure_make
             -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ArkenExternalPackageConfigureMakeBuild.cmake"
         INSTALL_COMMAND ""
         BUILD_BYPRODUCTS ${_byproducts}
+        BUILD_ALWAYS ON
         LOG_BUILD ON
         USES_TERMINAL_BUILD TRUE
     )
@@ -1768,6 +1867,10 @@ function(_arken_extpkg_materialize_zig_package_cache
     endforeach()
 endfunction()
 
+include(
+    "${CMAKE_CURRENT_LIST_DIR}/ArkenExternalPackageCmakeExternal.cmake"
+)
+
 function(_arken_extpkg_materialize_recipe
     recipe_json
     recipe_id
@@ -1844,6 +1947,18 @@ function(_arken_extpkg_materialize_recipe
             "${package_build_root}"
             "${receipt_root}"
         )
+    elseif(_adapter_kind STREQUAL "cmake-external")
+        _arken_extpkg_materialize_cmake_external(
+            "${recipe_json}"
+            "${recipe_id}"
+            "${recipe_sha}"
+            "${instance_id}"
+            "${source_identity}"
+            "${source_root}"
+            "${selected_components}"
+            "${package_build_root}"
+            "${cache_root}"
+        )
     elseif(_adapter_kind STREQUAL "configure-make")
         _arken_extpkg_materialize_configure_make(
             "${recipe_json}"
@@ -1883,6 +1998,10 @@ function(_arken_extpkg_materialize_recipe
 
     if(_adapter_kind STREQUAL "configure-make")
         set(_runtime_root "${cache_root}/packages/${instance_id}/install")
+        set(_package_build_target "arken-external-package-${recipe_id}")
+        _arken_extpkg_identifier(_package_build_target "${_package_build_target}")
+    elseif(_adapter_kind STREQUAL "cmake-external")
+        set(_runtime_root "${cache_root}/packages/${instance_id}/build")
         set(_package_build_target "arken-external-package-${recipe_id}")
         _arken_extpkg_identifier(_package_build_target "${_package_build_target}")
     else()

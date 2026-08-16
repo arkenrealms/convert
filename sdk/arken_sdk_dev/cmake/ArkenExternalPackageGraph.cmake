@@ -281,7 +281,7 @@ function(_arken_extpkg_validate_recipe recipe_id recipe_path recipe_json current
     _arken_extpkg_validate_object_keys(
         "${recipe_json}"
         "${recipe_id}:adapter"
-        "kind;version;options;toolOptions;pathOptions;configureArguments;forbiddenConfigureArguments;installMode;cmakeSubdirectory;findPackage;makeToolTarget;patchToolTarget;zigToolTarget;lockFile"
+        "kind;version;options;toolOptions;pathOptions;configureArguments;forbiddenConfigureArguments;installMode;cmakeSubdirectory;buildType;findPackage;makeToolTarget;patchToolTarget;zigToolTarget;lockFile"
         adapter
     )
     _arken_extpkg_validate_object_keys(
@@ -323,6 +323,7 @@ function(_arken_extpkg_validate_recipe recipe_id recipe_path recipe_json current
             AND NOT _adapter_kind STREQUAL "selected-sources"
             AND NOT _adapter_kind STREQUAL "tracked-source"
             AND NOT _adapter_kind STREQUAL "cmake-source"
+            AND NOT _adapter_kind STREQUAL "cmake-external"
             AND NOT _adapter_kind STREQUAL "configure-make"
             AND NOT _adapter_kind STREQUAL "zig-package-cache"
             AND NOT _adapter_kind STREQUAL "verified-prebuilt"
@@ -845,7 +846,8 @@ function(_arken_extpkg_resolve_recipe
         "${_recipe_sha}|${_source_identity}|patches=${_patch_set_identity}|${_adapter_id}|${_components}|${_toolchain_identity}|${_dependency_instances}"
     )
     set(_package_build_root "${package_root}/packages/${_instance_id}")
-    if(_adapter_id STREQUAL "configure-make-v1")
+    if(_adapter_id STREQUAL "configure-make-v1"
+            OR _adapter_id STREQUAL "cmake-external-v1")
         set(_receipt_root "${cache_root}/packages/${_instance_id}")
     else()
         set(_receipt_root "${package_root}/receipts/${_instance_id}")
