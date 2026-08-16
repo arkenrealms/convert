@@ -855,6 +855,19 @@ function(arken_resolve_external_packages)
     )
     set(multiValueArgs MODULE_MANIFESTS)
     cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    get_property(
+        _graph_already_resolved
+        GLOBAL
+        PROPERTY ARKEN_EXTERNAL_PACKAGE_GRAPH_RESOLVED
+    )
+    if(_graph_already_resolved)
+        _arken_extpkg_error(
+            "arken.external_packages.graph.already_resolved"
+            "graph"
+            "external-packages"
+            "The external package graph is resolved once per CMake composition. Supply every enabled manifest to the owning composition call."
+        )
+    endif()
     if(NOT ARG_ROOT_MANIFEST OR NOT EXISTS "${ARG_ROOT_MANIFEST}")
         _arken_extpkg_error(
             "arken.external_packages.root_manifest_missing"
@@ -939,6 +952,7 @@ function(arken_resolve_external_packages)
             VERBATIM
         )
     endif()
+    set_property(GLOBAL PROPERTY ARKEN_EXTERNAL_PACKAGE_GRAPH_RESOLVED TRUE)
     set(ARKEN_EXTERNAL_PACKAGE_GRAPH_RECEIPT "${_graph_receipt}" PARENT_SCOPE)
     set(ARKEN_EXTERNAL_PACKAGE_SPDX_INPUT "${_spdx_receipt}" PARENT_SCOPE)
 endfunction()
