@@ -295,6 +295,16 @@ function(_arken_visit_module module_key)
             set_property(GLOBAL APPEND PROPERTY ARKEN_GRAPH_ENABLED_CAPSULE_DIRS "${_module_dir}")
         endif()
     endif()
+    get_property(_enabled_manifests GLOBAL PROPERTY ARKEN_GRAPH_ENABLED_MODULE_MANIFESTS)
+    list(FIND _enabled_manifests "${_manifest_path}" _manifest_index)
+    if(_manifest_index EQUAL -1)
+        set_property(
+            GLOBAL
+            APPEND
+            PROPERTY ARKEN_GRAPH_ENABLED_MODULE_MANIFESTS
+            "${_manifest_path}"
+        )
+    endif()
 
     get_property(_visiting GLOBAL PROPERTY ARKEN_GRAPH_VISITING)
     list(REMOVE_ITEM _visiting "${module_key}")
@@ -325,6 +335,7 @@ function(arken_resolve_enabled_capsules out_var)
     set_property(GLOBAL PROPERTY ARKEN_GRAPH_VISITING "")
     set_property(GLOBAL PROPERTY ARKEN_GRAPH_VISITED "")
     set_property(GLOBAL PROPERTY ARKEN_GRAPH_ENABLED_CAPSULE_DIRS "")
+    set_property(GLOBAL PROPERTY ARKEN_GRAPH_ENABLED_MODULE_MANIFESTS "")
 
     file(GLOB _capsule_manifests LIST_DIRECTORIES FALSE "${ARG_CAPSULE_ROOT}/*/capsule.manifest.json")
     foreach(_manifest_path IN LISTS _capsule_manifests)
@@ -360,4 +371,11 @@ function(arken_resolve_enabled_capsules out_var)
     get_property(_enabled_dirs GLOBAL PROPERTY ARKEN_GRAPH_ENABLED_CAPSULE_DIRS)
     list(REMOVE_DUPLICATES _enabled_dirs)
     set(${out_var} "${_enabled_dirs}" PARENT_SCOPE)
+endfunction()
+
+function(arken_get_resolved_module_manifests out_var)
+    get_property(_enabled_manifests GLOBAL PROPERTY ARKEN_GRAPH_ENABLED_MODULE_MANIFESTS)
+    list(REMOVE_DUPLICATES _enabled_manifests)
+    list(SORT _enabled_manifests)
+    set(${out_var} "${_enabled_manifests}" PARENT_SCOPE)
 endfunction()
