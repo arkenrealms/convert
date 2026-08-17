@@ -943,14 +943,78 @@ function(_arken_extpkg_measure_tool_component
         )
     endif()
     file(SHA256 "${program}" _observed_sha)
-    _arken_extpkg_json_optional_string(_expected_sha "${component}" "" "${recipe_id}:${component_name}" expectedSha256)
-    if(NOT "${_expected_sha}" STREQUAL ""
-            AND NOT "${_observed_sha}" STREQUAL "${_expected_sha}")
+    _arken_extpkg_json_type(
+        _expected_sha_type
+        "${component}"
+        expectedSha256
+    )
+    set(_expected_shas "")
+    if(_expected_sha_type STREQUAL "STRING")
+        _arken_extpkg_json_optional_string(
+            _expected_sha
+            "${component}"
+            ""
+            "${recipe_id}:${component_name}"
+            expectedSha256
+        )
+        if(NOT _expected_sha STREQUAL "")
+            list(APPEND _expected_shas "${_expected_sha}")
+        endif()
+    elseif(_expected_sha_type STREQUAL "ARRAY")
+        _arken_extpkg_json_array_to_list(
+            _expected_shas
+            "${component}"
+            "${recipe_id}:${component_name}"
+            expectedSha256
+        )
+        if(_expected_shas STREQUAL "")
+            _arken_extpkg_error(
+                "arken.external_packages.tool.hash_set_empty"
+                "schema"
+                "${recipe_id}"
+                "Tool component '${component_name}' expectedSha256 array must contain at least one exact digest."
+            )
+        endif()
+    elseif(NOT _expected_sha_type STREQUAL "")
+        _arken_extpkg_error(
+            "arken.external_packages.tool.hash_set_invalid"
+            "schema"
+            "${recipe_id}"
+            "Tool component '${component_name}' expectedSha256 must be one exact digest or an array of exact digests."
+        )
+    endif()
+    set(_unique_expected_shas ${_expected_shas})
+    list(REMOVE_DUPLICATES _unique_expected_shas)
+    list(LENGTH _expected_shas _expected_sha_count)
+    list(LENGTH _unique_expected_shas _unique_expected_sha_count)
+    if(NOT _expected_sha_count EQUAL _unique_expected_sha_count)
+        _arken_extpkg_error(
+            "arken.external_packages.tool.hash_set_duplicate"
+            "schema"
+            "${recipe_id}"
+            "Tool component '${component_name}' expectedSha256 contains a duplicate digest."
+        )
+    endif()
+    foreach(_expected_sha IN LISTS _expected_shas)
+        string(LENGTH "${_expected_sha}" _expected_sha_length)
+        if(NOT _expected_sha_length EQUAL 64
+                OR NOT _expected_sha MATCHES "^[0-9a-f]+$")
+            _arken_extpkg_error(
+                "arken.external_packages.tool.hash_set_invalid"
+                "schema"
+                "${recipe_id}"
+                "Tool component '${component_name}' expectedSha256 contains a malformed digest '${_expected_sha}'."
+            )
+        endif()
+    endforeach()
+    list(FIND _expected_shas "${_observed_sha}" _observed_sha_index)
+    if(_expected_sha_count GREATER 0 AND _observed_sha_index EQUAL -1)
+        string(JOIN ", " _expected_sha_summary ${_expected_shas})
         _arken_extpkg_error(
             "arken.external_packages.tool.hash_mismatch"
             "adapter"
             "${recipe_id}"
-            "Tool '${program}' expected SHA-256 ${_expected_sha}, observed ${_observed_sha}."
+            "Tool '${program}' expected one of SHA-256 [${_expected_sha_summary}], observed ${_observed_sha}."
         )
     endif()
     _arken_extpkg_json_array_to_list(_version_arguments "${component}" "${recipe_id}:${component_name}" versionArguments)
