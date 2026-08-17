@@ -4,7 +4,13 @@ include("${CMAKE_CURRENT_LIST_DIR}/ArkenExternalPackageJson.cmake")
 
 function(_arken_extpkg_release_workspace_ref out_var path workspace_root subject)
     if(IS_ABSOLUTE "${path}")
-        file(RELATIVE_PATH _relative "${workspace_root}" "${path}")
+        file(REAL_PATH "${workspace_root}" _workspace_root_real)
+        file(REAL_PATH "${path}" _path_real)
+        file(RELATIVE_PATH
+            _relative
+            "${_workspace_root_real}"
+            "${_path_real}"
+        )
     else()
         set(_relative "${path}")
     endif()
