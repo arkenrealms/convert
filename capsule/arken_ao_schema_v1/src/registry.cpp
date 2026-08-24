@@ -6,11 +6,13 @@ namespace arken::ao::schema::v1
 {
 namespace
 {
-constexpr std::array<AoFormatDescriptor, 11u> format_descriptors{{
+constexpr std::array<AoFormatDescriptor, 12u> format_descriptors{{
     {aoab_format_id, "arken.ao.aoab", "AOAB", {2u, 0u, 0u}, 2u,
      {'A', 'O', 'A', 'B'}},
     {aoan_format_id, "arken.ao.aoan", "AOAN", {1u, 0u, 0u}, 1u,
      {'A', 'O', 'A', 'N'}},
+    {aoau_format_id, "arken.ao.aoau", "AOAU", {1u, 0u, 0u}, 2u,
+     {'A', 'O', 'A', 'U'}},
     {aodb_format_id, "arken.ao.aodb", "AODB", {2u, 0u, 0u}, 2u,
      {'A', 'O', 'D', 'B'}},
     {aodg_format_id, "arken.ao.aodg", "AODG", {1u, 0u, 0u}, 2u,
@@ -31,7 +33,7 @@ constexpr std::array<AoFormatDescriptor, 11u> format_descriptors{{
      {'A', 'O', 'U', 'I'}},
 }};
 
-constexpr std::array<AoChunkTypeDescriptor, 33u> chunk_type_descriptors{{
+constexpr std::array<AoChunkTypeDescriptor, 35u> chunk_type_descriptors{{
     {core_stbl_chunk_type_id, "arken.ao.chunk.core.stbl", "STBL",
      {1u, 0u, 0u}, 1u, AoChunkScope::shared, {}, {'S', 'T', 'B', 'L'}},
     {core_deps_chunk_type_id, "arken.ao.chunk.core.deps", "DEPS",
@@ -63,6 +65,12 @@ constexpr std::array<AoChunkTypeDescriptor, 33u> chunk_type_descriptors{{
     {aoab_vari_v2_chunk_type_id, "arken.ao.chunk.aoab.vari", "VARI",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aoab_format_id,
      {'V', 'A', 'R', 'I'}},
+    {aoau_amnf_chunk_type_id, "arken.ao.chunk.aoau.amnf", "AMNF",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aoau_format_id,
+     {'A', 'M', 'N', 'F'}},
+    {aoau_payl_chunk_type_id, "arken.ao.chunk.aoau.payl", "PAYL",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aoau_format_id,
+     {'P', 'A', 'Y', 'L'}},
     {aopb_caps_v2_chunk_type_id, "arken.ao.chunk.aopb.caps", "CAPS",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aopb_format_id,
      {'C', 'A', 'P', 'S'}},
