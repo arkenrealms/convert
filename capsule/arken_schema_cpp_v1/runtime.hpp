@@ -522,9 +522,7 @@ using operation_target_mask = std::uint8_t;
 
 [[nodiscard]] constexpr operation_target_mask
 operation_target_bit(operation_target_profile target) noexcept {
-  return static_cast<operation_target_mask>(
-      static_cast<unsigned int>(operation_target_mask{1})
-      << static_cast<unsigned int>(target));
+  return operation_target_mask{1} << static_cast<std::uint8_t>(target);
 }
 
 struct model_reference_descriptor {
