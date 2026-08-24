@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "key": "arken_ao_core_v1",
+  "capsuleId": "arken_ao_core_v1",
+  "name": "Arken AO Core V1",
+  "version": "1.0.0",
+  "kind": "deterministic-core",
+  "language": "c++20",
+  "namespace": "arken::ao::core::v1",
+  "portable": ["native", "wasm"],
+  "public_dependencies": [],
+  "private_dependencies": [],
+  "test_dependencies": [],
+  "capabilities": [
+    "ao_v1_container_read_write",
+    "bounded_record_codec",
+    "deterministic_fnv1a64",
+    "validated_chunk_directory"
+  ]
+}

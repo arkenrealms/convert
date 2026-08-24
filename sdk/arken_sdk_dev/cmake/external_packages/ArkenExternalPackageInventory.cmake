@@ -90,6 +90,8 @@ function(_arken_extpkg_inventory_recipe_class_for_disposition out_var dispositio
         set(_class "verified-prebuilt")
     elseif(disposition STREQUAL "tool-profile")
         set(_class "build-tool")
+    elseif(disposition STREQUAL "system-sdk")
+        set(_class "system-sdk")
     else()
         _arken_extpkg_error(
             "arken.external_packages.inventory.recipe_disposition_invalid"
