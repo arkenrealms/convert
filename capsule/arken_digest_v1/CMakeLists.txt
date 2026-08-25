@@ -11,7 +11,9 @@ target_include_directories(arken_digest_v1 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(arken_digest_v1 PUBLIC arken_ao_schema_v1)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(arken_digest_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  target_compile_options(arken_digest_v1 PRIVATE
+    -Wall -Wextra -Wpedantic -Werror
+    $<$<CONFIG:Debug>:-O2>)
 endif()
 
 option(
