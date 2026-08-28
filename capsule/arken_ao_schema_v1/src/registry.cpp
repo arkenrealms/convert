@@ -6,13 +6,15 @@ namespace arken::ao::schema::v1
 {
 namespace
 {
-constexpr std::array<AoFormatDescriptor, 12u> format_descriptors{{
+constexpr std::array<AoFormatDescriptor, 13u> format_descriptors{{
     {aoab_format_id, "arken.ao.aoab", "AOAB", {2u, 0u, 0u}, 2u,
      {'A', 'O', 'A', 'B'}},
     {aoan_format_id, "arken.ao.aoan", "AOAN", {1u, 0u, 0u}, 1u,
      {'A', 'O', 'A', 'N'}},
     {aoau_format_id, "arken.ao.aoau", "AOAU", {1u, 0u, 0u}, 2u,
      {'A', 'O', 'A', 'U'}},
+    {aosc_format_id, "arken.ao.aosc", "AOSC", {1u, 0u, 0u}, 1u,
+     {'A', 'O', 'S', 'C'}},
     {aodb_format_id, "arken.ao.aodb", "AODB", {2u, 0u, 0u}, 2u,
      {'A', 'O', 'D', 'B'}},
     {aodg_format_id, "arken.ao.aodg", "AODG", {1u, 0u, 0u}, 2u,
@@ -33,7 +35,7 @@ constexpr std::array<AoFormatDescriptor, 12u> format_descriptors{{
      {'A', 'O', 'U', 'I'}},
 }};
 
-constexpr std::array<AoChunkTypeDescriptor, 35u> chunk_type_descriptors{{
+constexpr std::array<AoChunkTypeDescriptor, 40u> chunk_type_descriptors{{
     {core_stbl_chunk_type_id, "arken.ao.chunk.core.stbl", "STBL",
      {1u, 0u, 0u}, 1u, AoChunkScope::shared, {}, {'S', 'T', 'B', 'L'}},
     {core_deps_chunk_type_id, "arken.ao.chunk.core.deps", "DEPS",
@@ -71,6 +73,21 @@ constexpr std::array<AoChunkTypeDescriptor, 35u> chunk_type_descriptors{{
     {aoau_payl_chunk_type_id, "arken.ao.chunk.aoau.payl", "PAYL",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aoau_format_id,
      {'P', 'A', 'Y', 'L'}},
+    {aosc_scne_chunk_type_id, "arken.ao.chunk.aosc.scne", "SCNE",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aosc_format_id,
+     {'S', 'C', 'N', 'E'}},
+    {aosc_lite_chunk_type_id, "arken.ao.chunk.aosc.lite", "LITE",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aosc_format_id,
+     {'L', 'I', 'T', 'E'}},
+    {aosc_fogv_chunk_type_id, "arken.ao.chunk.aosc.fogv", "FOGV",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aosc_format_id,
+     {'F', 'O', 'G', 'V'}},
+    {aosc_lref_chunk_type_id, "arken.ao.chunk.aosc.lref", "LREF",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aosc_format_id,
+     {'L', 'R', 'E', 'F'}},
+    {aosc_fref_chunk_type_id, "arken.ao.chunk.aosc.fref", "FREF",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aosc_format_id,
+     {'F', 'R', 'E', 'F'}},
     {aopb_caps_v2_chunk_type_id, "arken.ao.chunk.aopb.caps", "CAPS",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aopb_format_id,
      {'C', 'A', 'P', 'S'}},
