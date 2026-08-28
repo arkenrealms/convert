@@ -37,7 +37,7 @@ constexpr std::array<AoFormatDescriptor, 14u> format_descriptors{{
      {'A', 'O', 'U', 'I'}},
 }};
 
-constexpr std::array<AoChunkTypeDescriptor, 51u> chunk_type_descriptors{{
+constexpr std::array<AoChunkTypeDescriptor, 52u> chunk_type_descriptors{{
     {core_stbl_chunk_type_id, "arken.ao.chunk.core.stbl", "STBL",
      {1u, 0u, 0u}, 1u, AoChunkScope::shared, {}, {'S', 'T', 'B', 'L'}},
     {core_deps_chunk_type_id, "arken.ao.chunk.core.deps", "DEPS",
@@ -111,6 +111,9 @@ constexpr std::array<AoChunkTypeDescriptor, 51u> chunk_type_descriptors{{
     {aoan_look_chunk_type_id, "arken.ao.chunk.aoan.look", "LOOK",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aoan_format_id,
      {'L', 'O', 'O', 'K'}},
+    {aoan_edef_chunk_type_id, "arken.ao.chunk.aoan.edef", "EDEF",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aoan_format_id,
+     {'E', 'D', 'E', 'F'}},
     {aoef_efct_chunk_type_id, "arken.ao.chunk.aoef.efct", "EFCT",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aoef_format_id,
      {'E', 'F', 'C', 'T'}},
