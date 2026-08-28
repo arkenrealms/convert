@@ -48,7 +48,8 @@ enum class FileKind : uint32_t
     aopg = fourcc('A', 'O', 'P', 'G'),
     aoau = fourcc('A', 'O', 'A', 'U'),
     aoui = fourcc('A', 'O', 'U', 'I'),
-    aosc = fourcc('A', 'O', 'S', 'C')
+    aosc = fourcc('A', 'O', 'S', 'C'),
+    aoef = fourcc('A', 'O', 'E', 'F')
 };
 
 struct Chunk

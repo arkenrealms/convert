@@ -206,7 +206,8 @@ ReadResult read_container(uint8_t const* raw_bytes, size_t size)
     && magic != static_cast<uint32_t>(FileKind::aopg)
     && magic != static_cast<uint32_t>(FileKind::aoau)
     && magic != static_cast<uint32_t>(FileKind::aoui)
-    && magic != static_cast<uint32_t>(FileKind::aosc))
+    && magic != static_cast<uint32_t>(FileKind::aosc)
+    && magic != static_cast<uint32_t>(FileKind::aoef))
     {
         return fail(Status::invalid_magic, "AO container magic is not recognized.");
     }
