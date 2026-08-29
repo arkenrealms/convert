@@ -14,7 +14,8 @@
     "canonical_ao_format_identity",
     "registered_sha256_algorithm_identity",
     "deterministic_ao_format_registry",
-    "versioned_aogm_aotm_aosc_and_aoan_formats"
+    "versioned_aogm_aotm_aosc_aoan_and_aoav_formats",
+    "registered_aoav_actor_visual_format"
   ],
   "optional_features": {}
 }
