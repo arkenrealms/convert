@@ -121,6 +121,12 @@ inline constexpr AoFormatId aoan_format_id{arken::identity::v1::ArkenId{{
     0x7au, 0xe2u, 0xe4u, 0xf6u, 0x74u, 0x86u, 0x88u, 0x27u,
     0x9eu, 0xdcu, 0xd9u, 0x37u, 0xdcu, 0xd6u, 0xa1u, 0x8du,
 }}};
+// Accepted allocation for source-neutral actor visual packages.
+// This is SHA-256("arken.ao.aoav") truncated to 128 bits with issued-id bits.
+inline constexpr AoFormatId aoav_format_id{arken::identity::v1::ArkenId{{
+    0xfdu, 0xa0u, 0x6fu, 0x5du, 0x0cu, 0x7bu, 0x87u, 0x0du,
+    0xbdu, 0xa0u, 0xeau, 0xc7u, 0x6du, 0x1au, 0x59u, 0x5eu,
+}}};
 // Accepted allocation for source-neutral, browser-consumable encoded audio.
 // This is SHA-256("arken.ao.aoau") truncated to 128 bits with issued-id bits.
 inline constexpr AoFormatId aoau_format_id{arken::identity::v1::ArkenId{{
