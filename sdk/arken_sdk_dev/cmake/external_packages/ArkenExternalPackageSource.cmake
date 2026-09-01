@@ -142,7 +142,125 @@ function(_arken_extpkg_verify_expected_source_tree recipe_json source_root recip
     endif()
 endfunction()
 
-function(_arken_extpkg_validate_archive_listing archive recipe_id allow_safe_symlinks)
+function(_arken_extpkg_archive_link_exclusions
+    out_paths
+    out_targets
+    recipe_json
+    recipe_id
+)
+    _arken_extpkg_json_type(
+        _exclusions_type
+        "${recipe_json}"
+        source
+        excludedArchiveLinks
+    )
+    if(_exclusions_type STREQUAL "")
+        set(${out_paths} "" PARENT_SCOPE)
+        set(${out_targets} "" PARENT_SCOPE)
+        return()
+    endif()
+    if(NOT _exclusions_type STREQUAL "ARRAY")
+        _arken_extpkg_error(
+            "arken.external_packages.archive.exclusions_invalid"
+            "schema"
+            "${recipe_id}"
+            "source.excludedArchiveLinks must be an array."
+        )
+    endif()
+    string(
+        JSON
+        _exclusion_count
+        LENGTH
+        "${recipe_json}"
+        source
+        excludedArchiveLinks
+    )
+    set(_paths "")
+    set(_targets "")
+    if(_exclusion_count GREATER 0)
+        math(EXPR _exclusion_last "${_exclusion_count} - 1")
+        foreach(_index RANGE 0 ${_exclusion_last})
+            string(
+                JSON
+                _exclusion
+                GET
+                "${recipe_json}"
+                source
+                excludedArchiveLinks
+                ${_index}
+            )
+            _arken_extpkg_validate_object_keys(
+                "${_exclusion}"
+                "${recipe_id}:source.excludedArchiveLinks[${_index}]"
+                "path;target;reason"
+            )
+            _arken_extpkg_json_required_string(
+                _path
+                "${_exclusion}"
+                "${recipe_id}:source.excludedArchiveLinks[${_index}]"
+                path
+            )
+            _arken_extpkg_json_required_string(
+                _target
+                "${_exclusion}"
+                "${recipe_id}:source.excludedArchiveLinks[${_index}]"
+                target
+            )
+            _arken_extpkg_json_required_string(
+                _reason
+                "${_exclusion}"
+                "${recipe_id}:source.excludedArchiveLinks[${_index}]"
+                reason
+            )
+            if(IS_ABSOLUTE "${_path}"
+                    OR _path MATCHES "^[A-Za-z]:[/\\\\]"
+                    OR _path MATCHES "(^|[/\\\\])\\.\\.([/\\\\]|$)"
+                    OR _path MATCHES "[;\n\r]")
+                _arken_extpkg_error(
+                    "arken.external_packages.archive.exclusion_path_unsafe"
+                    "schema"
+                    "${recipe_id}"
+                    "Excluded archive link path is unsafe: ${_path}"
+                )
+            endif()
+            if(_target MATCHES "[;\n\r]")
+                _arken_extpkg_error(
+                    "arken.external_packages.archive.exclusion_target_unsafe"
+                    "schema"
+                    "${recipe_id}"
+                    "Excluded archive link target contains an unsafe list or "
+                    "line delimiter: ${_target}"
+                )
+            endif()
+            list(FIND _paths "${_path}" _duplicate_index)
+            if(NOT _duplicate_index EQUAL -1)
+                _arken_extpkg_error(
+                    "arken.external_packages.archive.exclusion_duplicate"
+                    "schema"
+                    "${recipe_id}"
+                    "Excluded archive link path is duplicated: ${_path}"
+                )
+            endif()
+            list(APPEND _paths "${_path}")
+            list(APPEND _targets "${_target}")
+        endforeach()
+    endif()
+    set(${out_paths} "${_paths}" PARENT_SCOPE)
+    set(${out_targets} "${_targets}" PARENT_SCOPE)
+endfunction()
+
+function(_arken_extpkg_validate_archive_listing
+    archive
+    recipe_json
+    recipe_id
+    allow_safe_symlinks
+)
+    _arken_extpkg_archive_link_exclusions(
+        _excluded_paths
+        _excluded_targets
+        "${recipe_json}"
+        "${recipe_id}"
+    )
     execute_process(
         COMMAND "${CMAKE_COMMAND}" -E tar tf "${archive}"
         RESULT_VARIABLE _result
@@ -190,6 +308,7 @@ function(_arken_extpkg_validate_archive_listing archive recipe_id allow_safe_sym
     endif()
     string(REPLACE "\r\n" "\n" _verbose_listing "${_verbose_listing}")
     string(REPLACE "\n" ";" _verbose_entries "${_verbose_listing}")
+    set(_observed_excluded_paths "")
     foreach(_verbose_entry IN LISTS _verbose_entries)
         if(NOT _verbose_entry MATCHES "^[lh]")
             continue()
@@ -203,10 +322,45 @@ function(_arken_extpkg_validate_archive_listing archive recipe_id allow_safe_sym
             )
         endif()
         set(_link_target "")
+        set(_link_path "")
         if(_verbose_entry MATCHES " -> (.*)$")
             set(_link_target "${CMAKE_MATCH_1}")
+            if(_verbose_entry MATCHES " ([^ ]+) -> ")
+                set(_link_path "${CMAKE_MATCH_1}")
+            endif()
         elseif(_verbose_entry MATCHES " link to (.*)$")
             set(_link_target "${CMAKE_MATCH_1}")
+            if(_verbose_entry MATCHES " ([^ ]+) link to ")
+                set(_link_path "${CMAKE_MATCH_1}")
+            endif()
+        endif()
+        list(FIND _excluded_paths "${_link_path}" _excluded_index)
+        if(NOT _excluded_index EQUAL -1)
+            list(GET _excluded_targets ${_excluded_index}
+                _expected_excluded_target)
+            if(NOT "${_link_target}" STREQUAL
+                    "${_expected_excluded_target}")
+                _arken_extpkg_error(
+                    "arken.external_packages.archive.exclusion_target_mismatch"
+                    "extraction"
+                    "${recipe_id}"
+                    "Excluded archive link ${_link_path} expected target "
+                    "${_expected_excluded_target}, observed ${_link_target}."
+                )
+            endif()
+            list(FIND _observed_excluded_paths "${_link_path}"
+                _duplicate_observed_index)
+            if(NOT _duplicate_observed_index EQUAL -1)
+                _arken_extpkg_error(
+                    "arken.external_packages.archive.exclusion_duplicate_entry"
+                    "extraction"
+                    "${recipe_id}"
+                    "Archive contains duplicate excluded link entries: "
+                    "${_link_path}"
+                )
+            endif()
+            list(APPEND _observed_excluded_paths "${_link_path}")
+            continue()
         endif()
         if(_link_target STREQUAL ""
                 OR IS_ABSOLUTE "${_link_target}"
@@ -219,6 +373,61 @@ function(_arken_extpkg_validate_archive_listing archive recipe_id allow_safe_sym
                 "Archive link target is not a bounded root-relative path: ${_link_target}"
             )
         endif()
+    endforeach()
+    foreach(_excluded_path IN LISTS _excluded_paths)
+        list(FIND _observed_excluded_paths "${_excluded_path}"
+            _observed_excluded_index)
+        if(_observed_excluded_index EQUAL -1)
+            _arken_extpkg_error(
+                "arken.external_packages.archive.exclusion_missing"
+                "extraction"
+                "${recipe_id}"
+                "Declared excluded archive link is absent: ${_excluded_path}"
+            )
+        endif()
+    endforeach()
+endfunction()
+
+function(_arken_extpkg_remove_excluded_archive_links
+    root
+    recipe_json
+    recipe_id
+)
+    _arken_extpkg_archive_link_exclusions(
+        _excluded_paths
+        _excluded_targets
+        "${recipe_json}"
+        "${recipe_id}"
+    )
+    list(LENGTH _excluded_paths _excluded_count)
+    if(_excluded_count EQUAL 0)
+        return()
+    endif()
+    math(EXPR _excluded_last "${_excluded_count} - 1")
+    foreach(_index RANGE 0 ${_excluded_last})
+        list(GET _excluded_paths ${_index} _relative)
+        list(GET _excluded_targets ${_index} _expected_target)
+        set(_absolute "${root}/${_relative}")
+        if(NOT IS_SYMLINK "${_absolute}")
+            _arken_extpkg_error(
+                "arken.external_packages.archive.exclusion_not_link"
+                "extraction"
+                "${recipe_id}"
+                "Declared excluded archive link was not extracted as a link: "
+                "${_relative}"
+            )
+        endif()
+        file(READ_SYMLINK "${_absolute}" _observed_target)
+        if(NOT "${_observed_target}" STREQUAL "${_expected_target}")
+            _arken_extpkg_error(
+                "arken.external_packages.archive.exclusion_target_mismatch"
+                "extraction"
+                "${recipe_id}"
+                "Extracted excluded link ${_relative} expected target "
+                "${_expected_target}, observed ${_observed_target}."
+            )
+        endif()
+        file(REMOVE "${_absolute}")
     endforeach()
 endfunction()
 
@@ -472,6 +681,7 @@ function(_arken_extpkg_materialize_archive_source
     endif()
     _arken_extpkg_validate_archive_listing(
         "${_download}"
+        "${recipe_json}"
         "${recipe_id}"
         "${_allow_safe_symlinks}"
     )
@@ -481,6 +691,11 @@ function(_arken_extpkg_materialize_archive_source
     file(MAKE_DIRECTORY "${_temporary}/source")
     file(ARCHIVE_EXTRACT INPUT "${_download}" DESTINATION "${_temporary}/source")
     file(REMOVE "${_download}")
+    _arken_extpkg_remove_excluded_archive_links(
+        "${_temporary}/source"
+        "${recipe_json}"
+        "${recipe_id}"
+    )
     _arken_extpkg_validate_extracted_tree(
         "${_temporary}/source"
         "${recipe_id}"

@@ -277,7 +277,7 @@ function(_arken_extpkg_validate_recipe recipe_id recipe_path recipe_json current
     _arken_extpkg_validate_object_keys(
         "${recipe_json}"
         "${recipe_id}:source"
-        "kind;root;path;urls;sha256;commit;treeSha256;subdirectory;files;maxArchiveBytes;maxEntries;maxExtractedBytes;allowSafeSymlinks"
+        "kind;root;path;urls;sha256;commit;treeSha256;subdirectory;files;maxArchiveBytes;maxEntries;maxExtractedBytes;allowSafeSymlinks;excludedArchiveLinks"
         source
     )
     _arken_extpkg_validate_object_keys(
