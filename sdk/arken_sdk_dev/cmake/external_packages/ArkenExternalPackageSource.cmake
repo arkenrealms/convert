@@ -543,10 +543,10 @@ function(_arken_extpkg_materialize_archive_source
     set(_receipt "${_entry}/source.receipt.json")
     set(_complete "${_entry}/.complete")
     file(MAKE_DIRECTORY "${cache_root}/locks" "${cache_root}/downloads" "${cache_root}/sources/sha256")
-    # A verified cache hit can still require a complete tree-identity pass. Large
-    # sources such as LLVM expand to several gigabytes and legitimately exceed
-    # three minutes while another worktree holds the publication/validation lock.
-    file(LOCK "${cache_root}/locks/source-${_expected_sha}.lock" GUARD FUNCTION TIMEOUT 3600)
+    # Complete immutable source-tree verification can exceed three minutes
+    # when several worktrees share the APFS-backed package cache. Preserve
+    # exclusive cache authority while allowing one bounded verification turn.
+    file(LOCK "${cache_root}/locks/source-${_expected_sha}.lock" GUARD FUNCTION TIMEOUT 900)
 
     if(EXISTS "${_entry}")
         if(NOT EXISTS "${_receipt}" OR NOT EXISTS "${_complete}")
