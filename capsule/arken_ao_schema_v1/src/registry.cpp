@@ -6,7 +6,9 @@ namespace arken::ao::schema::v1
 {
 namespace
 {
-constexpr std::array<AoFormatDescriptor, 15u> format_descriptors{{
+constexpr std::array<AoFormatDescriptor, 16u> format_descriptors{{
+    {aocb_format_id, "arken.ao.aocb", "AOCB", {1u, 0u, 0u}, 2u,
+     {'A', 'O', 'C', 'B'}},
     {aoab_format_id, "arken.ao.aoab", "AOAB", {2u, 0u, 0u}, 2u,
      {'A', 'O', 'A', 'B'}},
     {aoan_format_id, "arken.ao.aoan", "AOAN", {1u, 0u, 0u}, 1u,
@@ -39,7 +41,13 @@ constexpr std::array<AoFormatDescriptor, 15u> format_descriptors{{
      {'A', 'O', 'U', 'I'}},
 }};
 
-constexpr std::array<AoChunkTypeDescriptor, 52u> chunk_type_descriptors{{
+constexpr std::array<AoChunkTypeDescriptor, 55u> chunk_type_descriptors{{
+    {aocb_cmnf_chunk_type_id, "arken.ao.chunk.aocb.cmnf", "CMNF",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aocb_format_id, {'C','M','N','F'}},
+    {aocb_midx_chunk_type_id, "arken.ao.chunk.aocb.midx", "MIDX",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aocb_format_id, {'M','I','D','X'}},
+    {aocb_data_chunk_type_id, "arken.ao.chunk.aocb.data", "DATA",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aocb_format_id, {'D','A','T','A'}},
     {core_stbl_chunk_type_id, "arken.ao.chunk.core.stbl", "STBL",
      {1u, 0u, 0u}, 1u, AoChunkScope::shared, {}, {'S', 'T', 'B', 'L'}},
     {core_deps_chunk_type_id, "arken.ao.chunk.core.deps", "DEPS",
