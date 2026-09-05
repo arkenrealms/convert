@@ -2,6 +2,7 @@ include_guard(GLOBAL)
 
 set(_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR "${CMAKE_CURRENT_LIST_DIR}/external_packages")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageJson.cmake")
+include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageCache.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageInventory.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageReleaseEvidence.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageSource.cmake")
@@ -207,7 +208,7 @@ function(_arken_extpkg_validate_recipe recipe_id recipe_path recipe_json current
     _arken_extpkg_validate_object_keys(
         "${recipe_json}"
         "${recipe_id}"
-        "schemaVersion;recipeId;packageId;upstreamVersion;dependencyClass;supportedPlatforms;source;patches;adapter;license;components;dependencies;testOnly"
+        "schemaVersion;recipeId;packageId;upstreamVersion;dependencyClass;supportedPlatforms;source;patches;adapter;license;components;dependencies;testOnly;cacheScope"
     )
     string(JSON _schema ERROR_VARIABLE _schema_error GET "${recipe_json}" schemaVersion)
     if(NOT _schema_error STREQUAL "NOTFOUND" OR NOT _schema EQUAL 1)
@@ -230,6 +231,11 @@ function(_arken_extpkg_validate_recipe recipe_id recipe_path recipe_json current
     _arken_extpkg_json_required_string(_package_id "${recipe_json}" "${recipe_id}" packageId)
     _arken_extpkg_json_required_string(_upstream_version "${recipe_json}" "${recipe_id}" upstreamVersion)
     _arken_extpkg_json_required_string(_dependency_class "${recipe_json}" "${recipe_id}" dependencyClass)
+    _arken_extpkg_json_optional_string(_cache_scope "${recipe_json}" "shared" "${recipe_id}" cacheScope)
+    if(NOT _cache_scope STREQUAL "shared" AND NOT _cache_scope STREQUAL "workspace")
+        _arken_extpkg_error("arken.external_packages.cache.scope_invalid"
+            "schema" "${recipe_id}" "cacheScope must be shared or workspace.")
+    endif()
     if(NOT _package_id MATCHES "^[a-z0-9][a-z0-9._-]*$")
         _arken_extpkg_error(
             "arken.external_packages.recipe.package_id_invalid"
@@ -779,6 +785,8 @@ function(_arken_extpkg_resolve_recipe
     get_property(_recipe_sha GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_SHA_${_recipe_ident}")
     get_property(_adapter_id GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_ADAPTER_${_recipe_ident}")
     get_property(_distribution GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_DISTRIBUTION_${_recipe_ident}")
+    _arken_extpkg_recipe_cache_root(_effective_cache_root _cache_scope
+        "${_recipe_json}" "${recipe_id}" "${cache_root}" "${workspace_root}")
     _arken_extpkg_validate_adapter_target_dependencies(
         "${_recipe_json}"
         "${recipe_id}"
@@ -825,7 +833,7 @@ function(_arken_extpkg_resolve_recipe
         "${_recipe_path}"
         "${recipe_id}"
         "${_recipe_sha}"
-        "${cache_root}"
+        "${_effective_cache_root}"
         "${workspace_root}"
         "${_offline}"
     )
@@ -850,7 +858,7 @@ function(_arken_extpkg_resolve_recipe
     set(_package_build_root "${package_root}/packages/${_instance_id}")
     if(_adapter_id STREQUAL "configure-make-v1"
             OR _adapter_id STREQUAL "cmake-external-v1")
-        set(_receipt_root "${cache_root}/packages/${_instance_id}")
+        set(_receipt_root "${_effective_cache_root}/packages/${_instance_id}")
     else()
         set(_receipt_root "${package_root}/receipts/${_instance_id}")
     endif()
@@ -884,8 +892,10 @@ function(_arken_extpkg_resolve_recipe
         "${_components}"
         "${_package_build_root}"
         "${_receipt_root}"
-        "${cache_root}"
+        "${_effective_cache_root}"
     )
+    set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_CACHE_SCOPE_${_recipe_ident}" "${_cache_scope}")
+    set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_CACHE_ROOT_${_recipe_ident}" "${_effective_cache_root}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_INSTANCE_${_recipe_ident}" "${_instance_id}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_SOURCE_IDENTITY_${_recipe_ident}" "${_materialized_source_identity}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_SOURCE_RECEIPT_${_recipe_ident}" "${_source_receipt}")
@@ -957,16 +967,19 @@ function(_arken_extpkg_generate_receipts graph_receipt spdx_receipt current_plat
         get_property(_source_receipt GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_SOURCE_RECEIPT_${_recipe_ident}")
         get_property(_patch_receipt GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_PATCH_RECEIPT_${_recipe_ident}")
         get_property(_receipt_root GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_RECEIPT_ROOT_${_recipe_ident}")
+        get_property(_cache_scope GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_CACHE_SCOPE_${_recipe_ident}")
+        get_property(_effective_cache_root GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_CACHE_ROOT_${_recipe_ident}")
         _arken_extpkg_json_escape(_source_identity_json "${_source_identity}")
         _arken_extpkg_json_escape(_source_receipt_json "${_source_receipt}")
         _arken_extpkg_json_escape(_patch_receipt_json "${_patch_receipt}")
         _arken_extpkg_json_escape(_receipt_root_json "${_receipt_root}")
+        _arken_extpkg_json_escape(_effective_cache_root_json "${_effective_cache_root}")
         if(_package_index GREATER 0)
             string(APPEND _packages_json ",\n")
             string(APPEND _spdx_packages_json ",\n")
         endif()
         string(APPEND _packages_json
-            "    {\"recipeId\":\"${_recipe}\",\"recipeSha256\":\"${_recipe_sha}\",\"packageId\":\"${_package}\",\"upstreamVersion\":\"${_version}\",\"adapterId\":\"${_adapter}\",\"components\":${_components_json},\"dependencies\":${_dependencies_json},\"packageInstanceId\":\"${_instance}\",\"sourceIdentity\":\"${_source_identity_json}\",\"sourceReceipt\":\"${_source_receipt_json}\",\"patchReceipt\":\"${_patch_receipt_json}\",\"receiptRoot\":\"${_receipt_root_json}\",\"license\":\"${_license}\",\"distribution\":\"${_distribution}\"}"
+            "    {\"recipeId\":\"${_recipe}\",\"recipeSha256\":\"${_recipe_sha}\",\"packageId\":\"${_package}\",\"upstreamVersion\":\"${_version}\",\"adapterId\":\"${_adapter}\",\"components\":${_components_json},\"dependencies\":${_dependencies_json},\"packageInstanceId\":\"${_instance}\",\"sourceIdentity\":\"${_source_identity_json}\",\"sourceReceipt\":\"${_source_receipt_json}\",\"patchReceipt\":\"${_patch_receipt_json}\",\"receiptRoot\":\"${_receipt_root_json}\",\"cacheScope\":\"${_cache_scope}\",\"cacheRoot\":\"${_effective_cache_root_json}\",\"license\":\"${_license}\",\"distribution\":\"${_distribution}\"}"
         )
         string(APPEND _spdx_packages_json
             "    {\"SPDXID\":\"SPDXRef-${_recipe_ident}\",\"name\":\"${_package}\",\"versionInfo\":\"${_version}\",\"licenseConcluded\":\"${_license}\",\"licenseDeclared\":\"${_license}\",\"externalRefs\":[{\"referenceCategory\":\"PACKAGE-MANAGER\",\"referenceType\":\"purl\",\"referenceLocator\":\"pkg:generic/${_package}@${_version}?recipe=${_recipe}&instance=${_instance}\"}]}"
@@ -1145,11 +1158,23 @@ function(arken_resolve_external_packages)
         )
     endif()
     if(NOT TARGET arken-external-package-verify)
+        set(_receipt_roots "")
+        get_property(_resolved_recipes GLOBAL PROPERTY ARKEN_EXTPKG_RESOLVED)
+        foreach(_recipe IN LISTS _resolved_recipes)
+            _arken_extpkg_identifier(_recipe_ident "${_recipe}")
+            get_property(_receipt_root GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_RECEIPT_ROOT_${_recipe_ident}")
+            list(APPEND _receipt_roots "${_receipt_root}")
+        endforeach()
+        if(_receipt_roots STREQUAL "")
+            set(_receipt_roots "${_package_root}/receipts")
+        endif()
+        list(REMOVE_DUPLICATES _receipt_roots)
+        list(JOIN _receipt_roots "|" _receipt_roots_joined)
         add_custom_target(
             arken-external-package-verify
             COMMAND
                 "${CMAKE_COMMAND}"
-                "-DRECEIPT_ROOTS_JOINED=${_package_root}/receipts|${_cache_root}/packages"
+                "-DRECEIPT_ROOTS_JOINED=${_receipt_roots_joined}"
                 -P "${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageVerifyReceipts.cmake"
             VERBATIM
         )
