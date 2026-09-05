@@ -22,3 +22,9 @@ if(BUILD_TESTING OR ARKEN_AO_SCHEMA_V1_BUILD_TESTS OR OASIS_NATIVE_BUILD_HOST_TE
     endif()
     add_test(NAME ArkenAoSchemaV1.Registry COMMAND arken-ao-schema-v1-tests)
 endif()
+
+if(EMSCRIPTEN AND COMMAND arken_register_browser_live_source_contribution)
+    arken_register_browser_live_source_contribution(
+        MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/browser-live-source-contribution.json"
+    )
+endif()
