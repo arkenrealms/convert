@@ -47,17 +47,29 @@ function(_arken_extpkg_tree_identity out_var root subject)
     file(GLOB_RECURSE _entries LIST_DIRECTORIES FALSE RELATIVE "${root}" "${root}/*")
     list(SORT _entries)
     set(_identity_input "")
+    set(_identity_chunk "")
+    set(_identity_chunk_entries 0)
     foreach(_entry IN LISTS _entries)
         set(_absolute "${root}/${_entry}")
         if(IS_SYMLINK "${_absolute}")
             file(READ_SYMLINK "${_absolute}" _link_target)
-            string(APPEND _identity_input "symlink:${_entry}:${_link_target}\n")
+            string(APPEND _identity_chunk "symlink:${_entry}:${_link_target}\n")
         else()
             file(SHA256 "${_absolute}" _digest)
             file(SIZE "${_absolute}" _size)
-            string(APPEND _identity_input "file:${_entry}:${_size}:${_digest}\n")
+            string(APPEND _identity_chunk "file:${_entry}:${_size}:${_digest}\n")
+        endif()
+        # CMake copies string values on append. Bound the per-file copy cost
+        # for LLVM-sized source inventories without changing a single byte of
+        # the sorted tree identity, including symlinks and the final newline.
+        math(EXPR _identity_chunk_entries "${_identity_chunk_entries} + 1")
+        if(_identity_chunk_entries EQUAL 256)
+            string(APPEND _identity_input "${_identity_chunk}")
+            set(_identity_chunk "")
+            set(_identity_chunk_entries 0)
         endif()
     endforeach()
+    string(APPEND _identity_input "${_identity_chunk}")
     string(SHA256 _tree_sha "${_identity_input}")
     set(${out_var} "${_tree_sha}" PARENT_SCOPE)
 endfunction()
@@ -543,10 +555,7 @@ function(_arken_extpkg_materialize_archive_source
     set(_receipt "${_entry}/source.receipt.json")
     set(_complete "${_entry}/.complete")
     file(MAKE_DIRECTORY "${cache_root}/locks" "${cache_root}/downloads" "${cache_root}/sources/sha256")
-    # A verified cache hit can still require a complete tree-identity pass. Large
-    # sources such as LLVM expand to several gigabytes and legitimately exceed
-    # three minutes while another worktree holds the publication/validation lock.
-    file(LOCK "${cache_root}/locks/source-${_expected_sha}.lock" GUARD FUNCTION TIMEOUT 3600)
+    file(LOCK "${cache_root}/locks/source-${_expected_sha}.lock" GUARD FUNCTION TIMEOUT 180)
 
     if(EXISTS "${_entry}")
         if(NOT EXISTS "${_receipt}" OR NOT EXISTS "${_complete}")
