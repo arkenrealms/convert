@@ -883,6 +883,25 @@ function(_arken_extpkg_materialize_cmake_source
         target_link_libraries("${_wrapper}" INTERFACE "${_upstream}")
         add_library("${_target}" ALIAS "${_wrapper}")
         get_target_property(_upstream_type "${_upstream}" TYPE)
+        # These are declared package build/usage requirements. Applying them
+        # only to consumers leaves the upstream archive compiled incorrectly
+        # (notably Luau's protected-call catches in WebAssembly).
+        _arken_extpkg_json_array_to_list(_component_options "${_component}"
+            "${recipe_id}:${_name}" compileOptions)
+        _arken_extpkg_component_compiler_options(_compiler_options
+            "${_component}" "${recipe_id}:${_name}")
+        list(APPEND _component_options ${_compiler_options})
+        if(NOT _component_options STREQUAL "")
+            target_compile_options("${_wrapper}" INTERFACE ${_component_options})
+            if(_upstream_type STREQUAL "INTERFACE_LIBRARY")
+                target_compile_options("${_upstream}" INTERFACE ${_component_options})
+            elseif(NOT _upstream_type STREQUAL "UTILITY")
+                target_compile_options("${_upstream}" PRIVATE ${_component_options})
+            else()
+                _arken_extpkg_error("arken.external_packages.cmake_source.compile_options_invalid"
+                    "adapter" "${recipe_id}" "Utility targets cannot consume compileOptions.")
+            endif()
+        endif()
         if(NOT _upstream_type STREQUAL "INTERFACE_LIBRARY"
                 AND NOT _upstream_type STREQUAL "UTILITY")
             set(_receipt "${receipt_root}/${_name}.build.receipt.json")

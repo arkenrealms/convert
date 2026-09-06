@@ -50,3 +50,9 @@ if(BUILD_TESTING OR ARKEN_IDENTITY_V1_BUILD_TESTS OR OASIS_NATIVE_BUILD_HOST_TES
         COMMAND arken-identity-v1-benchmark 100000
     )
 endif()
+
+if(EMSCRIPTEN AND COMMAND arken_register_browser_live_source_contribution)
+    arken_register_browser_live_source_contribution(
+        MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/browser-live-source-contribution.json"
+    )
+endif()

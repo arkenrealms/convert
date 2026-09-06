@@ -46,3 +46,9 @@ if(BUILD_TESTING OR ARKEN_DIGEST_V1_BUILD_TESTS OR OASIS_NATIVE_BUILD_HOST_TESTS
         )
     endif()
 endif()
+
+if(EMSCRIPTEN AND COMMAND arken_register_browser_live_source_contribution)
+    arken_register_browser_live_source_contribution(
+        MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/browser-live-source-contribution.json"
+    )
+endif()
