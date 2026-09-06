@@ -19,6 +19,7 @@ add_library(arken_schema_core_v1 STATIC
     src/schema_parse.cpp
     src/value.cpp
 )
+target_compile_features(arken_schema_core_v1 PUBLIC cxx_std_20)
 
 target_include_directories(arken_schema_core_v1
     PUBLIC
@@ -29,7 +30,6 @@ target_include_directories(arken_schema_core_v1
 
 target_link_libraries(arken_schema_core_v1
     PUBLIC
-        arken_base_dev
         ${ARKEN_NLOHMANN_TARGET}
 )
 
