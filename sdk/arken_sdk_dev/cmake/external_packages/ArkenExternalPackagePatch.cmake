@@ -2,6 +2,7 @@ include_guard(GLOBAL)
 
 include("${CMAKE_CURRENT_LIST_DIR}/ArkenExternalPackageJson.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/ArkenExternalPackageSource.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ArkenExternalPackagePatchPublication.cmake")
 
 function(_arken_extpkg_patch_set_identity out_var recipe_json recipe_path recipe_id)
     _arken_extpkg_json_type(_patches_type "${recipe_json}" patches)
@@ -154,16 +155,33 @@ function(_arken_extpkg_apply_patches
 
     set(_patched_root "${package_build_root}/patched-source")
     set(_receipt "${package_build_root}/patched-source.receipt.json")
+    _arken_extpkg_patch_validate_publication_paths("${package_build_root}" "${recipe_id}")
+    file(LOCK "${package_build_root}/patched-source.lock" GUARD FUNCTION TIMEOUT 30 RESULT_VARIABLE _lock_result)
+    if(NOT _lock_result STREQUAL "0")
+        _arken_extpkg_error("arken.external_packages.patch.publication_busy" "patch" "${recipe_id}"
+            "Could not acquire the package publication lock: ${_lock_result}")
+    endif()
+    _arken_extpkg_patch_validate_publication_paths("${package_build_root}" "${recipe_id}")
     if(EXISTS "${_receipt}")
         file(READ "${_receipt}" _receipt_json)
+        string(JSON _receipt_schema ERROR_VARIABLE _schema_error GET "${_receipt_json}" schemaVersion)
+        string(JSON _receipt_recipe ERROR_VARIABLE _recipe_error GET "${_receipt_json}" recipeId)
+        string(JSON _receipt_tool ERROR_VARIABLE _tool_error GET "${_receipt_json}" patchToolSha256)
         string(JSON _receipt_patch_set ERROR_VARIABLE _patch_error GET "${_receipt_json}" patchSetSha256)
         string(JSON _receipt_base ERROR_VARIABLE _base_error GET "${_receipt_json}" baseSourceIdentity)
         string(JSON _receipt_tree ERROR_VARIABLE _tree_error GET "${_receipt_json}" patchedTreeSha256)
         if(_patch_error STREQUAL "NOTFOUND"
+                AND _schema_error STREQUAL "NOTFOUND"
+                AND _recipe_error STREQUAL "NOTFOUND"
+                AND _tool_error STREQUAL "NOTFOUND"
                 AND _base_error STREQUAL "NOTFOUND"
                 AND _tree_error STREQUAL "NOTFOUND"
+                AND _receipt_schema STREQUAL "1"
+                AND "${_receipt_recipe}" STREQUAL "${recipe_id}"
+                AND "${_receipt_tool}" STREQUAL "${_patch_tool_sha}"
                 AND "${_receipt_patch_set}" STREQUAL "${patch_set_identity}"
-                AND "${_receipt_base}" STREQUAL "${base_source_identity}")
+                AND "${_receipt_base}" STREQUAL "${base_source_identity}"
+                AND IS_DIRECTORY "${_patched_root}")
             _arken_extpkg_tree_identity(_observed_tree "${_patched_root}" "${recipe_id}")
             if("${_observed_tree}" STREQUAL "${_receipt_tree}")
                 set(${out_source_root} "${_patched_root}" PARENT_SCOPE)
@@ -175,13 +193,14 @@ function(_arken_extpkg_apply_patches
                 return()
             endif()
         endif()
-        file(REMOVE_RECURSE "${_patched_root}")
-        file(REMOVE "${_receipt}")
     endif()
 
     string(RANDOM LENGTH 12 ALPHABET 0123456789abcdef _nonce)
     set(_temporary "${_patched_root}.partial-${_nonce}")
-    file(REMOVE_RECURSE "${_temporary}")
+    if(EXISTS "${_temporary}" OR IS_SYMLINK "${_temporary}")
+        _arken_extpkg_error("arken.external_packages.patch.publication_path_unsafe" "patch" "${recipe_id}"
+            "Candidate identity already exists; previous bytes were preserved.")
+    endif()
     file(MAKE_DIRECTORY "${_temporary}")
     file(COPY "${base_source_root}/" DESTINATION "${_temporary}")
     get_filename_component(_recipe_directory "${recipe_path}" DIRECTORY)
@@ -261,17 +280,8 @@ function(_arken_extpkg_apply_patches
         "  \"patchedTreeSha256\": \"${_patched_tree}\"\n"
         "}\n"
     )
-    file(RENAME "${_temporary}" "${_patched_root}" RESULT _rename_result)
-    if(NOT "${_rename_result}" STREQUAL "0")
-        file(REMOVE_RECURSE "${_temporary}")
-        _arken_extpkg_error(
-            "arken.external_packages.patch.publish_failed"
-            "patch"
-            "${recipe_id}"
-            "Patched source publication failed: ${_rename_result}"
-        )
-    endif()
-    _arken_extpkg_write_if_different("${_receipt}" "${_receipt_json}")
+    _arken_extpkg_publish_patched_source("${package_build_root}" "${_temporary}" "${_patched_tree}"
+        "${_receipt_json}" "${recipe_id}" "${_nonce}")
     set(${out_source_root} "${_patched_root}" PARENT_SCOPE)
     set(
         ${out_source_identity}
