@@ -1,5 +1,6 @@
 add_library(arken_ao_core_v1 STATIC
     src/core.cpp
+    src/directory.cpp
 )
 add_library(arken::ao_core_v1 ALIAS arken_ao_core_v1)
 target_compile_features(arken_ao_core_v1 PUBLIC cxx_std_20)
