@@ -1,0 +1,26 @@
+{
+  "schemaVersion":1,
+  "recipeId":"wasi-sdk-34-macos-arm64-v1",
+  "packageId":"wasi-sdk",
+  "upstreamVersion":"34.0",
+  "dependencyClass":"verified-prebuilt",
+  "supportedPlatforms":["macos"],
+  "source":{
+    "kind":"archive",
+    "urls":["https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-arm64-macos.tar.gz"],
+    "sha256":"9c59398106b417f8f14913380fdf0097a8cc0ff4af9eb3ce0065a859e88d49e9",
+    "subdirectory":"wasi-sdk-34.0-arm64-macos",
+    "maxArchiveBytes":201326592,
+    "maxEntries":20000,
+    "maxExtractedBytes":1073741824,
+    "allowSafeSymlinks":true
+  },
+  "adapter":{"kind":"verified-prebuilt","version":1},
+  "license":{"spdx":"Apache-2.0 WITH LLVM-exception AND MIT","distribution":"redistributable","files":[]},
+  "components":[
+    {"name":"sdk","target":"arken::external_wasi_sdk_v1","kind":"interface","includeDirectories":["."]},
+    {"name":"compiler","target":"arken::external_wasi_clang_v1","kind":"executable","executablePath":"bin/clang++","expectedSha256":"19b9ef777eec50d9a353060db546963f588fc10b13baff7839a54d0d97bf871c","versionArguments":["--version"],"expectedVersionRegex":"clang version 23\\.1\\.0-wasi-sdk"},
+    {"name":"linker","target":"arken::external_wasi_linker_v1","kind":"executable","executablePath":"bin/wasm-ld","expectedSha256":"f3f36480cec4c76cd996e7e7624c811d18f92d63dc81fd224c0f757a7f4c3377","versionArguments":["--version"],"expectedVersionRegex":"LLD 23\\.1\\.0"}
+  ],
+  "dependencies":[]
+}

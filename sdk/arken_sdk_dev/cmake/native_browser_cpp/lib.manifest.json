@@ -1,0 +1,1 @@
+{"schemaVersion":1,"key":"arken_native_browser_cpp_bootstrap","public_dependencies":[],"private_dependencies":[],"external_dependencies":[{"recipe":"wasi-sdk-34-macos-arm64-v1","scope":"private","components":["sdk","compiler","linker"],"platforms":["macos"],"reason":"Pinned native C++ browser compiler and exception-enabled sysroot; no script-hosted compiler driver."}]}
