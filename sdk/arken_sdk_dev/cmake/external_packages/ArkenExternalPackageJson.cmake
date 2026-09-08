@@ -298,7 +298,7 @@ function(_arken_extpkg_identifier out_var value)
 endfunction()
 
 function(_arken_extpkg_current_platform out_var)
-    if(EMSCRIPTEN)
+    if(EMSCRIPTEN OR ARKEN_BROWSER_CPP)
         set(_platform "web")
     elseif(ANDROID)
         set(_platform "android")
