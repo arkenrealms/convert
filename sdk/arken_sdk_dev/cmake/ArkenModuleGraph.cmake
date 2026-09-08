@@ -27,6 +27,13 @@ function(_arken_register_module_manifest manifest_path kind)
     string(MAKE_C_IDENTIFIER "${_key}" _key_ident)
     get_property(_existing_path GLOBAL PROPERTY "ARKEN_MODULE_PATH_${_key_ident}")
     if(NOT "${_existing_path}" STREQUAL "")
+        get_property(_existing_kind GLOBAL PROPERTY "ARKEN_MODULE_KIND_${_key_ident}")
+        if(_existing_path STREQUAL manifest_path AND _existing_kind STREQUAL kind)
+            # One configure may resolve independent product/tool closures
+            # against the same manifest inventory. This is the same owner,
+            # not a duplicate key from another manifest.
+            return()
+        endif()
         message(FATAL_ERROR
             "Duplicate module key '${_key}' in '${manifest_path}' and '${_existing_path}'."
         )
