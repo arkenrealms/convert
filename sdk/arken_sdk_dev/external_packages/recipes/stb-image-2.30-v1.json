@@ -1,0 +1,15 @@
+{
+  "schemaVersion":1,"recipeId":"stb-image-2.30-v1","packageId":"stb-image","upstreamVersion":"2.30","dependencyClass":"source-package",
+  "supportedPlatforms":["macos","linux","windows","android","ios","web"],
+  "source":{"kind":"archive","urls":["https://codeload.github.com/nothings/stb/tar.gz/013ac3beddff3dbffafd5177e7972067cd2b5083"],
+    "sha256":"b01aa93e1a968aed55f43e072c98ee401d2f20e897aabdb1a166c7166886ed11","subdirectory":"stb-013ac3beddff3dbffafd5177e7972067cd2b5083",
+    "files":[
+      {"path":"stb_image.h","sha256":"594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3"},
+      {"path":"stb_image_write.h","sha256":"cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05"},
+      {"path":"LICENSE","sha256":"bebfe904b14301657e4e5d655c811d51fd31b97c455b9cc2d8600d6bac6cff63"}],
+    "maxArchiveBytes":33554432,"maxEntries":4096,"maxExtractedBytes":134217728,"allowSafeSymlinks":false},
+  "adapter":{"kind":"header-only","version":1},
+  "license":{"spdx":"MIT","distribution":"redistributable","files":[{"path":"LICENSE","sha256":"bebfe904b14301657e4e5d655c811d51fd31b97c455b9cc2d8600d6bac6cff63"}]},
+  "components":[{"name":"image","target":"arken::external_stb_image_v1","kind":"interface","systemIncludeDirectories":["."]}],
+  "dependencies":[]
+}
