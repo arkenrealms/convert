@@ -24,4 +24,6 @@ DecodeResult DecodePcx(Bytes,const DecodeOptions&);
 DecodeResult DecodeCel(Bytes,const DecodeOptions&);
 DecodeResult DecodeDc6(Bytes,const DecodeOptions&);
 DecodeResult DecodeBlp(Bytes,const DecodeOptions&);
+DecodeResult DecodeDds(Bytes,const DecodeOptions&);
+DecodeResult DecodeTga(Bytes,const DecodeOptions&);
 }
