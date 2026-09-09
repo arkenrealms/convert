@@ -3,7 +3,7 @@
 #include <string_view>
 
 namespace arken::image::v1 {
-enum class Format : std::uint32_t {pcx=1, cel=2, dc6=3, blp=4};
+enum class Format : std::uint32_t {pcx=1, cel=2, dc6=3, blp=4, dds=5, tga=6};
 struct DecodeOptions {
     std::uint32_t frameIndex=0, directionIndex=0, mipIndex=0;
     std::uint32_t celWidth=0, celFrameHeaderBytes=0;

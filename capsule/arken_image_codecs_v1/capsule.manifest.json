@@ -11,6 +11,8 @@
     "bounded_pcx_decode",
     "diablo_cel_dc6_sprite_decode",
     "external_palette_and_frame_selection",
-    "portable_image_decode"
+    "portable_image_decode",
+    "bounded_dds_bc1_bc2_bc3_rgb_authored_mip_decode",
+    "bounded_tga_truecolor_grayscale_rle_decode"
   ]
 }
