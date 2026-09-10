@@ -1,7 +1,7 @@
 {
   "name": "Arken Schema C++ V1",
   "key": "arken_schema_cpp_v1",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "public_dependencies": [
     "arken_schema_idl_v1",
     "arken_schema_core_v1"
@@ -46,6 +46,8 @@
     "generated_fabric_operation_descriptors",
     "generated_contract_fingerprints",
     "generated_operation_descriptors",
-    "typed_command_and_event_tokens"
+    "typed_command_and_event_tokens",
+    "generated_tool_json_command_catalog",
+    "generated_tool_json_cpp_codecs"
   ]
 }
