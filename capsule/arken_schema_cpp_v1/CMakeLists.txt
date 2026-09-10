@@ -44,6 +44,9 @@ target_include_directories(arken_schema_cpp_v1_runtime
 )
 target_compile_features(arken_schema_cpp_v1_runtime PUBLIC cxx_std_20)
 target_link_libraries(arken_schema_cpp_v1_runtime PUBLIC arken_schema_core_v1)
+add_library(arken_schema_cpp_v1_tool_json INTERFACE)
+target_link_libraries(arken_schema_cpp_v1_tool_json INTERFACE
+    arken_schema_cpp_v1_runtime ${ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET})
 
 if(ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET)
     target_link_libraries(arken_schema_cpp_v1_runtime
@@ -56,6 +59,8 @@ if(EMSCRIPTEN OR ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
     target_link_libraries(arken_schema_cpp_v1 INTERFACE arken_schema_cpp_v1_runtime)
 else()
     add_library(arken_schema_cpp_v1 STATIC
+        src/command_catalog.cpp
+        src/command_json_codegen.cpp
         src/generator.cpp
         src/generator_registry.cpp
         src/generator_wire_names.cpp
@@ -81,6 +86,12 @@ if(NOT EMSCRIPTEN AND NOT ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
             arken_schema_cpp_v1
             ${ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET}
     )
+endif()
+
+if(BUILD_TESTING AND TARGET arken-schema-cpp-v1-codegen)
+    add_test(NAME ArkenSchemaCppV1.CodegenVersion COMMAND arken-schema-cpp-v1-codegen --version --invalid)
+    set_tests_properties(ArkenSchemaCppV1.CodegenVersion PROPERTIES TIMEOUT 5
+        PASS_REGULAR_EXPRESSION "^arken-schema-cpp-v1-codegen r4315")
 endif()
 
 if(BUILD_TESTING AND NOT ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)

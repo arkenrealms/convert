@@ -15,7 +15,6 @@
     "ao_v1_container_read_write",
     "bounded_record_codec",
     "deterministic_fnv1a64",
-    "validated_chunk_directory",
-    "payload_free_container_layout"
+    "validated_chunk_directory"
   ]
 }
