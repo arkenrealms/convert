@@ -56,6 +56,7 @@ if(EMSCRIPTEN OR ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
     target_link_libraries(arken_schema_cpp_v1 INTERFACE arken_schema_cpp_v1_runtime)
 else()
     add_library(arken_schema_cpp_v1 STATIC
+        src/command_catalog.cpp
         src/generator.cpp
         src/generator_registry.cpp
         src/generator_wire_names.cpp
@@ -81,6 +82,12 @@ if(NOT EMSCRIPTEN AND NOT ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
             arken_schema_cpp_v1
             ${ARKEN_SCHEMA_CPP_V1_NLOHMANN_TARGET}
     )
+endif()
+
+if(BUILD_TESTING AND TARGET arken-schema-cpp-v1-codegen)
+    add_test(NAME ArkenSchemaCppV1.CodegenVersion COMMAND arken-schema-cpp-v1-codegen --version --invalid)
+    set_tests_properties(ArkenSchemaCppV1.CodegenVersion PROPERTIES TIMEOUT 5
+        PASS_REGULAR_EXPRESSION "^arken-schema-cpp-v1-codegen r4313")
 endif()
 
 if(BUILD_TESTING AND NOT ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
