@@ -6,7 +6,7 @@
   "public_dependencies": [],
   "private_dependencies": [],
   "test_dependencies": [],
-  "external_dependencies":[{"recipe":"stb-image-2.30-v1","scope":"private","components":["image"],"reason":"Pinned memory-only PNG/BMP/JPEG decoding and bounded deterministic raster encoding."}],
+  "external_dependencies":[{"recipe":"stb-image-2.30-v1","scope":"private","components":["image"],"reason":"Pinned memory-only PNG/BMP/JPEG decoding and bounded PNG/BMP/JPEG/TGA encoding."}],
   "capabilities": [
     "bounded_blp1_blp2_decode",
     "bounded_pcx_decode",
