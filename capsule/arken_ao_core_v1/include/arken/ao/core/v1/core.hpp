@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -93,6 +94,32 @@ struct ReadResult
     Container container;
 };
 
+// A layout owns only header/directory bytes, never container-sized payloads.
+struct ChunkDescriptor
+{
+    uint32_t type = 0u;
+    uint16_t version = 1u;
+    uint16_t flags = 0u;
+    uint32_t compression = kCompressionNone;
+    uint32_t encoding = kEncodingBytes;
+    uint32_t element_count = 0u;
+    uint32_t platform_mask = 0u;
+    uint64_t byte_length = 0u;
+    uint64_t hash64 = 0u;
+};
+struct ChunkPlacement { ChunkDescriptor chunk; uint64_t offset = 0u; };
+struct ContainerLayout
+{
+    Status status = Status::ok;
+    std::string message;
+    std::vector<uint8_t> directory_bytes;
+    std::vector<ChunkPlacement> chunks;
+    uint64_t byte_length = 0u;
+    explicit operator bool() const noexcept { return status == Status::ok; }
+};
+ContainerLayout plan_container(FileKind kind, std::span<ChunkDescriptor const> chunks,
+    uint64_t maximum_bytes, uint32_t flags = 0u) noexcept;
+uint64_t fnv1a64_update(uint64_t hash, std::span<uint8_t const> bytes) noexcept;
 uint64_t fnv1a64(uint8_t const* data, size_t size);
 std::string fourcc_to_string(uint32_t value);
 char const* status_name(Status status);
