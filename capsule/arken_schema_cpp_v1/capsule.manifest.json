@@ -46,6 +46,7 @@
     "generated_fabric_operation_descriptors",
     "generated_contract_fingerprints",
     "generated_operation_descriptors",
-    "typed_command_and_event_tokens"
+    "typed_command_and_event_tokens",
+    "generated_tool_json_command_catalog"
   ]
 }
