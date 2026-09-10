@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <limits>
+#include <stdexcept>
 #include <utility>
 
 namespace arken::ao::core::v1
@@ -65,26 +67,96 @@ ReadResult fail(Status status, std::string message)
     return result;
 }
 
-uint32_t chunk_index(std::vector<Chunk> const& chunks, uint32_t type)
+uint32_t chunk_index(std::vector<ChunkPlacement> const& chunks, uint32_t type)
 {
     for(size_t index = 0u; index < chunks.size(); index += 1u)
     {
-        if(chunks[index].type == type)
+        if(chunks[index].chunk.type == type)
             return static_cast<uint32_t>(index);
     }
     return UINT32_MAX;
+}
+
+std::vector<uint8_t> encode_directory(FileKind kind, std::vector<ChunkPlacement> const& chunks, uint32_t flags)
+{
+    std::vector<uint8_t> output(align16(kHeaderSize + chunks.size() * kChunkRecordSize), 0u);
+    write_u32(output, 0u, static_cast<uint32_t>(kind));
+    write_u16(output, 4u, kContainerVersion);
+    write_u16(output, 6u, kHeaderSize);
+    write_u32(output, 8u, kEndianMarker);
+    write_u32(output, 12u, flags);
+    write_u64(output, 16u, kHeaderSize);
+    write_u32(output, 24u, static_cast<uint32_t>(chunks.size()));
+    const std::array<uint32_t,5> system{fourcc('S','T','B','L'),fourcc('D','E','P','S'),fourcc('P','R','O','V'),fourcc('E','X','T','S'),fourcc('M','E','T','A')};
+    for(size_t i=0; i<system.size(); ++i) write_u32(output,32u+i*4u,chunk_index(chunks,system[i]));
+    write_u32(output, 52u, kHashFnv1a64);
+    uint64_t combined_hash = kFnvOffset;
+    for(size_t i=0; i<chunks.size(); ++i)
+    {
+        const auto& row=chunks[i];const auto& chunk=row.chunk;const auto record=kHeaderSize+i*kChunkRecordSize;
+        combined_hash=(combined_hash^chunk.hash64)*kFnvPrime;
+        write_u32(output,record,chunk.type);
+        write_u16(output,record+4u,chunk.version);
+        write_u16(output,record+6u,chunk.flags);
+        write_u32(output,record+8u,chunk.compression);
+        write_u32(output,record+12u,chunk.encoding);
+        write_u32(output,record+16u,chunk.element_count);
+        write_u64(output,record+24u,row.offset);
+        write_u64(output,record+32u,chunk.byte_length);
+        write_u64(output,record+40u,chunk.byte_length);
+        write_u64(output,record+48u,chunk.hash64);
+        write_u32(output,record+56u,chunk.platform_mask);
+    }
+    write_u64(output,56u,combined_hash);
+    return output;
 }
 }
 
 uint64_t fnv1a64(uint8_t const* data, size_t size)
 {
-    uint64_t value = kFnvOffset;
-    for(size_t index = 0u; index < size; index += 1u)
+    return fnv1a64_update(kFnvOffset,{data,size});
+}
+
+uint64_t fnv1a64_update(uint64_t hash, std::span<uint8_t const> bytes) noexcept
+{
+    for(auto byte:bytes) hash=(hash^byte)*kFnvPrime;
+    return hash;
+}
+
+ContainerLayout plan_container(FileKind kind, std::span<ChunkDescriptor const> chunks,
+    uint64_t maximum_bytes, uint32_t flags) noexcept
+{
+    ContainerLayout result;
+    try
     {
-        value ^= data[index];
-        value *= kFnvPrime;
+        if(chunks.size()>4096u) throw std::invalid_argument("Container directory exceeds 4096 chunks.");
+        for(auto const& chunk:chunks) result.chunks.push_back({chunk,0u});
+        std::sort(result.chunks.begin(),result.chunks.end(),[](auto const& a,auto const& b){return a.chunk.type<b.chunk.type;});
+        uint64_t offset=kHeaderSize+chunks.size()*kChunkRecordSize;
+        for(size_t i=0;i<result.chunks.size();++i)
+        {
+            auto& row=result.chunks[i];
+            if(i&&result.chunks[i-1].chunk.type==row.chunk.type) throw std::invalid_argument("Duplicate container chunk type.");
+            if(row.chunk.compression!=kCompressionNone) throw std::invalid_argument("Streaming layout requires uncompressed chunks.");
+            row.offset=offset;
+            if(row.chunk.byte_length>std::numeric_limits<uint64_t>::max()-offset) throw std::invalid_argument("Container length overflow.");
+            offset+=row.chunk.byte_length;
+            const auto padding=(16u-(offset&15u))&15u;
+            if(padding>std::numeric_limits<uint64_t>::max()-offset) throw std::invalid_argument("Container alignment overflow.");
+            offset+=padding;
+        }
+        if(offset>maximum_bytes) throw std::invalid_argument("Container exceeds output limit.");
+        result.byte_length=offset;result.directory_bytes=encode_directory(kind,result.chunks,flags);
     }
-    return value;
+    catch(std::bad_alloc const&)
+    {
+        result.status=Status::invalid_argument;result.message.clear();result.directory_bytes.clear();result.chunks.clear();result.byte_length=0;
+    }
+    catch(std::exception const& error)
+    {
+        result.status=Status::invalid_argument;result.message=error.what();result.directory_bytes.clear();result.chunks.clear();result.byte_length=0;
+    }
+    return result;
 }
 
 std::string fourcc_to_string(uint32_t value)
@@ -145,46 +217,21 @@ std::vector<uint8_t> write_container(FileKind kind, std::vector<Chunk> chunks, u
         payload_offset = align16(payload_offset + chunks[index].payload.size());
     }
 
-    std::vector<uint8_t> output(payload_offset, 0u);
-    write_u32(output, 0u, static_cast<uint32_t>(kind));
-    write_u16(output, 4u, kContainerVersion);
-    write_u16(output, 6u, kHeaderSize);
-    write_u32(output, 8u, kEndianMarker);
-    write_u32(output, 12u, flags);
-    write_u64(output, 16u, directory_offset);
-    write_u32(output, 24u, static_cast<uint32_t>(chunks.size()));
-    write_u32(output, 32u, chunk_index(chunks, fourcc('S', 'T', 'B', 'L')));
-    write_u32(output, 36u, chunk_index(chunks, fourcc('D', 'E', 'P', 'S')));
-    write_u32(output, 40u, chunk_index(chunks, fourcc('P', 'R', 'O', 'V')));
-    write_u32(output, 44u, chunk_index(chunks, fourcc('E', 'X', 'T', 'S')));
-    write_u32(output, 48u, chunk_index(chunks, fourcc('M', 'E', 'T', 'A')));
-    write_u32(output, 52u, kHashFnv1a64);
-
-    uint64_t combined_hash = kFnvOffset;
+    std::vector<ChunkPlacement> placements;
+    for(size_t index=0;index<chunks.size();++index)
+    {
+        auto const& c=chunks[index];
+        placements.push_back({{c.type,c.version,c.flags,c.compression,c.encoding,c.element_count,c.platform_mask,
+            c.payload.size(),fnv1a64(c.payload.data(),c.payload.size())},offsets[index]});
+    }
+    std::vector<uint8_t> output=encode_directory(kind,placements,flags);
+    output.resize(payload_offset,0u);
     for(size_t index = 0u; index < chunks.size(); index += 1u)
     {
         Chunk const& chunk = chunks[index];
-        size_t const record = directory_offset + (index * kChunkRecordSize);
-        uint64_t const chunk_hash = fnv1a64(chunk.payload.data(), chunk.payload.size());
-        combined_hash ^= chunk_hash;
-        combined_hash *= kFnvPrime;
-
-        write_u32(output, record + 0u, chunk.type);
-        write_u16(output, record + 4u, chunk.version);
-        write_u16(output, record + 6u, chunk.flags);
-        write_u32(output, record + 8u, chunk.compression);
-        write_u32(output, record + 12u, chunk.encoding);
-        write_u32(output, record + 16u, chunk.element_count);
-        write_u64(output, record + 24u, static_cast<uint64_t>(offsets[index]));
-        write_u64(output, record + 32u, static_cast<uint64_t>(chunk.payload.size()));
-        write_u64(output, record + 40u, static_cast<uint64_t>(chunk.payload.size()));
-        write_u64(output, record + 48u, chunk_hash);
-        write_u32(output, record + 56u, chunk.platform_mask);
-
         if(!chunk.payload.empty())
             std::memcpy(output.data() + offsets[index], chunk.payload.data(), chunk.payload.size());
     }
-    write_u64(output, 56u, combined_hash);
     return output;
 }
 
