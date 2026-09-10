@@ -21,7 +21,7 @@ void append(void* context,void* data,int count) noexcept {
 }
 EncodeResult EncodeImage(Format format,std::uint32_t width,std::uint32_t height,
     std::span<const std::uint8_t> rgba,const EncodeOptions& options) noexcept {
-    if(format!=Format::png&&format!=Format::bmp&&format!=Format::jpeg)return failure(EncodeError::unsupported_format);
+    if(format!=Format::png&&format!=Format::bmp&&format!=Format::jpeg&&format!=Format::tga)return failure(EncodeError::unsupported_format);
     if(!options.maximumOutputBytes||options.maximumOutputBytes>64ull*1024*1024
         ||!options.maximumPixels||options.maximumPixels>8ull*1024*1024
         ||!options.maximumDimension||options.maximumDimension>8192
@@ -37,6 +37,7 @@ EncodeResult EncodeImage(Format format,std::uint32_t width,std::uint32_t height,
         Output output{{},options.maximumOutputBytes};const auto w=int(width),h=int(height);int accepted=0;
         if(format==Format::png)accepted=stbi_write_png_to_func(append,&output,w,h,4,rgba.data(),w*4);
         else if(format==Format::bmp)accepted=stbi_write_bmp_to_func(append,&output,w,h,4,rgba.data());
+        else if(format==Format::tga)accepted=stbi_write_tga_to_func(append,&output,w,h,4,rgba.data());
         else {
             std::vector<std::uint8_t> rgb(static_cast<std::size_t>(pixels)*3);
             for(std::size_t i=0;i<pixels;++i)for(unsigned channel=0;channel<3;++channel){

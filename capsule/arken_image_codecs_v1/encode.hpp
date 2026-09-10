@@ -15,7 +15,7 @@ struct EncodeResult {
     std::vector<std::byte> bytes;
     explicit operator bool() const noexcept {return error==EncodeError::none;}
 };
-// Top-left, tightly packed, straight-alpha RGBA8; PNG/BMP preserve all channels.
+// Top-left, tightly packed, straight-alpha RGBA8; PNG/BMP/TGA preserve all channels.
 // JPEG transparency requires explicit white-matte consent. No I/O or metadata copy.
 [[nodiscard]] EncodeResult EncodeImage(Format,std::uint32_t width,std::uint32_t height,
     std::span<const std::uint8_t> rgba8,const EncodeOptions& options={}) noexcept;
