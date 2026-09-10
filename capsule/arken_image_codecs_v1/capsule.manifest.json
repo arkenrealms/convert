@@ -6,7 +6,7 @@
   "public_dependencies": [],
   "private_dependencies": [],
   "test_dependencies": [],
-  "external_dependencies":[{"recipe":"stb-image-2.30-v1","scope":"private","components":["image"],"reason":"Pinned memory-only scalar PNG/BMP/JPEG decoding; fixture encoding stays test-only."}],
+  "external_dependencies":[{"recipe":"stb-image-2.30-v1","scope":"private","components":["image"],"reason":"Pinned memory-only PNG/BMP/JPEG decoding and bounded deterministic PNG encoding."}],
   "capabilities": [
     "bounded_blp1_blp2_decode",
     "bounded_pcx_decode",
@@ -15,6 +15,7 @@
     "portable_image_decode",
     "bounded_dds_bc1_bc2_bc3_rgb_authored_mip_decode",
     "bounded_tga_truecolor_grayscale_rle_decode",
-    "bounded_png_bmp_jpeg_rgba8_decode"
+    "bounded_png_bmp_jpeg_rgba8_decode",
+    "bounded_deterministic_png_rgba8_encode"
   ]
 }
