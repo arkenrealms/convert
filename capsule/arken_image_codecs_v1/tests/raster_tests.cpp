@@ -6,6 +6,11 @@ void require(bool value,const char* message){if(!value)throw std::runtime_error(
 int main(int argc,char** argv){
     if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-raster-codec-tests-r4266\n";return 0;}
     try{
+        const auto pixels=raster_fixture::Pixels(32,16,true);auto encoded=image::EncodePng(32,16,pixels);
+        require(bool(encoded),"production PNG encode failed");
+        require(image::DecodeImage(image::Format::png,encoded.bytes).image.rgba8==pixels,"production PNG exact RGBA roundtrip");
+        require(image::EncodePng(32,16,pixels).bytes==encoded.bytes,"production PNG is not deterministic");
+        require(!image::EncodePng(32,15,pixels)&&!image::EncodePng(0,0,{})&&!image::EncodePng(8193,1,{}),"PNG encoder ignored bounds");
         for(auto format:{image::Format::png,image::Format::bmp,image::Format::jpeg}){
             auto bytes=raster_fixture::Encode(format,32,16);auto decoded=image::DecodeImage(format,bytes);
             require(bool(decoded)&&decoded.image.width==32&&decoded.image.height==16,"Raster decode failed");

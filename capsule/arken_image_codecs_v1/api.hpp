@@ -28,4 +28,12 @@ struct DecodeResult {
 [[nodiscard]] DecodeResult DecodeImage(Format format,std::span<const std::byte> bytes,
     const DecodeOptions& options={}) noexcept;
 [[nodiscard]] std::string_view ErrorMessage(DecodeError error) noexcept;
+struct PngEncodeResult {
+    std::vector<std::byte> bytes;
+    std::string_view error;
+    explicit operator bool() const noexcept {return error.empty();}
+};
+// Memory-only RGBA8 encoding; exact pixel extent, 8192 dimension / 8M pixel cap.
+[[nodiscard]] PngEncodeResult EncodePng(std::uint32_t width,std::uint32_t height,
+    std::span<const std::uint8_t> rgba) noexcept;
 }
