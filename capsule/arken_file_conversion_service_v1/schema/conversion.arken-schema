@@ -1,0 +1,56 @@
+edition 1;
+schema conversion v1;
+owner arken_file_conversion_service_v1;
+wire_type u32 @wire_type_id(4) { bit_width 32; fixed_size 4; byte_order big_endian; }
+wire_type utf8 @wire_type_id(12) { bit_width 0; fixed_size 0; byte_order none; }
+wire_type fixed_bytes @wire_type_id(14) { bit_width 0; fixed_size 0; byte_order none; }
+storage_codec sqlite_integer @storage_codec_id(1) { storage_class integer; fixed_size 0; exact true; order_preserving true; }
+storage_codec sqlite_text @storage_codec_id(3) { storage_class text; fixed_size 0; exact true; order_preserving true; }
+storage_codec sqlite_fixed_blob @storage_codec_id(5) { storage_class blob; fixed_size 0; exact true; order_preserving false; }
+semantic_type file_identifier @semantic_type_id(6) { kind fixed_id; wire fixed_bytes; storage sqlite_fixed_blob; fixed_size 32; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+semantic_type text_value @semantic_type_id(1) { kind text; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+semantic_type count @semantic_type_id(2) { kind u32; wire u32; storage sqlite_integer; fixed_size 4; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+enum input_kind @enum_id(1) { value dds @value_id(5); value tga @value_id(6); value png @value_id(7); value bmp @value_id(8); value jpeg @value_id(9); }
+enum output_kind @enum_id(2) { value tga @value_id(6); value png @value_id(7); value bmp @value_id(8); value jpeg @value_id(9); }
+enum alpha_kind @enum_id(3) { value preserve @value_id(1); value flatten_white @value_id(2); }
+semantic_type input_format @semantic_type_id(3) { kind enum; enum input_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+semantic_type output_format @semantic_type_id(4) { kind enum; enum output_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+semantic_type alpha_policy @semantic_type_id(5) { kind enum; enum alpha_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+model upload_request @type_id(1) {
+  field source_bytes: count @field_id(2) { immutable true; check minimum { kind minimum_integer; value "1"; } check maximum { kind maximum_integer; value "8388608"; } }
+  field input_format: input_format @field_id(3);
+  field output_format: output_format @field_id(4);
+  field jpeg_quality: count @field_id(5) @optional { check minimum { kind minimum_integer; value "1"; } check maximum { kind maximum_integer; value "100"; } }
+  field alpha_policy: alpha_policy @field_id(6) @optional;
+  key identity { kind primary; fields source_bytes; }
+}
+model file_target @type_id(2) {
+  field file_id: file_identifier @field_id(1) { immutable true; }
+  key identity { kind primary; fields file_id; }
+}
+model upload_result @type_id(3) {
+  field file_id: file_identifier @field_id(1) { immutable true; }
+  field upload_url: text_value @field_id(2);
+  field expires_at: text_value @field_id(3);
+  field maximum_source_bytes: count @field_id(4);
+  key identity { kind primary; fields file_id; }
+}
+model conversion_result @type_id(4) {
+  field file_id: file_identifier @field_id(1) { immutable true; }
+  field download_url: text_value @field_id(2);
+  field expires_at: text_value @field_id(3);
+  field width: count @field_id(4);
+  field height: count @field_id(5);
+  field output_bytes: count @field_id(6);
+  field sha256: text_value @field_id(7);
+  field media_type: text_value @field_id(8);
+  field alpha_disposition: text_value @field_id(9);
+  key identity { kind primary; fields file_id; }
+}
+model conversion_error @type_id(5) {
+  field code: text_value @field_id(1) { immutable true; }
+  field message: text_value @field_id(2);
+  key identity { kind primary; fields code; }
+}
+command prepare_upload @command_id(1) { request upload_request; response upload_result; errors conversion_error; idempotency none; streaming unary; targets cpp; }
+command convert_image @command_id(2) { request file_target; response conversion_result; errors conversion_error; idempotency idempotent; streaming unary; targets cpp; }
