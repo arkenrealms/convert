@@ -129,7 +129,7 @@ Json Fixture(){
 }
 }
 int main(int argc,char** argv){
-  if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-x402-tests r4340\n";return 0;}
+  if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-x402-tests r4341\n";return 0;}
   try{const bool probe=argc==3&&std::string_view(argv[1])=="--probe-rejection";const bool write=argc==3&&std::string_view(argv[1])=="--write-fixtures";
     Check(argc==1||probe||write,"arguments");const auto fixture=Fixture();
     if(write){const std::filesystem::path root(argv[2]);std::filesystem::create_directories(root);std::ofstream out(root/"x402-fixtures.json");out<<Json{{"fixture",fixture},{"vectors",vectors},{"paidVectors",paidVectors}}.dump();Check(bool(out),"fixture write");}

@@ -12,7 +12,9 @@ class FacilitatorResponseError extends Error {
 export async function sendFacilitator(request,{fetcher=(url,options)=>fetch(url,options)}={}) {
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
   try {
-    const response=await fetcher(request.url,{method:'POST',headers:{'content-type':'application/json'},body:request.body,redirect:'error',signal:controller.signal});
+    // Workers supports manual/follow, not Fetch's error mode. Returning the 3xx
+    // response lets C++ reject it without sending authorization to another URL.
+    const response=await fetcher(request.url,{method:'POST',headers:{'content-type':'application/json'},body:request.body,redirect:'manual',signal:controller.signal});
     try {
     if(!response.body)return {status:response.status,body:''};
     const reader=response.body.getReader();let bytes=0;const parts=[];
