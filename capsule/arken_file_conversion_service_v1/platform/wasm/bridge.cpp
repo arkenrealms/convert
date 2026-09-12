@@ -4,6 +4,7 @@
 #include "arken_file_conversion_service_v1/paid_conversion.hpp"
 #include "arken_file_conversion_service_v1/settlement_reconciliation.hpp"
 #include "arken_file_conversion_service_v1/public_admission.hpp"
+#include "arken_file_conversion_service_v1/provider_signing.hpp"
 #include <cstdint>
 #include <string>
 #define EXPORT __attribute__((used,visibility("default")))
@@ -21,6 +22,11 @@ extern "C" EXPORT void arken_mcp_paid_plan() noexcept {output=arken::file_conver
 extern "C" EXPORT void arken_paid_conversion_packet() noexcept {output=arken::file_conversion::service::v1::payment::PaidConversionPacket(input);}
 extern "C" EXPORT void arken_settlement_reconciliation_packet() noexcept {output=arken::file_conversion::service::v1::payment::SettlementReconciliationPacket(input);}
 extern "C" EXPORT void arken_public_admission_packet() noexcept {output=arken::file_conversion::service::v1::PublicAdmissionPacket(input);}
+extern "C" EXPORT void arken_cdp_provider_packet() noexcept {output=arken::file_conversion::service::v1::payment::CdpProviderPacket(input);}
+// Erases the explicit ABI scratch, not allocator copies or JS secret strings.
+extern "C" EXPORT void arken_mcp_clear() noexcept {
+    for(auto* text:{&input,&output}){volatile char* p=text->data();for(std::size_t i=0;i<text->size();++i)p[i]=0;text->clear();}
+}
 extern "C" EXPORT void arken_payment_advance() noexcept {output=arken::file_conversion::service::v1::payment::AdvancePacket(input);}
 extern "C" EXPORT void arken_payment_storage_lookup() noexcept {output=arken::file_conversion::service::v1::payment::StorageLookupPacket(input);}
 extern "C" EXPORT void arken_payment_storage_advance() noexcept {output=arken::file_conversion::service::v1::payment::StorageAdvancePacket(input);}

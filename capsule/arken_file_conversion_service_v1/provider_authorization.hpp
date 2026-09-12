@@ -5,6 +5,9 @@
 #include <string_view>
 namespace arken::file_conversion::service::v1::payment {
 enum class CdpOperation {supported,verify,settle};
+struct CdpEndpoint {std::string method,url;};
+std::optional<CdpEndpoint> CdpEndpointFor(CdpOperation) noexcept;
+std::optional<CdpOperation> CdpOperationFor(std::string_view method,std::string_view url) noexcept;
 struct CdpRequestAuthorization {
     std::string method,url,headerJson,claimsJson;
 };

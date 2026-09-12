@@ -5,6 +5,7 @@ export {recoveryPayments} from './payment_recovery_actor_tests.js';
 export {reconciliationVectors} from './settlement_chain_fixture.js';
 export {publicAdmission} from './public_admission_actor_tests.js';
 export {publicHttp} from './public_http_tests.js';
+export {cdpAuthorization} from './cdp_authorization_tests.js';
 import {commitPublicReservation} from './public_admission.js';
 import {ConversionPaymentLedger,commitPaymentTransition,commitPaymentDispatch,paymentLedger} from './payment_ledger.js';
 import {paymentStorageLookup} from './runtime.js';
