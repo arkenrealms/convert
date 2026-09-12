@@ -1,7 +1,9 @@
 import fixtureText from './payment-actor-fixtures.json';
 export {x402Integration} from './x402_actor_tests.js';
 export {paidHttp} from './paid_http_tests.js';
-import {ConversionPaymentLedger,commitPaymentTransition,paymentLedger} from './payment_ledger.js';
+export {recoveryPayments} from './payment_recovery_actor_tests.js';
+import {ConversionPaymentLedger,commitPaymentTransition,commitPaymentDispatch,paymentLedger} from './payment_ledger.js';
+import {paymentStorageLookup} from './runtime.js';
 
 const fixtures=JSON.parse(fixtureText),s=fixtures.scenarios,c=fixtures.constants;
 const check=(value,label)=>{if(!value)throw Error(label);};
@@ -21,6 +23,13 @@ export class Ledger extends ConversionPaymentLedger {
     check(plan.decision.error===0&&plan.decision.changed&&plan.writes.length===2,'rollback point was not after both admitted writes');
     throw Error('injected precommit failure');});}
   async loseReply(command){await super.transition(command);throw Error('injected reply loss after commit');}
+  async rollbackDispatch(command,decision){return commitPaymentDispatch(this.ctx.storage,command,decision,plan=>{
+    check(plan.claimed&&plan.attemptKey&&plan.attemptValue,'dispatch rollback did not cover both writes');throw Error('injected dispatch rollback');});}
+  async removeAttempt(command){
+    const initial=paymentStorageLookup(JSON.stringify({command,record:null}));
+    const record=await this.ctx.storage.get(initial.operationKey);
+    const keys=paymentStorageLookup(JSON.stringify({command,record}));await this.ctx.storage.delete(keys.attemptKey);await this.ctx.storage.sync();
+  }
   async loseSyncObservation(command){
     const storage=this.ctx.storage;
     return commitPaymentTransition({transaction:fn=>storage.transaction(fn),sync:async()=>{

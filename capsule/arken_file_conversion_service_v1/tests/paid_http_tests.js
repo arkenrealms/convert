@@ -15,10 +15,11 @@ export const paidHttp={async test(_controller,bindings){
   check(health.displayName==='Arken Convert'&&health.mode==='x402-sandbox'&&health.charging===false,'sandbox entrypoint identity');
   const env={ACCESS_TOKEN:token,FILES:new Bucket(),PAYMENT_LEDGER:bindings.LEDGER,RELEASE_ID:'07'.repeat(32)};
   let now=Math.floor(Date.now()/1000),verifies=0,settles=0,reject=false,lose=false,replaceRelease=false,corruptAfterVerifyId=null;
+  let beforeVerify=null;
   const adapter=createPaidConversion({clock:()=>String(now),send:async message=>{
     const sent=JSON.parse(message.body),payer=sent.paymentPayload.payload.authorization.from;
     if(message.url.endsWith('/verify')){
-      verifies++;if(replaceRelease)env.RELEASE_ID='08'.repeat(32);
+      verifies++;if(beforeVerify){const before=beforeVerify;beforeVerify=null;await before();}if(replaceRelease)env.RELEASE_ID='08'.repeat(32);
       if(corruptAfterVerifyId){const key=[...env.FILES.values.keys()].find(k=>k.includes(corruptAfterVerifyId)&&k.endsWith('/input'));env.FILES.values.get(key).bytes[2]=0;}
       return {status:200,body:JSON.stringify({isValid:!reject,payer})};
     }
@@ -118,5 +119,31 @@ export const paidHttp={async test(_controller,bindings){
     const outcome=paidConversionPacket(JSON.stringify({kind:'bind',quote,payment:null,binding:JSON.stringify(bindingRecord),now:String(now)}));
     check(outcome.result?.isError,'immutable quote field changed');
   }
-  console.log('Paid HTTP acceptance: real C++ PNG, private pre-settlement download, one settlement, output acknowledgement recovery, wrong payer/price/input/options/release rejection. R2/facilitator are fixtures.');
+  const gate=()=>{let enter,resume;const entered=new Promise(r=>{enter=r;}),released=new Promise(r=>{resume=r;});return {entered,resume,wait:()=>{enter();return released;}};};
+  const peerCall=async fileId=>(await peer.fetch(request('tools/call',{name:'conversion.v1.convert_image',arguments:{file_id:fileId}}),env)).json();
+  const stalled=await upload(),stalledPayment=await challenge(stalled),verifyGate=gate();beforeVerify=verifyGate.wait;
+  const v0=verifies,s0=settles,delayed=call('conversion.v1.convert_image',{file_id:stalled.file_id},stalledPayment);
+  await verifyGate.entered;
+  check((await peerCall(stalled.file_id)).result.structuredContent.code==='operation_pending'&&verifies===v0+1,'active verify repeated');
+  now+=35;
+  const resumedVerify=await peerCall(stalled.file_id);check(resumedVerify.result._meta?.['x402/payment-response']?.success&&verifies===v0+2&&settles===s0+1,'elapsed verify failed recovery');
+  verifyGate.resume();const lateVerify=await delayed;
+  check(JSON.stringify(lateVerify.result)===JSON.stringify(resumedVerify.result)&&settles===s0+1,'late verification changed settled result');
+
+  const compute=await upload(),computePayment=await challenge(compute),computeGate=gate(),o0=env.FILES.outputWrites,s1=settles;
+  env.FILES.beforeOutput=async(value,options)=>{await computeGate.wait();value[0]=0;options.customMetadata.receipt='invalid late candidate';};
+  const delayedCompute=call('conversion.v1.convert_image',{file_id:compute.file_id},computePayment);await computeGate.entered;
+  check((await peerCall(compute.file_id)).result.structuredContent.code==='operation_pending'&&env.FILES.outputWrites===o0,'active compute repeated');
+  now+=30;
+  const resumedCompute=await peerCall(compute.file_id);check(resumedCompute.result._meta?.['x402/payment-response']?.success&&env.FILES.outputWrites===o0+1&&settles===s1+1,'elapsed compute failed recovery');
+  computeGate.resume();const lateCompute=await delayedCompute;
+  check(JSON.stringify(lateCompute.result)===JSON.stringify(resumedCompute.result)&&env.FILES.outputWrites===o0+1&&settles===s1+1,'late compute overwrote winner or charged again');
+  const retainedBytes=new Uint8Array(await (await app.fetch(new Request(resumedCompute.result.structuredContent.download_url),env)).arrayBuffer());
+  check(retainedBytes[0]===137&&hex(await crypto.subtle.digest('SHA-256',retainedBytes))===resumedCompute.result.structuredContent.sha256,'late candidate replaced authoritative bytes');
+
+  const expired=await upload(),expiredPayment=await challenge(expired),expiryGate=gate(),s2=settles;beforeVerify=expiryGate.wait;
+  const delayedExpired=call('conversion.v1.convert_image',{file_id:expired.file_id},expiredPayment);await expiryGate.entered;now+=50;
+  check((await peerCall(expired.file_id)).result.structuredContent.code==='conversion_failed_no_charge'&&settles===s2,'expiry not a durable no-charge outcome');
+  expiryGate.resume();check((await delayedExpired).result.structuredContent.code==='conversion_failed_no_charge'&&settles===s2,'late expired callback reopened operation');
+  console.log('Paid HTTP acceptance: real C++ PNG, bounded verify/compute recovery, immutable output, late callbacks, expiry, one settlement, private download and identity rejections. R2/facilitator are fixtures.');
 }};

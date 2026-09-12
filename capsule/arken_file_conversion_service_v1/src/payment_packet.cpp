@@ -36,7 +36,7 @@ template<> Operation Get<Operation>(const Json& j){Fields(j,{"quote","revision",
 Json Put(const Event& e){return {{"kind",unsigned(e.kind)},{"expectedRevision",J::writeScalar(e.expectedRevision)},{"now",J::writeScalar(e.now)},
   {"authorization",Put(e.authorization)},{"output",Put(e.output)},{"transfer",Put(e.transfer)},{"verifiedPayer",Put(e.verifiedPayer)},{"executingRelease",Put(e.executingRelease)},{"failure",unsigned(e.failure)}};}
 template<> Event Get<Event>(const Json& j){Fields(j,{"kind","expectedRevision","now","authorization","output","transfer","verifiedPayer","executingRelease","failure"});
-  return {Enum(j.at("kind"),EventKind::inspect),J::readScalar<std::uint64_t>(j.at("expectedRevision")),J::readScalar<std::uint64_t>(j.at("now")),Optional<Authorization>(j.at("authorization")),Optional<Output>(j.at("output")),Optional<Transfer>(j.at("transfer")),Bytes<20>(j.at("verifiedPayer")),Bytes<32>(j.at("executingRelease")),Enum(j.at("failure"),Failure::settlementRejected)};}
+  return {Enum(j.at("kind"),EventKind::retryConversion),J::readScalar<std::uint64_t>(j.at("expectedRevision")),J::readScalar<std::uint64_t>(j.at("now")),Optional<Authorization>(j.at("authorization")),Optional<Output>(j.at("output")),Optional<Transfer>(j.at("transfer")),Bytes<20>(j.at("verifiedPayer")),Bytes<32>(j.at("executingRelease")),Enum(j.at("failure"),Failure::settlementRejected)};}
 Json Parse(std::string_view text){
   J::require(text.size()<=16384,"packet byte limit");std::vector<std::set<std::string>> keys;
   return Json::parse(text.begin(),text.end(),[&](int depth,Json::parse_event_t event,Json& value){
@@ -67,6 +67,8 @@ Json Keys(const StoredInput& input){
   const auto& q=input.quote;const auto auth=input.operation.authorization?input.operation.authorization:input.event.authorization;
   const auto actor=std::to_string(q.scope.chain)+"/"+Put(q.scope.asset).get<std::string>()+"/"+Put(q.scope.payer).get<std::string>();
   return {{"scopeKey","scope"},{"actorKey",actor},{"operationKey","operation/"+Put(q.operation).get<std::string>()},
+    {"dispatchKey","dispatch/"+Put(q.operation).get<std::string>()+"/"+std::to_string(input.operation.revision)},
+    {"attemptKey","attempt/"+Put(q.operation).get<std::string>()+"/"+std::to_string(input.operation.revision)},
     {"nonceKey",auth?Json("nonce/"+Put(auth->nonce).get<std::string>()):Json(nullptr)},
     {"authorizationKey","authorization/"+Put(q.operation).get<std::string>()}};
 }
@@ -137,8 +139,41 @@ std::string StorageDispatchPacket(std::string_view text) noexcept {
     const auto value=Json{{"version",1},{"action",unsigned(action)},{"revision",J::writeScalar(requested.revision)}}.dump();
     if(requested!=input.operation)return Json{{"key",key},{"claimed",false}}.dump();
     if(!outer.at("dispatch").is_null()){J::require(J::readScalar<std::string>(outer.at("dispatch"))==value,"dispatch marker mismatch");return Json{{"key",key},{"claimed",false}}.dump();}
-    return Json{{"key",key},{"value",value},{"claimed",true}}.dump();
+    Json result={{"key",key},{"value",value},{"claimed",true}};
+    if(action==Action::verify||action==Action::convert){
+      result["attemptKey"]=Keys(input).at("attemptKey");
+      result["attemptValue"]=Json{{"version",1},{"action",unsigned(action)},{"revision",J::writeScalar(requested.revision)},
+        {"deadline",J::writeScalar(AttemptDeadline(requested,input.event.now))}}.dump();
+    }
+    return result.dump();
   }catch(const std::exception&){return "{\"packetError\":\"invalid_payment_dispatch\"}";}
   catch(...){return "{\"packetError\":\"payment_dispatch_unavailable\"}";}
+}
+std::string StorageRecoveryPacket(std::string_view text) noexcept {
+  try{
+    const auto outer=Parse(text);Fields(outer,{"command","record","scope","claim","dispatch","attempt"});const auto input=Stored(outer);
+    J::require(input.event.kind==EventKind::inspect&&!outer.at("record").is_null()&&!outer.at("scope").is_null(),"recovery record missing");
+    J::require(Get<Scope>(Parse(J::readScalar<std::string>(outer.at("scope"))))==input.quote.scope,"recovery scope changed");
+    std::optional<NonceClaim> claim;
+    if(!outer.at("claim").is_null()){const auto value=Parse(J::readScalar<std::string>(outer.at("claim")));Fields(value,{"version","claim"});Version(value);claim=Get<NonceClaim>(value.at("claim"));}
+    Attempt attempt;attempt.dispatched=!outer.at("dispatch").is_null();
+    const auto stage=input.operation.stage;
+    const auto action=stage==Stage::verifying?Action::verify:stage==Stage::computing?Action::convert:Action::settle;
+    if(attempt.dispatched){const auto marker=Parse(J::readScalar<std::string>(outer.at("dispatch")));Fields(marker,{"version","action","revision"});Version(marker);
+      J::require((stage==Stage::verifying||stage==Stage::computing||stage==Stage::settling)&&Enum(marker.at("action"),Action::failure)==action
+        &&J::readScalar<std::uint64_t>(marker.at("revision"))==input.operation.revision,"recovery marker changed");}
+    if(!outer.at("attempt").is_null()){
+      const auto value=Parse(J::readScalar<std::string>(outer.at("attempt")));Fields(value,{"version","action","revision","deadline"});Version(value);
+      J::require((stage==Stage::verifying||stage==Stage::computing)&&Enum(value.at("action"),Action::failure)==action
+        &&J::readScalar<std::uint64_t>(value.at("revision"))==input.operation.revision,"recovery attempt changed");
+      attempt.deadline=J::readScalar<std::uint64_t>(value.at("deadline"));
+    }
+    const auto recovered=Recover(input.operation,claim,input.event,attempt);const auto keys=Keys(input);auto writes=Json::array();
+    if(recovered.decision.changed)writes.push_back({{"key",keys.at("operationKey")},{"value",Json{{"version",1},{"operation",Put(recovered.decision.operation)}}.dump()}});
+    if(recovered.observationDeadline)writes.push_back({{"key",keys.at("attemptKey")},{"value",Json{{"version",1},{"action",unsigned(action)},
+      {"revision",J::writeScalar(input.operation.revision)},{"deadline",J::writeScalar(*recovered.observationDeadline)}}.dump()}});
+    return Json{{"decision",Json::parse(DecisionPacket(recovered.decision))},{"writes",writes}}.dump();
+  }catch(const std::exception&){return "{\"packetError\":\"invalid_payment_recovery\"}";}
+  catch(...){return "{\"packetError\":\"payment_recovery_unavailable\"}";}
 }
 }

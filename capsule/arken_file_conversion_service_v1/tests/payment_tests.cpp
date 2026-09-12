@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string_view>
 namespace P=arken::file_conversion::service::v1::payment;
+unsigned PaymentRecoveryTests();
 namespace {
 unsigned checks=0;
 auto packets=nlohmann::json::array();
@@ -129,6 +130,10 @@ Json ActorFixtures(){
   fixtures["scenarios"]["rollbackReuse"]=ActorScenario(4,8,9);
   fixtures["scenarios"]["lostOutput"]=ActorScenario(5,9,3);
   fixtures["scenarios"]["lostSync"]=ActorScenario(6,10,4);
+  fixtures["scenarios"]["recoverVerify"]=ActorScenario(7,31,7);
+  fixtures["scenarios"]["recoverCompute"]=ActorScenario(8,32,8);
+  fixtures["scenarios"]["recoverAbsent"]=ActorScenario(9,33,9);
+  fixtures["scenarios"]["recoverLegacy"]=ActorScenario(10,34,10);
   // Exercise the exact opaque storage codec with an in-memory native oracle.
   // Real transactional persistence is separately proved by workerd actors.
   std::map<std::string,std::string> values;
@@ -153,8 +158,8 @@ Json ActorFixtures(){
   return fixtures;
 }
 }
-int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-payment-tests r4341\n";return 0;}
-  try{Check(argc==1||(argc==3&&std::string_view(argv[1])=="--write-fixtures"),"invalid arguments");Tests();const auto actors=ActorFixtures();
+int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-payment-tests r4343\n";return 0;}
+  try{Check(argc==1||(argc==3&&std::string_view(argv[1])=="--write-fixtures"),"invalid arguments");Tests();checks+=PaymentRecoveryTests();const auto actors=ActorFixtures();
     if(argc==3){const std::filesystem::path dir(argv[2]);std::filesystem::create_directories(dir);
       std::ofstream out(dir/"payment-packets.json",std::ios::binary);out<<packets.dump();Check(bool(out),"packet fixture write failed");
       std::ofstream actorOut(dir/"payment-actor-fixtures.json",std::ios::binary);actorOut<<actors.dump();Check(bool(actorOut),"actor fixture write failed");}

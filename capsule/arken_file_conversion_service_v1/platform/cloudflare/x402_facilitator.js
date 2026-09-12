@@ -48,8 +48,3 @@ export async function admitPayment(namespace,quote,payment,options={}) {
   const decision=await ledger.transition(prepared.command);
   return executePaymentEffect(ledger,decision,options);
 }
-
-export async function retryPaymentVerification(ledger,operation,options={}) {
-  const command=packet({kind:'control',operation,event:'retryVerification',now:(options.clock||clockSeconds)(),release:noRelease}).command;
-  return executePaymentEffect(ledger,await ledger.transition(command),options);
-}
