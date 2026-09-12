@@ -1,4 +1,5 @@
 import fixtureText from './payment-actor-fixtures.json';
+export {x402Integration} from './x402_actor_tests.js';
 import {ConversionPaymentLedger,commitPaymentTransition,paymentLedger} from './payment_ledger.js';
 
 const fixtures=JSON.parse(fixtureText),s=fixtures.scenarios,c=fixtures.constants;

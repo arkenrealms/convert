@@ -82,4 +82,5 @@ struct Decision {
 // claim, and confirms persistence BEFORE dispatching the returned action.
 [[nodiscard]] Decision Advance(const Operation&,const Quote& observedQuote,
   const std::optional<NonceClaim>& existingClaim,const Event&) noexcept;
+[[nodiscard]] bool ValidOperationRecord(const Operation&) noexcept;
 }

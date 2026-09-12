@@ -34,6 +34,7 @@ bool RecordValid(const Operation& op){
   return true;
 }
 }
+bool ValidOperationRecord(const Operation& op) noexcept{return RecordValid(op);}
 Decision Advance(const Operation& original,const Quote& observed,const std::optional<NonceClaim>& claim,const Event& event) noexcept {
   Decision result{.operation=original,.nonceClaim=claim};
   const auto reject=[&](Error error){result.error=error;result.action=Action::none;result.changed=false;result.operation=original;result.nonceClaim=claim;return result;};

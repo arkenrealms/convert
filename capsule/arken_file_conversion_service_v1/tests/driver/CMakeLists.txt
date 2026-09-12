@@ -8,6 +8,7 @@ file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/workerd-path.txt" CONTENT "${
 set(CONVERSION_WASM "" CACHE FILEPATH "Exact qualified conversion service module")
 set(CONVERSION_PAYMENT_PACKETS "" CACHE FILEPATH "Native arken-conversion-payment-tests --write-fixtures payment-packets.json output")
 set(CONVERSION_PAYMENT_ACTORS "" CACHE FILEPATH "Native payment-actor-fixtures.json output")
+set(CONVERSION_X402_FIXTURES "" CACHE FILEPATH "Native x402-fixtures.json output")
 if(CONVERSION_WASM)
     if(NOT EXISTS "${CONVERSION_WASM}")
         message(FATAL_ERROR "CONVERSION_WASM does not exist")
@@ -26,9 +27,13 @@ if(CONVERSION_WASM)
         if(NOT EXISTS "${CONVERSION_PAYMENT_ACTORS}")
             message(FATAL_ERROR "CONVERSION_PAYMENT_ACTORS does not exist")
         endif()
+        if(NOT EXISTS "${CONVERSION_X402_FIXTURES}")
+            message(FATAL_ERROR "Generate CONVERSION_X402_FIXTURES with arken-conversion-x402-tests first")
+        endif()
         add_test(NAME FileConversionWorker.DurablePayments COMMAND "${CMAKE_COMMAND}"
             "-DWASM=${CONVERSION_WASM}" "-DWORKERD=${workerd}"
             "-DACTOR_FIXTURES=${CONVERSION_PAYMENT_ACTORS}" "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/actor-proof"
+            "-DX402_FIXTURES=${CONVERSION_X402_FIXTURES}"
             -P "${CMAKE_CURRENT_LIST_DIR}/../run_payment_actors.cmake")
         set_tests_properties(FileConversionWorker.DurablePayments PROPERTIES TIMEOUT 60)
     endif()

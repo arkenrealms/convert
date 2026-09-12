@@ -13,6 +13,8 @@ export function advancePayment(text) {
 }
 export function paymentStorageLookup(text) {return invokePacket(text,api.arken_payment_storage_lookup);}
 export function paymentStorageAdvance(text) {return invokePacket(text,api.arken_payment_storage_advance);}
+export function x402Packet(text) {return invokePacket(text,api.arken_x402_packet);}
+export function paymentStorageDispatch(text) {return invokePacket(text,api.arken_payment_storage_dispatch);}
 function invokePacket(text,invoke) {
   const bytes=encoder.encode(text);
   const pointer=api.arken_mcp_prepare(bytes.length);
