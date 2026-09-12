@@ -1,4 +1,5 @@
 import worker from './worker.js';
+export {payments} from './payment_worker_tests.js';
 const token='test-only-access-token-at-least-32-characters';
 const check=(value,message)=>{if(!value)throw Error(message);};
 // Storage is a fixture; C++ conversion and the Worker runtime are real.

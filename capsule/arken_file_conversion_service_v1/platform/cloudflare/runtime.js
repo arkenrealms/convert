@@ -5,11 +5,18 @@ const api=instance.exports;
 api._initialize();
 const encoder=new TextEncoder(), decoder=new TextDecoder();
 export function planRequest(text) {
+  return invokePacket(text,api.arken_mcp_plan);
+}
+// Private actor/storage integration only; this is not exposed as an MCP tool.
+export function advancePayment(text) {
+  return invokePacket(text,api.arken_payment_advance);
+}
+function invokePacket(text,invoke) {
   const bytes=encoder.encode(text);
   const pointer=api.arken_mcp_prepare(bytes.length);
   if(!pointer)throw Error('request_limit');
   new Uint8Array(api.memory.buffer,pointer,bytes.length).set(bytes);
-  api.arken_mcp_plan();
+  invoke();
   return JSON.parse(decoder.decode(new Uint8Array(api.memory.buffer,api.arken_mcp_output(),api.arken_mcp_output_size())));
 }
 export function convertImage(bytes,codec) {
