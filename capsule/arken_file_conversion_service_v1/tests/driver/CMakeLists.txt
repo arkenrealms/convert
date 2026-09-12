@@ -6,7 +6,8 @@ arken_resolve_external_packages(ROOT_MANIFEST "${CMAKE_CURRENT_LIST_DIR}/lib.man
 get_target_property(workerd arken::external_workerd_v1 IMPORTED_LOCATION)
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/workerd-path.txt" CONTENT "${workerd}\n" @ONLY)
 set(CONVERSION_WASM "" CACHE FILEPATH "Exact qualified conversion service module")
-set(CONVERSION_PAYMENT_PACKETS "" CACHE FILEPATH "Native arken-conversion-payment-tests --write-packets output")
+set(CONVERSION_PAYMENT_PACKETS "" CACHE FILEPATH "Native arken-conversion-payment-tests --write-fixtures payment-packets.json output")
+set(CONVERSION_PAYMENT_ACTORS "" CACHE FILEPATH "Native payment-actor-fixtures.json output")
 if(CONVERSION_WASM)
     if(NOT EXISTS "${CONVERSION_WASM}")
         message(FATAL_ERROR "CONVERSION_WASM does not exist")
@@ -21,4 +22,14 @@ if(CONVERSION_WASM)
         "-DPAYMENT_PACKETS=${CONVERSION_PAYMENT_PACKETS}"
         -P "${CMAKE_CURRENT_LIST_DIR}/../run_workerd.cmake")
     set_tests_properties(FileConversionWorker.Protocol PROPERTIES TIMEOUT 30)
+    if(CONVERSION_PAYMENT_ACTORS)
+        if(NOT EXISTS "${CONVERSION_PAYMENT_ACTORS}")
+            message(FATAL_ERROR "CONVERSION_PAYMENT_ACTORS does not exist")
+        endif()
+        add_test(NAME FileConversionWorker.DurablePayments COMMAND "${CMAKE_COMMAND}"
+            "-DWASM=${CONVERSION_WASM}" "-DWORKERD=${workerd}"
+            "-DACTOR_FIXTURES=${CONVERSION_PAYMENT_ACTORS}" "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/actor-proof"
+            -P "${CMAKE_CURRENT_LIST_DIR}/../run_payment_actors.cmake")
+        set_tests_properties(FileConversionWorker.DurablePayments PROPERTIES TIMEOUT 60)
+    endif()
 endif()

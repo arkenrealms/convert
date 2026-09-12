@@ -10,6 +10,8 @@ extern "C" EXPORT char* arken_mcp_prepare(std::uint32_t bytes) noexcept {
     catch(...){return nullptr;}
 }
 extern "C" EXPORT void arken_mcp_plan() noexcept {output=arken::file_conversion::service::v1::PlanRequest(input);}
-extern "C" EXPORT void arken_payment_advance() noexcept {output=arken::file_conversion::service::payment::AdvancePacket(input);}
+extern "C" EXPORT void arken_payment_advance() noexcept {output=arken::file_conversion::service::v1::payment::AdvancePacket(input);}
+extern "C" EXPORT void arken_payment_storage_lookup() noexcept {output=arken::file_conversion::service::v1::payment::StorageLookupPacket(input);}
+extern "C" EXPORT void arken_payment_storage_advance() noexcept {output=arken::file_conversion::service::v1::payment::StorageAdvancePacket(input);}
 extern "C" EXPORT const char* arken_mcp_output() noexcept{return output.data();}
 extern "C" EXPORT std::uint32_t arken_mcp_output_size() noexcept{return static_cast<std::uint32_t>(output.size());}

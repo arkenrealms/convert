@@ -11,6 +11,8 @@ export function planRequest(text) {
 export function advancePayment(text) {
   return invokePacket(text,api.arken_payment_advance);
 }
+export function paymentStorageLookup(text) {return invokePacket(text,api.arken_payment_storage_lookup);}
+export function paymentStorageAdvance(text) {return invokePacket(text,api.arken_payment_storage_advance);}
 function invokePacket(text,invoke) {
   const bytes=encoder.encode(text);
   const pointer=api.arken_mcp_prepare(bytes.length);

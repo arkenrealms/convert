@@ -2,7 +2,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
-namespace arken::file_conversion::service::payment {
+namespace arken::file_conversion::service::v1::payment {
 using Digest=std::array<std::uint8_t,32>;
 using Address=std::array<std::uint8_t,20>;
 struct Scope {
@@ -55,7 +55,7 @@ enum class EventKind : std::uint8_t {
   request,retryVerification,verificationPassed,verificationRejected,
   beginConversion,outputCommitted,failBeforeSettlement,beginSettlement,
   settlementSucceeded,settlementRejected,settlementUncertain,
-  reconciledSucceeded,reconciledFailed
+  reconciledSucceeded,reconciledFailed,inspect
 };
 // Events reporting verification or transfer success are trusted adapter inputs,
 // never public client assertions. This policy does not verify signatures.

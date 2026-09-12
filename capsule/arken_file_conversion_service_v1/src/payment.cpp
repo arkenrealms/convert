@@ -2,7 +2,7 @@
 #include "arken_file_conversion_v1/api.hpp"
 #include <algorithm>
 #include <limits>
-namespace arken::file_conversion::service::payment {
+namespace arken::file_conversion::service::v1::payment {
 namespace {
 bool HasClaim(Stage stage){return stage==Stage::authorized||stage==Stage::computing||stage==Stage::outputReady||stage==Stage::settling||stage==Stage::settlementUnknown||stage==Stage::settled||stage==Stage::settlementFailed;}
 bool HasOutput(Stage stage){return stage==Stage::outputReady||stage==Stage::settling||stage==Stage::settlementUnknown||stage==Stage::settled||stage==Stage::settlementFailed;}
@@ -51,6 +51,8 @@ Decision Advance(const Operation& original,const Quote& observed,const std::opti
     result.operation.stage=stage;result.operation.revision=original.revision+1;result.action=action;result.changed=true;return result;
   };
   switch(event.kind) {
+    case EventKind::inspect:
+      return result;
     case EventKind::request:
       if(original.stage==Stage::settled){result.action=Action::receipt;return result;}
       if(original.stage==Stage::failedNoCharge||original.stage==Stage::settlementFailed){result.action=Action::failure;return result;}
