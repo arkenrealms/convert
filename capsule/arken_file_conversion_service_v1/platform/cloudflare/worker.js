@@ -68,7 +68,7 @@ async function command(plan,env,url,owner) {
 export default {
   async fetch(request,env) {
     const url=new URL(request.url);
-    if(url.pathname==='/health')return new Response(JSON.stringify({service:'megaconvert-mcp',version:'r4328',mode:'authenticated-preview',charging:false}),{headers:jsonHeaders});
+    if(url.pathname==='/health')return new Response(JSON.stringify({service:'megaconvert-mcp',version:'r4329',mode:'authenticated-preview',charging:false,releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}),{headers:jsonHeaders});
     if(!env.ACCESS_TOKEN||env.ACCESS_TOKEN.length<32)return problem('preview_not_configured',503);
     const origin=request.headers.get('origin');
     if(origin&&origin!==url.origin)return problem('origin_denied',403);
