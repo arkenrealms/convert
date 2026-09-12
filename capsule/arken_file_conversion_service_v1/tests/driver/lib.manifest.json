@@ -1,0 +1,5 @@
+{
+  "key":"arken_file_conversion_worker_proof_v1","name":"File conversion Worker proof","version":"1.0.0",
+  "public_dependencies":[],"private_dependencies":[],"test_dependencies":[],
+  "external_dependencies":[{"recipe":"workerd-20260911-macos-arm64-v1","scope":"private","components":["runtime"],"reason":"Native Cloudflare Worker conformance without Node tooling."}]
+}
