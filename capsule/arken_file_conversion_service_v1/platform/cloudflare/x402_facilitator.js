@@ -1,6 +1,7 @@
 import {x402Packet} from './runtime.js';
 import {paymentLedger} from './payment_ledger.js';
 import {readBoundedBody} from './bounded_body.js';
+import {createCdpTransport} from './cdp_authorization.js';
 
 const packet=value=>{const result=x402Packet(JSON.stringify(value));if(result.packetError)throw Error(result.packetError);return result;};
 const noRelease='0x'+'00'.repeat(32);
@@ -9,13 +10,15 @@ class FacilitatorResponseError extends Error {
   constructor(status,cause){super('facilitator_response_unavailable');this.httpStatus=status;this.name=String(cause?.name||'Error');}
 }
 // Explicit transport injection is for fixtures/CDP integration, never a fallback.
-// C++ chooses the fixed sandbox URL; no caller-controlled endpoint is accepted.
-export async function sendFacilitator(request,{fetcher=(url,options)=>fetch(url,options)}={}) {
+// C++ chooses the request's profile and authentication; no fallback or rewrite.
+export async function sendFacilitator(request,{fetcher=(url,options)=>fetch(url,options),cdpCredential}={}) {
+  request=packet({kind:'transport',request}).request;
+  if(request.authentication==='cdp')return createCdpTransport(cdpCredential,{fetcher})(request);
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
   try {
     // Workers supports manual/follow, not Fetch's error mode. Returning the 3xx
     // response lets C++ reject it without sending authorization to another URL.
-    const response=await fetcher(request.url,{method:'POST',headers:{'content-type':'application/json'},body:request.body,redirect:'manual',signal:controller.signal});
+    const response=await fetcher(request.url,{method:request.method,headers:{'content-type':'application/json'},body:request.body,redirect:'manual',signal:controller.signal});
     try {
     const value=await readBoundedBody(response.body,16384,'facilitator_response_limit');
     return {status:response.status,body:new TextDecoder('utf-8',{fatal:true}).decode(value)};

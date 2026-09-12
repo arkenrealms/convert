@@ -16,23 +16,24 @@ export const x402Integration={async test(_controller,env){
   const admission=prepared(f.quote,f.payment),ledger=paymentLedger(env.LEDGER,admission.command);
   const options={clock:()=> '101'};
   if(env.PHASE==='write'){
-    const io=await sendFacilitator({url:'https://x402.org/facilitator/verify',body:'{}'},{fetcher:async(url,options)=>{
+    const ioRequest={method:'POST',authentication:'none',url:'https://x402.org/facilitator/verify',body:'{}'};
+    const io=await sendFacilitator(ioRequest,{fetcher:async(url,options)=>{
       check(url.endsWith('/verify')&&options.method==='POST'&&options.redirect==='manual'&&options.signal,'facilitator HTTP options');
       new Request(url,options); // Exercise workerd's real request-option admission.
       return new Response('{"isValid":false}',{status:200});}});
     check(io.status===200&&io.body==='{"isValid":false}','facilitator stream decoding');
     const expected=new TextEncoder().encode('{"isValid":false}');let position=0;const reused=new Uint8Array(1);
-    const fragmented=await sendFacilitator({url:'https://x402.org/facilitator/verify',body:'{}'},{fetcher:async()=>new Response(new ReadableStream({pull(controller){if(position===expected.length){controller.close();return;}reused[0]=expected[position++];controller.enqueue(reused);}},{highWaterMark:0}))});
+    const fragmented=await sendFacilitator(ioRequest,{fetcher:async()=>new Response(new ReadableStream({pull(controller){if(position===expected.length){controller.close();return;}reused[0]=expected[position++];controller.enqueue(reused);}},{highWaterMark:0}))});
     check(fragmented.body==='{"isValid":false}','facilitator retained reused response chunks');
-    const denied=await sendFacilitator({url:'https://x402.org/facilitator/verify',body:'{}'},{fetcher:async()=>new Response('denied',{status:403})});
+    const denied=await sendFacilitator(ioRequest,{fetcher:async()=>new Response('denied',{status:403})});
     check(denied.status===403&&denied.body==='denied','HTTP status lost in transport');
     let redirectCalls=0;
-    const redirect=await sendFacilitator({url:'https://x402.org/facilitator/verify',body:'{}'},{fetcher:async(url,options)=>{
+    const redirect=await sendFacilitator(ioRequest,{fetcher:async(url,options)=>{
       redirectCalls++;new Request(url,options);check(options.redirect==='manual','authorization could follow redirect');
       return new Response(null,{status:302,headers:{location:'https://untrusted.example'}});}});
     check(redirect.status===302&&redirectCalls===1,'redirect followed or hidden');
     for(const bytes of [new Uint8Array(16385),new Uint8Array([195,40])]){
-      let rejected=false;try{await sendFacilitator({url:'https://x402.org/facilitator/verify',body:'{}'},{fetcher:async()=>new Response(bytes)});}catch(error){rejected=true;}
+      let rejected=false;try{await sendFacilitator(ioRequest,{fetcher:async()=>new Response(bytes)});}catch(error){rejected=true;}
       check(rejected,'unbounded or invalid UTF8 provider reply accepted');
     }
     let verifies=0,settles=0;

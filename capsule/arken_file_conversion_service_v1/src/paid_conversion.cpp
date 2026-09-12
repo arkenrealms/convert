@@ -1,5 +1,6 @@
 #include "arken_file_conversion_service_v1/paid_conversion.hpp"
 #include "arken_file_conversion_service_v1/x402.hpp"
+#include "arken_file_conversion_service_v1/payment_profile.hpp"
 #include "arken_file_conversion_service_v1/api.hpp"
 #include "payment_json.hpp"
 #include "arken_schema_generated/command-json.hpp"
@@ -16,7 +17,8 @@ template<std::size_t N> std::string Hex(const std::array<std::uint8_t,N>& bytes)
 Json X(const Json& input){auto result=detail::Parse(X402Packet(input.dump()));J::require(!result.contains("packetError"),"x402 rejected controller input");return result;}
 Json Reply(std::string_view code){const Json value={{"code",code}};return {{"kind","result"},{"result",{{"isError",true},{"structuredContent",value},{"content",Json::array({{{"type","text"},{"text",value.dump()}}})}}}};}
 Json QuotePacket(const Json& j){
-  detail::Fields(j,{"kind","fileId","owner","inputDigest","arguments","release","expiresAt"});
+  detail::Fields(j,{"kind","profileId","fileId","owner","inputDigest","arguments","release","expiresAt"});
+  const auto profile=PaymentProfileById(J::readScalar<std::string>(j.at("profileId")));J::require(profile.has_value(),"unknown payment profile");
   auto args=j.at("arguments");args.erase("codec");
   const auto admission=detail::Parse(arken::file_conversion::service::v1::PlanRequest(Json{{"jsonrpc","2.0"},{"id",1},{"method","tools/call"},
     {"params",{{"name","conversion.v1.prepare_upload"},{"arguments",args}}}}.dump()));
@@ -25,9 +27,9 @@ Json QuotePacket(const Json& j){
   Quote q;q.operation=Bytes<32>(j.at("fileId"));q.tenant=Bytes<32>(j.at("owner"));q.input=Bytes<32>(j.at("inputDigest"));
   q.options=detail::PayloadDigest(J::write(upload).dump());q.release=Bytes<32>(j.at("release"));
   J::require(std::ranges::any_of(q.release,[](auto b){return b!=0;}),"release identity missing");
-  q.priceVersion=detail::PayloadDigest("arken-convert:base-sepolia:image:v1:10000");q.amount=10000;
-  q.scope.chain=84532;q.scope.asset=Bytes<20>("036cbd53842c5426634e7929541ec2318f3dcf7e");
-  q.recipient=Bytes<20>("554933cd7c5275ff3692bf97e0bc90b69c85d3dc");q.expiresAt=J::readScalar<std::uint64_t>(j.at("expiresAt"));
+  q.priceVersion=detail::PayloadDigest(profile->priceIdentity);q.amount=profile->imagePrice;
+  q.scope.chain=profile->chain;q.scope.asset=profile->asset;
+  q.recipient=ImagePaymentRecipient();q.expiresAt=J::readScalar<std::uint64_t>(j.at("expiresAt"));
   return {{"quote",detail::WriteQuote(q)},{"codec",admission.at("arguments").at("codec")}};
 }
 Json Bind(const Json& j){
@@ -71,7 +73,8 @@ Json Next(const Json& j){
   if(op.stage==Stage::settled){
     J::require(!j.at("receipt").is_null()&&ReceiptOutput(j.at("receipt"),op)==*op.output,"fulfilled output mismatch");
     const auto& receipt=j.at("receipt");
-    const Json settlement={{"success",true},{"network","eip155:84532"},{"transaction","0x"+Hex(op.transfer->transaction)},{"payer","0x"+Hex(op.quote.scope.payer)}};
+    const auto profile=PaymentProfileForQuote(op.quote);J::require(profile.has_value(),"unsupported receipt profile");
+    const Json settlement={{"success",true},{"network",profile->network},{"transaction","0x"+Hex(op.transfer->transaction)},{"payer","0x"+Hex(op.quote.scope.payer)}};
     return {{"kind","result"},{"result",{{"structuredContent",receipt},{"content",Json::array({{{"type","text"},{"text",receipt.dump()}}})},
       {"_meta",{{"x402/payment-response",settlement}}}}}};
   }

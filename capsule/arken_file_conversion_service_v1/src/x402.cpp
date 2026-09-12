@@ -1,4 +1,6 @@
 #include "arken_file_conversion_service_v1/x402.hpp"
+#include "arken_file_conversion_service_v1/payment_profile.hpp"
+#include "arken_file_conversion_service_v1/provider_authorization.hpp"
 #include "payment_json.hpp"
 #include "arken_schema_cpp_v1/tool_json.hpp"
 #include "arken/digest/v1/digest.hpp"
@@ -7,9 +9,20 @@ namespace arken::file_conversion::service::v1::payment {
 namespace {
 using detail::Json;
 namespace J=arken::schema::cpp::v1::tool_json;
-constexpr std::string_view network="eip155:84532";
-constexpr std::string_view asset="0x036cbd53842c5426634e7929541ec2318f3dcf7e";
-constexpr std::string_view facilitator="https://x402.org/facilitator";
+PaymentProfile Profile(const Quote& quote){const auto profile=PaymentProfileForQuote(quote);J::require(profile.has_value(),"unsupported payment profile");return *profile;}
+CdpEndpoint EffectEndpoint(const PaymentProfile& profile,bool verify){
+  if(profile.authentication==FacilitatorAuthentication::cdp){const auto endpoint=CdpEndpointFor(verify?CdpOperation::verify:CdpOperation::settle);J::require(endpoint.has_value(),"CDP endpoint unavailable");return *endpoint;}
+  return {"POST",std::string(profile.facilitator)+(verify?"/verify":"/settle")};
+}
+Json Transport(const Json& j){
+  detail::Fields(j,{"kind","request"});const auto& r=j.at("request");detail::Fields(r,{"method","url","authentication","body"});
+  const auto method=J::readScalar<std::string>(r.at("method")),url=J::readScalar<std::string>(r.at("url")),authentication=J::readScalar<std::string>(r.at("authentication"));
+  J::require(J::readScalar<std::string>(r.at("body")).size()<=8192,"facilitator body limit");
+  for(const auto id:{"base-sepolia-v1","base-mainnet-v1"})for(bool verify:{false,true}){
+    const auto profile=PaymentProfileById(id);const auto endpoint=EffectEndpoint(*profile,verify);
+    if(method==endpoint.method&&url==endpoint.url&&authentication==(profile->authentication==FacilitatorAuthentication::cdp?"cdp":"none"))return {{"request",r}};
+  }throw std::invalid_argument("facilitator request scope invalid");
+}
 template<std::size_t N> std::array<std::uint8_t,N> Hex(const Json& j){
   auto s=J::readScalar<std::string>(j);J::require(s.size()==2+N*2&&s.starts_with("0x"),"hex width");
   s.erase(0,2);for(auto& c:s)if(c>='A'&&c<='F')c=char(c-'A'+'a');
@@ -21,8 +34,8 @@ template<std::size_t N> std::string Hex(const std::array<std::uint8_t,N>& bytes)
 }
 bool Any(const Address& a){return std::ranges::any_of(a,[](auto b){return b!=0;});}
 Json Requirements(const Quote& q){
-  J::require(q.scope.chain==84532&&q.scope.asset==Hex<20>(Json(asset))&&Any(q.recipient)&&q.amount>0,"sandbox profile required");
-  return {{"scheme","exact"},{"network",network},{"asset",asset},{"amount",std::to_string(q.amount)},
+  const auto profile=Profile(q);J::require(Any(q.recipient)&&q.amount>0,"payment recipient or amount missing");
+  return {{"scheme","exact"},{"network",profile.network},{"asset",profile.assetText},{"amount",std::to_string(q.amount)},
     {"payTo",Hex(q.recipient)},{"maxTimeoutSeconds",60},{"extra",{{"name","USDC"},{"version","2"}}}};
 }
 Json Resource(const Quote& q){return {{"url","mcp://tool/conversion.v1.convert_image/"+Hex(q.operation).substr(2)},
@@ -72,7 +85,9 @@ Json Effect(const Json& j){
   const auto submitted=Submission(op.quote,J::readScalar<std::string>(j.at("payment")));
   J::require(submitted.auth==*op.authorization,"stored payment changed");const auto now=J::readScalar<std::uint64_t>(j.at("now"));
   J::require(submitted.auth.validAfter<now&&now<submitted.auth.validBefore&&submitted.auth.validBefore-now<=60,"payment time window");
-  return {{"effect",verify?"verify":"settle"},{"request",{{"url",std::string(facilitator)+(verify?"/verify":"/settle")},
+  const auto profile=Profile(op.quote);const bool cdp=profile.authentication==FacilitatorAuthentication::cdp;
+  const auto endpoint=EffectEndpoint(profile,verify);
+  return {{"effect",verify?"verify":"settle"},{"request",{{"method",endpoint.method},{"url",endpoint.url},{"authentication",cdp?"cdp":"none"},
     {"body",Json{{"x402Version",2},{"paymentPayload",submitted.payload},{"paymentRequirements",Requirements(op.quote)}}.dump()}}}};
 }
 Json Callback(const Json& j){
@@ -98,7 +113,7 @@ Json Callback(const Json& j){
       if(!J::readScalar<bool>(response.at("isValid")))event.kind=EventKind::verificationRejected;
       else {reason="invalid_payer";event.verifiedPayer=Hex<20>(response.at("payer"));J::require(event.verifiedPayer==op.quote.scope.payer,"verified payer mismatch");event.kind=EventKind::verificationPassed;}
     }else{
-      J::require(J::readScalar<bool>(response.at("success"))&&response.at("network")==network&&Hex<20>(response.at("payer"))==op.quote.scope.payer,"settlement not proven");
+      J::require(J::readScalar<bool>(response.at("success"))&&response.at("network")==Profile(op.quote).network&&Hex<20>(response.at("payer"))==op.quote.scope.payer,"settlement not proven");
       Transfer transfer;transfer.transaction=Hex<32>(response.at("transaction"));J::require(std::ranges::any_of(transfer.transaction,[](auto b){return b!=0;}),"empty transaction");
       transfer.scope=op.quote.scope;transfer.recipient=op.quote.recipient;transfer.amount=op.quote.amount;transfer.nonce=op.authorization->nonce;
       event.transfer=transfer;event.kind=EventKind::settlementSucceeded;
@@ -125,6 +140,7 @@ Json OutputCommand(const Json& j){
 }
 std::string X402Packet(std::string_view text) noexcept {
   try{const auto j=detail::Parse(text);const auto kind=J::readScalar<std::string>(j.at("kind"));
+    if(kind=="transport")return Transport(j).dump();
     if(kind=="prepare")return Prepare(j).dump();if(kind=="effect")return Effect(j).dump();if(kind=="callback")return Callback(j).dump();
     if(kind=="control")return Control(j).dump();
     if(kind=="output")return OutputCommand(j).dump();

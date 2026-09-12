@@ -1,4 +1,5 @@
 #include "arken_file_conversion_service_v1/settlement_reconciliation.hpp"
+#include "arken_file_conversion_service_v1/payment_profile.hpp"
 #include "payment_json.hpp"
 #include "arken_schema_cpp_v1/tool_json.hpp"
 #include <algorithm>
@@ -47,7 +48,8 @@ std::uint64_t Amount(const Json& j){const auto s=Data(j,32);J::require(s.substr(
 Json Verify(const Json& j){
   detail::Fields(j,{"operation","anchor","logs","receipt","now"});const auto op=detail::ReadOperation(j.at("operation"));
   J::require(ValidOperationRecord(op)&&op.authorization&&op.output&&(op.stage==Stage::settling||op.stage==Stage::settlementUnknown),"operation not reconcilable");
-  J::require(op.quote.scope.chain==84532&&Hex(op.quote.scope.asset)==asset,"sandbox profile required");
+  const auto profile=PaymentProfileForQuote(op.quote);J::require(profile.has_value(),"unsupported reconciliation profile");
+  if(!profile->reconciliationAvailable)return Pending("mainnet_reconciliation_not_configured");
   const auto now=J::readScalar<std::uint64_t>(j.at("now"));
   if(j.at("anchor").is_null())return Read("anchor",Json::array({Call(1,"eth_chainId",Json::array()),Call(2,"eth_getBlockByNumber",Json::array({"safe",false}))}));
   const auto anchorReplies=Replies(j.at("anchor"),{1,2});J::require(Quantity(anchorReplies.at(1))==84532,"wrong chain");
