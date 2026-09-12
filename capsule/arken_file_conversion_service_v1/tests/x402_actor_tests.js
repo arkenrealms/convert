@@ -1,7 +1,7 @@
 import text from './x402-fixtures.json';
 import {x402Packet,paidConversionPacket} from './runtime.js';
 import {paymentLedger} from './payment_ledger.js';
-import {admitPayment,executePaymentEffect,retryPaymentVerification,sendFacilitator} from './x402_facilitator.js';
+import {admitPayment,executePaymentEffect,sendFacilitator} from './x402_facilitator.js';
 const data=JSON.parse(text),f=data.fixture;
 const check=(value,label)=>{if(!value)throw Error(label);};
 const packet=value=>{const result=x402Packet(JSON.stringify(value));check(!result.packetError,'C++ protocol rejected fixture');return result;};
@@ -72,7 +72,8 @@ export const x402Integration={async test(_controller,env){
     const retryOptions={clock:()=> '101',send:async()=>{verificationCalls++;return verificationCalls===1?{status:503,body:''}:{status:200,body:f.verifiedResponse};}};
     const pending=await admitPayment(env.LEDGER,unavailable.quote,unavailable.payment,retryOptions);check(pending.unavailable,'verify outage was called invalid signature');
     const retryLedger=paymentLedger(env.LEDGER,prepared(unavailable.quote,unavailable.payment).command);
-    const retry=await retryPaymentVerification(retryLedger,pending.decision.operation,retryOptions);
+    const recovery=packet({kind:'control',operation:pending.decision.operation,event:'inspect',now:'136',release:f.release}).command;
+    const retry=await executePaymentEffect(retryLedger,await retryLedger.recover(recovery),{...retryOptions,clock:()=> '136'});
     check(verificationCalls===2&&retry.decision.operation.stage===f.verified.operation.stage,'explicit verification recovery');
     const expired=variant('46');let now='101';
     const late=await admitPayment(env.LEDGER,expired.quote,expired.payment,{clock:()=>now,send:async()=>{now='200';return {status:200,body:f.verifiedResponse};}});

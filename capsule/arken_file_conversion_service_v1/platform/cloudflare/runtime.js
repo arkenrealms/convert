@@ -17,6 +17,7 @@ export function paymentStorageLookup(text) {return invokePacket(text,api.arken_p
 export function paymentStorageAdvance(text) {return invokePacket(text,api.arken_payment_storage_advance);}
 export function x402Packet(text) {return invokePacket(text,api.arken_x402_packet);}
 export function paymentStorageDispatch(text) {return invokePacket(text,api.arken_payment_storage_dispatch);}
+export function paymentStorageRecover(text) {return invokePacket(text,api.arken_payment_storage_recover);}
 function invokePacket(text,invoke) {
   const bytes=encoder.encode(text);
   const pointer=api.arken_mcp_prepare(bytes.length);

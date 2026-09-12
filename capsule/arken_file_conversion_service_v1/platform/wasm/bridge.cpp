@@ -19,5 +19,6 @@ extern "C" EXPORT void arken_payment_storage_lookup() noexcept {output=arken::fi
 extern "C" EXPORT void arken_payment_storage_advance() noexcept {output=arken::file_conversion::service::v1::payment::StorageAdvancePacket(input);}
 extern "C" EXPORT void arken_x402_packet() noexcept {output=arken::file_conversion::service::v1::payment::X402Packet(input);}
 extern "C" EXPORT void arken_payment_storage_dispatch() noexcept {output=arken::file_conversion::service::v1::payment::StorageDispatchPacket(input);}
+extern "C" EXPORT void arken_payment_storage_recover() noexcept {output=arken::file_conversion::service::v1::payment::StorageRecoveryPacket(input);}
 extern "C" EXPORT const char* arken_mcp_output() noexcept{return output.data();}
 extern "C" EXPORT std::uint32_t arken_mcp_output_size() noexcept{return static_cast<std::uint32_t>(output.size());}

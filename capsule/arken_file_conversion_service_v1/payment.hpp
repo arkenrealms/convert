@@ -55,7 +55,7 @@ enum class EventKind : std::uint8_t {
   request,retryVerification,verificationPassed,verificationRejected,
   beginConversion,outputCommitted,failBeforeSettlement,beginSettlement,
   settlementSucceeded,settlementRejected,settlementUncertain,
-  reconciledSucceeded,reconciledFailed,inspect
+  reconciledSucceeded,reconciledFailed,inspect,retryConversion
 };
 // Events reporting verification or transfer success are trusted adapter inputs,
 // never public client assertions. This policy does not verify signatures.
@@ -83,4 +83,16 @@ struct Decision {
 [[nodiscard]] Decision Advance(const Operation&,const Quote& observedQuote,
   const std::optional<NonceClaim>& existingClaim,const Event&) noexcept;
 [[nodiscard]] bool ValidOperationRecord(const Operation&) noexcept;
+struct Attempt {
+  bool dispatched=false;
+  std::optional<std::uint64_t> deadline;
+};
+struct Recovery {
+  Decision decision;
+  std::optional<std::uint64_t> observationDeadline;
+};
+// Only verify/compute have retry budgets. A deadline never permits settlement.
+[[nodiscard]] std::uint64_t AttemptDeadline(const Operation&,std::uint64_t now) noexcept;
+[[nodiscard]] Recovery Recover(const Operation&,const std::optional<NonceClaim>&,
+  const Event& observation,const Attempt&) noexcept;
 }

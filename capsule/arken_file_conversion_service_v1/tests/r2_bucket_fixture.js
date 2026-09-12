@@ -3,7 +3,9 @@ export class Bucket {
   values=new Map();
   outputWrites=0;
   loseOutputAcknowledgement=false;
+  beforeOutput=null;
   async put(key,value,options={}) {
+    if(key.endsWith('/output')&&this.beforeOutput){const before=this.beforeOutput;this.beforeOutput=null;await before(value,options);}
     if(options.onlyIf?.etagDoesNotMatch==='*'&&this.values.has(key))return null;
     const bytes=typeof value==='string'?new TextEncoder().encode(value):new Uint8Array(value).slice();
     this.values.set(key,{bytes,httpMetadata:options.httpMetadata,customMetadata:options.customMetadata});

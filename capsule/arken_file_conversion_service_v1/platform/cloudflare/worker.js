@@ -72,13 +72,18 @@ async function convertAndStore(env,url,owner,id,found,inputDigest,codec=found.re
     alpha_disposition:result.alphaFlattened?'flattened_white':'preserved'};
   // One output-object write retains the bytes and their metadata together.
   // A lost acknowledgement can be recovered without re-running conversion.
-  await env.FILES.put(found.key+'/output',result.bytes,{httpMetadata:{contentType:mediaType},customMetadata:{receipt:JSON.stringify(receipt)}});
+  const committed=await env.FILES.put(found.key+'/output',result.bytes,{onlyIf:{etagDoesNotMatch:'*'},httpMetadata:{contentType:mediaType},customMetadata:{receipt:JSON.stringify(receipt)}});
+  if(committed===null){
+    const retained=await env.FILES.get(found.key+'/output');
+    if(!retained?.customMetadata?.receipt)return {code:'output_receipt_unavailable'};
+    return JSON.parse(retained.customMetadata.receipt);
+  }
   await env.FILES.put(found.key+'/result',JSON.stringify(receipt));return receipt;
 }
 export function createWorker(payment=null){let bodyInFlight=false;return {
   async fetch(request,env) {
     const url=new URL(request.url);
-    if(url.pathname==='/health')return new Response(JSON.stringify({service:'megaconvert-mcp',displayName:'Arken Convert',version:'r4341',mode:payment?'x402-sandbox':'authenticated-preview',charging:false,testnetPayments:Boolean(payment),releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}),{headers:jsonHeaders});
+    if(url.pathname==='/health')return new Response(JSON.stringify({service:'megaconvert-mcp',displayName:'Arken Convert',version:'r4343',mode:payment?'x402-sandbox':'authenticated-preview',charging:false,testnetPayments:Boolean(payment),releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}),{headers:jsonHeaders});
     if(!env.ACCESS_TOKEN||env.ACCESS_TOKEN.length<32)return problem('preview_not_configured',503);
     const origin=request.headers.get('origin');
     if(origin&&origin!==url.origin)return problem('origin_denied',403);

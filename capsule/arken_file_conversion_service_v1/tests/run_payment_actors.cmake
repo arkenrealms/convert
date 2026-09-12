@@ -21,6 +21,7 @@ file(COPY_FILE "${X402_FIXTURES}" "${run}/x402-fixtures.json")
 file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/x402_actor_tests.js" "${run}/x402_actor_tests.js")
 file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/paid_http_tests.js" "${run}/paid_http_tests.js")
 file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/r2_bucket_fixture.js" "${run}/r2_bucket_fixture.js")
+file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/payment_recovery_actor_tests.js" "${run}/payment_recovery_actor_tests.js")
 set(template [=[
 using Workerd = import "/workerd/workerd.capnp";
 const config :Workerd.Config = (
@@ -35,6 +36,7 @@ const config :Workerd.Config = (
            (name="sandbox_worker.js",esModule=embed "sandbox_worker.js"),
            (name="paid_http_tests.js",esModule=embed "paid_http_tests.js"),
            (name="r2_bucket_fixture.js",esModule=embed "r2_bucket_fixture.js"),
+           (name="payment_recovery_actor_tests.js",esModule=embed "payment_recovery_actor_tests.js"),
            (name="x402_actor_tests.js",esModule=embed "x402_actor_tests.js"),
            (name="x402-fixtures.json",text=embed "x402-fixtures.json"),
            (name="payment-actor-fixtures.json",text=embed "payment-actor-fixtures.json"),
@@ -62,7 +64,7 @@ file(READ "${run}/x402-fixtures.json" x402_fixtures)
 string(JSON x402_vectors LENGTH "${x402_fixtures}" vectors)
 string(JSON paid_vectors LENGTH "${x402_fixtures}" paidVectors)
 set(source_hashes "{}")
-foreach(file runtime.js worker.js payment_ledger.js x402_facilitator.js paid_conversion.js sandbox_worker.js tests.js x402_actor_tests.js paid_http_tests.js r2_bucket_fixture.js)
+foreach(file runtime.js worker.js payment_ledger.js x402_facilitator.js paid_conversion.js sandbox_worker.js tests.js x402_actor_tests.js paid_http_tests.js r2_bucket_fixture.js payment_recovery_actor_tests.js)
   file(SHA256 "${run}/${file}" source_hash)
   string(JSON source_hashes SET "${source_hashes}" "${file}" "\"${source_hash}\"")
 endforeach()

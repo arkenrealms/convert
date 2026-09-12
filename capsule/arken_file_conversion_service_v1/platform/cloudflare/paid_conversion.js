@@ -39,14 +39,15 @@ export function createPaidConversion({clock=clockSeconds,send}={}){
       for(let remaining=12;remaining>0;--remaining){
         const step=packet({kind:'next',decision,receipt,now:clock(),release:env.RELEASE_ID});
         if(step.kind==='result')return step.result;
-        if(step.kind==='inspect'){decision=await ledger.transition(prepared.inspectCommand);continue;}
+        if(step.kind==='inspect'){decision=await ledger.transition(prepared.inspectCommand);receipt=await outputReceipt(env.FILES,found.key);continue;}
         if(step.kind==='transition'){decision=await ledger.transition(step.command);continue;}
+        if(step.kind==='recover'){decision=await ledger.recover(step.command);receipt=await outputReceipt(env.FILES,found.key);continue;}
         if(step.kind==='facilitate'){
           const effect=await executePaymentEffect(ledger,decision,{clock,send});
           if(effect.unavailable)return failure(effect.unavailable);decision=effect.decision;continue;
         }
         if(step.kind==='convert'){
-          const dispatch=await ledger.claimDispatch(prepared.inspectCommand,JSON.stringify(decision));
+          const dispatch=await ledger.claimDispatch(step.command,JSON.stringify(decision));
           if(!dispatch.claimed){decision=await ledger.transition(prepared.inspectCommand);receipt=await outputReceipt(env.FILES,found.key);continue;}
           const result=await execute(step.inputDigest,qualified.codec);
           if(result.code){decision=await ledger.transition(packet({kind:'fail',operation:decision.operation,now:clock()}).command);continue;}

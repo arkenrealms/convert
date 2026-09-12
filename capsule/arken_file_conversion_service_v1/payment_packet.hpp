@@ -13,4 +13,5 @@ std::string AdvancePacket(std::string_view) noexcept;
 std::string StorageLookupPacket(std::string_view) noexcept;
 std::string StorageAdvancePacket(std::string_view) noexcept;
 std::string StorageDispatchPacket(std::string_view) noexcept;
+std::string StorageRecoveryPacket(std::string_view) noexcept;
 }

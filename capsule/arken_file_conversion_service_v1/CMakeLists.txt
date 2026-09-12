@@ -26,7 +26,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         endif()
     endforeach()
 endif()
-add_library(arken_file_conversion_service_v1 STATIC src/commands.cpp src/payment.cpp src/payment_packet.cpp src/x402.cpp src/paid_conversion.cpp)
+add_library(arken_file_conversion_service_v1 STATIC src/commands.cpp src/payment.cpp src/payment_recovery.cpp src/payment_packet.cpp src/x402.cpp src/paid_conversion.cpp)
 target_compile_features(arken_file_conversion_service_v1 PUBLIC cxx_std_20)
 target_include_directories(arken_file_conversion_service_v1 PUBLIC "${CMAKE_CURRENT_LIST_DIR}/.."
     PRIVATE "${CMAKE_CURRENT_LIST_DIR}/generated")

@@ -81,7 +81,8 @@ Decision Advance(const Operation& original,const Quote& observed,const std::opti
       if(original.stage!=Stage::verifying)return reject(Error::invalidEvent);
       result.operation.failure=Failure::verificationRejected;return change(Stage::failedNoCharge,Action::failure);
     case EventKind::beginConversion:
-      if(original.stage!=Stage::authorized)return reject(Error::invalidEvent);
+    case EventKind::retryConversion:
+      if(original.stage!=(event.kind==EventKind::beginConversion?Stage::authorized:Stage::computing))return reject(Error::invalidEvent);
       if(event.executingRelease!=original.quote.release)return reject(Error::releaseMismatch);
       if(!Window(original,event.now))return reject(Error::expired);
       return change(Stage::computing,Action::convert);
