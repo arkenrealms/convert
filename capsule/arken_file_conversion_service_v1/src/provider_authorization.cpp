@@ -19,22 +19,29 @@ void Text(const detail::Json& j,std::size_t maximum){
     if(s.empty()||s.size()>maximum||std::any_of(s.begin(),s.end(),[](unsigned char c){return c<32||c>126;}))throw std::invalid_argument("provider text bounds");
 }
 }
+std::optional<CdpEndpoint> CdpEndpointFor(CdpOperation operation) noexcept {
+    try{switch(operation){
+        case CdpOperation::supported:return CdpEndpoint{"GET","https://api.cdp.coinbase.com/platform/v2/x402/supported"};
+        case CdpOperation::verify:return CdpEndpoint{"POST","https://api.cdp.coinbase.com/platform/v2/x402/verify"};
+        case CdpOperation::settle:return CdpEndpoint{"POST","https://api.cdp.coinbase.com/platform/v2/x402/settle"};
+        default:return std::nullopt;
+    }}catch(...){return std::nullopt;}
+}
+std::optional<CdpOperation> CdpOperationFor(std::string_view method,std::string_view url) noexcept {
+    for(auto operation:{CdpOperation::supported,CdpOperation::verify,CdpOperation::settle}){
+        const auto endpoint=CdpEndpointFor(operation);if(endpoint&&endpoint->method==method&&endpoint->url==url)return operation;
+    }return std::nullopt;
+}
 std::optional<CdpRequestAuthorization> PrepareCdpAuthorization(std::string_view id,CdpOperation operation,std::uint64_t now,std::string_view nonce) noexcept {
     try{
         // Match pinned CDP SDK a1195adcfa5a93627bd3cb79831b188cc13073a1:
         // uris array, iat/nbf/exp, nonce; no singular-uri or audience alias.
         if(!KeyId(id)||nonce.size()!=32||!Hex(nonce)||now==0||now>9007199254740871ULL)return std::nullopt;
-        std::string method,path="/platform/v2/x402/";
-        switch(operation){
-            case CdpOperation::supported:method="GET";path+="supported";break;
-            case CdpOperation::verify:method="POST";path+="verify";break;
-            case CdpOperation::settle:method="POST";path+="settle";break;
-            default:return std::nullopt;
-        }
+        const auto endpoint=CdpEndpointFor(operation);if(!endpoint)return std::nullopt;
         const detail::Json header={{"alg","EdDSA"},{"typ","JWT"},{"kid",id},{"nonce",nonce}};
         const detail::Json claims={{"sub",id},{"iss","cdp"},{"iat",now},{"nbf",now},{"exp",now+120},
-            {"uris",detail::Json::array({method+" api.cdp.coinbase.com"+path})}};
-        return CdpRequestAuthorization{method,"https://api.cdp.coinbase.com"+path,header.dump(),claims.dump()};
+            {"uris",detail::Json::array({endpoint->method+" "+endpoint->url.substr(8)})}};
+        return CdpRequestAuthorization{endpoint->method,endpoint->url,header.dump(),claims.dump()};
     }catch(...){return std::nullopt;}
 }
 std::optional<ProviderCapabilities> ReadProviderCapabilities(std::string_view text) noexcept {

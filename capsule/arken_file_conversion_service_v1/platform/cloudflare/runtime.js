@@ -19,14 +19,17 @@ export function x402Packet(text) {return invokePacket(text,api.arken_x402_packet
 export function paymentStorageDispatch(text) {return invokePacket(text,api.arken_payment_storage_dispatch);}
 export function paymentStorageRecover(text) {return invokePacket(text,api.arken_payment_storage_recover);}
 export function publicAdmissionPacket(text) {return invokePacket(text,api.arken_public_admission_packet);}
+export function cdpProviderPacket(text) {return invokePacket(text,api.arken_cdp_provider_packet,api.arken_mcp_prepare,true);}
 export function settlementReconciliationPacket(text) {return invokePacket(text,api.arken_settlement_reconciliation_packet,api.arken_settlement_prepare);}
-function invokePacket(text,invoke,prepare=api.arken_mcp_prepare) {
+function invokePacket(text,invoke,prepare=api.arken_mcp_prepare,sensitive=false) {
   const bytes=encoder.encode(text);
   const pointer=prepare(bytes.length);
+  try {
   if(!pointer)throw Error('request_limit');
   new Uint8Array(api.memory.buffer,pointer,bytes.length).set(bytes);
   invoke();
   return JSON.parse(decoder.decode(new Uint8Array(api.memory.buffer,api.arken_mcp_output(),api.arken_mcp_output_size())));
+  } finally {if(sensitive){bytes.fill(0);api.arken_mcp_clear();}}
 }
 export function convertImage(bytes,codec) {
   if(!api.arken_conversion_prepare(bytes.byteLength))throw Error('conversion_busy_or_input_limit');
