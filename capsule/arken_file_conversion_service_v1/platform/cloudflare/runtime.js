@@ -18,9 +18,10 @@ export function paymentStorageAdvance(text) {return invokePacket(text,api.arken_
 export function x402Packet(text) {return invokePacket(text,api.arken_x402_packet);}
 export function paymentStorageDispatch(text) {return invokePacket(text,api.arken_payment_storage_dispatch);}
 export function paymentStorageRecover(text) {return invokePacket(text,api.arken_payment_storage_recover);}
-function invokePacket(text,invoke) {
+export function settlementReconciliationPacket(text) {return invokePacket(text,api.arken_settlement_reconciliation_packet,api.arken_settlement_prepare);}
+function invokePacket(text,invoke,prepare=api.arken_mcp_prepare) {
   const bytes=encoder.encode(text);
-  const pointer=api.arken_mcp_prepare(bytes.length);
+  const pointer=prepare(bytes.length);
   if(!pointer)throw Error('request_limit');
   new Uint8Array(api.memory.buffer,pointer,bytes.length).set(bytes);
   invoke();

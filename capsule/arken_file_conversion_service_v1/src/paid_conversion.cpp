@@ -77,7 +77,7 @@ Json Next(const Json& j){
   }
   if(op.stage==Stage::failedNoCharge)return Reply("conversion_failed_no_charge");
   if(op.stage==Stage::settlementFailed)return Reply("settlement_failed");
-  if(op.stage==Stage::settlementUnknown)return Reply("settlement_pending_reconciliation");
+  if(op.stage==Stage::settlementUnknown)return {{"kind","reconcile"}};
   if(op.stage==Stage::authorized||op.stage==Stage::outputReady)return transition(X({{"kind","control"},{"operation",d.at("operation")},
     {"event","resume"},{"now",j.at("now")},{"release","0x"+J::readScalar<std::string>(j.at("release"))}}));
   if(op.stage==Stage::computing&&!j.at("receipt").is_null())return transition(X({{"kind","output"},{"operation",d.at("operation")},
@@ -85,6 +85,7 @@ Json Next(const Json& j){
   const auto action=J::readScalar<std::uint8_t>(d.at("action"));const bool admitted=J::readScalar<bool>(d.at("changed"));
   if(admitted&&((op.stage==Stage::verifying&&action==unsigned(Action::verify))||(op.stage==Stage::settling&&action==unsigned(Action::settle))))return {{"kind","facilitate"}};
   if(admitted&&op.stage==Stage::computing&&action==unsigned(Action::convert))return {{"kind","convert"},{"inputDigest",Hex(op.quote.input)},{"command",inspectCommand()}};
+  if(!admitted&&op.stage==Stage::settling)return {{"kind","reconcile"}};
   if(!admitted&&action==unsigned(Action::none)&&(op.stage==Stage::verifying||op.stage==Stage::computing))return {{"kind","recover"},{"command",inspectCommand()}};
   return Reply("operation_pending");
 }

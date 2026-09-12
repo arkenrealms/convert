@@ -2,6 +2,7 @@ import fixtureText from './payment-actor-fixtures.json';
 export {x402Integration} from './x402_actor_tests.js';
 export {paidHttp} from './paid_http_tests.js';
 export {recoveryPayments} from './payment_recovery_actor_tests.js';
+export {reconciliationVectors} from './settlement_chain_fixture.js';
 import {ConversionPaymentLedger,commitPaymentTransition,commitPaymentDispatch,paymentLedger} from './payment_ledger.js';
 import {paymentStorageLookup} from './runtime.js';
 

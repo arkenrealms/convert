@@ -75,7 +75,7 @@ async function convertAndStore(env,url,owner,id,found,inputDigest,codec=found.re
 export function createWorker(payment=null){let bodyInFlight=false;return {
   async fetch(request,env) {
     const url=new URL(request.url);
-    if(url.pathname==='/health')return new Response(JSON.stringify({service:'megaconvert-mcp',displayName:'Arken Convert',version:'r4345',mode:payment?'x402-sandbox':'authenticated-preview',charging:false,testnetPayments:Boolean(payment),releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}),{headers:jsonHeaders});
+    if(url.pathname==='/health')return new Response(JSON.stringify({service:'megaconvert-mcp',displayName:'Arken Convert',version:'r4346',mode:payment?'x402-sandbox':'authenticated-preview',charging:false,testnetPayments:Boolean(payment),releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}),{headers:jsonHeaders});
     if(!env.ACCESS_TOKEN||env.ACCESS_TOKEN.length<32)return problem('preview_not_configured',503);
     const origin=request.headers.get('origin');
     if(origin&&origin!==url.origin)return problem('origin_denied',403);

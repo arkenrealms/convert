@@ -37,8 +37,8 @@ Json Put(const Event& e){return {{"kind",unsigned(e.kind)},{"expectedRevision",J
   {"authorization",Put(e.authorization)},{"output",Put(e.output)},{"transfer",Put(e.transfer)},{"verifiedPayer",Put(e.verifiedPayer)},{"executingRelease",Put(e.executingRelease)},{"failure",unsigned(e.failure)}};}
 template<> Event Get<Event>(const Json& j){Fields(j,{"kind","expectedRevision","now","authorization","output","transfer","verifiedPayer","executingRelease","failure"});
   return {Enum(j.at("kind"),EventKind::retryConversion),J::readScalar<std::uint64_t>(j.at("expectedRevision")),J::readScalar<std::uint64_t>(j.at("now")),Optional<Authorization>(j.at("authorization")),Optional<Output>(j.at("output")),Optional<Transfer>(j.at("transfer")),Bytes<20>(j.at("verifiedPayer")),Bytes<32>(j.at("executingRelease")),Enum(j.at("failure"),Failure::settlementRejected)};}
-Json Parse(std::string_view text){
-  J::require(text.size()<=16384,"packet byte limit");std::vector<std::set<std::string>> keys;
+Json Parse(std::string_view text,std::size_t maximumBytes){
+  J::require(maximumBytes<=1048576&&text.size()<=maximumBytes,"packet byte limit");std::vector<std::set<std::string>> keys;
   return Json::parse(text.begin(),text.end(),[&](int depth,Json::parse_event_t event,Json& value){
     J::require(depth<=32,"packet depth limit");
     if(event==Json::parse_event_t::object_start)keys.emplace_back();
