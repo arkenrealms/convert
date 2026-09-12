@@ -1,4 +1,4 @@
-foreach(required WASM WORKERD ACTOR_FIXTURES OUTPUT)
+foreach(required WASM WORKERD ACTOR_FIXTURES X402_FIXTURES OUTPUT)
   if(NOT DEFINED ${required})
     message(FATAL_ERROR "${required} required")
   endif()
@@ -12,11 +12,13 @@ string(RANDOM LENGTH 16 ALPHABET 0123456789abcdef run_id)
 set(run "${OUTPUT}/run-${run_id}")
 file(MAKE_DIRECTORY "${run}/state")
 file(COPY_FILE "${WASM}" "${run}/conversion.wasm")
-foreach(file runtime.js payment_ledger.js)
+foreach(file runtime.js payment_ledger.js x402_facilitator.js)
   file(COPY_FILE "${owner}/platform/cloudflare/${file}" "${run}/${file}")
 endforeach()
 file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/payment_actor_tests.js" "${run}/tests.js")
 file(COPY_FILE "${ACTOR_FIXTURES}" "${run}/payment-actor-fixtures.json")
+file(COPY_FILE "${X402_FIXTURES}" "${run}/x402-fixtures.json")
+file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/x402_actor_tests.js" "${run}/x402_actor_tests.js")
 set(template [=[
 using Workerd = import "/workerd/workerd.capnp";
 const config :Workerd.Config = (
@@ -25,6 +27,9 @@ const config :Workerd.Config = (
   modules=[(name="tests.js",esModule=embed "tests.js"),
            (name="payment_ledger.js",esModule=embed "payment_ledger.js"),
            (name="runtime.js",esModule=embed "runtime.js"),
+           (name="x402_facilitator.js",esModule=embed "x402_facilitator.js"),
+           (name="x402_actor_tests.js",esModule=embed "x402_actor_tests.js"),
+           (name="x402-fixtures.json",text=embed "x402-fixtures.json"),
            (name="payment-actor-fixtures.json",text=embed "payment-actor-fixtures.json"),
            (name="conversion.wasm",wasm=embed "conversion.wasm")],
   bindings=[(name="LEDGER",durableObjectNamespace=(className="Ledger")),(name="PHASE",text="@phase@")],
@@ -43,7 +48,15 @@ foreach(phase write read)
     message(FATAL_ERROR "Payment actor ${phase} failed: ${out}${error}")
   endif()
 endforeach()
-file(SHA256 "${WASM}" module_hash)
-file(SHA256 "${ACTOR_FIXTURES}" fixture_hash)
-file(WRITE "${run}/proof.json" "{\"status\":\"passed\",\"storage\":\"workerd-disk-backed-durable-objects\",\"processPhases\":2,\"network\":\"denied\",\"moduleSha256\":\"${module_hash}\",\"fixtureSha256\":\"${fixture_hash}\"}\n")
+file(SHA256 "${run}/conversion.wasm" module_hash)
+file(SHA256 "${run}/payment-actor-fixtures.json" fixture_hash)
+file(SHA256 "${run}/x402-fixtures.json" x402_hash)
+file(READ "${run}/x402-fixtures.json" x402_fixtures)
+string(JSON x402_vectors LENGTH "${x402_fixtures}" vectors)
+set(source_hashes "{}")
+foreach(file runtime.js payment_ledger.js x402_facilitator.js tests.js x402_actor_tests.js)
+  file(SHA256 "${run}/${file}" source_hash)
+  string(JSON source_hashes SET "${source_hashes}" "${file}" "\"${source_hash}\"")
+endforeach()
+file(WRITE "${run}/proof.json" "{\"status\":\"passed\",\"storage\":\"workerd-disk-backed-durable-objects\",\"processPhases\":2,\"network\":\"denied\",\"facilitator\":\"mock\",\"moduleSha256\":\"${module_hash}\",\"fixtureSha256\":\"${fixture_hash}\",\"x402FixtureSha256\":\"${x402_hash}\",\"x402NativeWasmVectors\":${x402_vectors},\"sourceHashes\":${source_hashes}}\n")
 message(STATUS "Durable payment proof: ${run}/proof.json")

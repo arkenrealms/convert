@@ -12,4 +12,5 @@ std::string AdvancePacket(std::string_view) noexcept;
 // key/write and validates the durable actor scope before admitting a change.
 std::string StorageLookupPacket(std::string_view) noexcept;
 std::string StorageAdvancePacket(std::string_view) noexcept;
+std::string StorageDispatchPacket(std::string_view) noexcept;
 }

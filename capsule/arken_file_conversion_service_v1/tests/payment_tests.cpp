@@ -153,7 +153,7 @@ Json ActorFixtures(){
   return fixtures;
 }
 }
-int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-payment-tests r4333\n";return 0;}
+int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-payment-tests r4334\n";return 0;}
   try{Check(argc==1||(argc==3&&std::string_view(argv[1])=="--write-fixtures"),"invalid arguments");Tests();const auto actors=ActorFixtures();
     if(argc==3){const std::filesystem::path dir(argv[2]);std::filesystem::create_directories(dir);
       std::ofstream out(dir/"payment-packets.json",std::ios::binary);out<<packets.dump();Check(bool(out),"packet fixture write failed");
