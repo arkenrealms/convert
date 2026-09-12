@@ -12,3 +12,12 @@ file(REAL_PATH "${sdk_root}" sdk_root)
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/toolchain-root.txt" CONTENT "${sdk_root}\n" @ONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/toolchain.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/toolchain.cmake" @ONLY)
+include(CTest)
+if(BUILD_TESTING)
+    add_test(NAME NativeBrowserCpp.MemoryProfiles
+        COMMAND "${CMAKE_COMMAND}" "-DROOT=${workspace}"
+            "-DTOOLCHAIN=${CMAKE_CURRENT_BINARY_DIR}/toolchain.cmake"
+            "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/memory-profile-proof"
+            -P "${CMAKE_CURRENT_LIST_DIR}/../tests/browser_cpp_memory_profile.cmake")
+    set_tests_properties(NativeBrowserCpp.MemoryProfiles PROPERTIES TIMEOUT 60)
+endif()

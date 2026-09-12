@@ -1,0 +1,10 @@
+{
+  "key": "arken_file_conversion_v1",
+  "name": "Arken File Conversion v1",
+  "version": "1.0.0",
+  "description": "Portable bounded file-conversion commands over existing Arken codec owners; independent of UI, transport, storage and payment.",
+  "public_dependencies": ["arken_image_codecs_v1"],
+  "private_dependencies": [],
+  "test_dependencies": [],
+  "capabilities": ["bounded_image_conversion", "explicit_alpha_loss", "memory_only_conversion"]
+}
