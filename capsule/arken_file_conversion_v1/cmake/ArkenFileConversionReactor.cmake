@@ -1,0 +1,8 @@
+include_guard(GLOBAL)
+function(arken_file_conversion_reactor target)
+    get_filename_component(owner "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
+    include("${owner}/../../sdk/arken_sdk_dev/cmake/ArkenBrowserCpp.cmake")
+    add_executable(${target} "${owner}/platform/wasm/image_reactor.cpp")
+    target_link_libraries(${target} PRIVATE arken_file_conversion_v1)
+    arken_browser_cpp_reactor(${target} NO_HOST_IO MAX_MEMORY_BYTES 67108864)
+endfunction()
