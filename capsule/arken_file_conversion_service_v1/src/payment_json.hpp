@@ -4,7 +4,7 @@
 #include <string_view>
 namespace arken::file_conversion::service::v1::payment::detail {
 using Json=nlohmann::json;
-Json Parse(std::string_view);
+Json Parse(std::string_view,std::size_t maximumBytes=16384);
 void Fields(const Json&,std::initializer_list<std::string_view>);
 Quote ReadQuote(const Json&);
 Operation ReadOperation(const Json&);

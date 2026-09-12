@@ -1,6 +1,7 @@
 import {paidConversionPacket,planPaidRequest} from './runtime.js';
 import {paymentLedger} from './payment_ledger.js';
 import {executePaymentEffect} from './x402_facilitator.js';
+import {reconcileSettlement} from './settlement_reconciliation.js';
 const packet=value=>{const result=paidConversionPacket(JSON.stringify(value));if(result.packetError)throw Error(result.packetError);return result;};
 const failure=code=>({isError:true,content:[{type:'text',text:JSON.stringify({code})}],structuredContent:{code}});
 const clockSeconds=()=>String(Math.floor(Date.now()/1000));
@@ -11,7 +12,7 @@ async function outputReceipt(bucket,key){
 }
 // Thin platform effect interpreter. Quotes, transitions, retry choices and paid
 // disclosure come exclusively from the private C++ controller.
-export function createPaidConversion({clock=clockSeconds,send}={}){
+export function createPaidConversion({clock=clockSeconds,send,readChain}={}){
   return {
     planRequest:planPaidRequest,
     async convert(plan,env,{found,owner,id,execute}){
@@ -42,6 +43,11 @@ export function createPaidConversion({clock=clockSeconds,send}={}){
         if(step.kind==='inspect'){decision=await ledger.transition(prepared.inspectCommand);receipt=await outputReceipt(env.FILES,found.key);continue;}
         if(step.kind==='transition'){decision=await ledger.transition(step.command);continue;}
         if(step.kind==='recover'){decision=await ledger.recover(step.command);receipt=await outputReceipt(env.FILES,found.key);continue;}
+        if(step.kind==='reconcile'){
+          const result=await reconcileSettlement(ledger,decision.operation,{clock,readChain});
+          if(result.pending)return failure('settlement_pending_reconciliation');
+          decision=result.decision;receipt=await outputReceipt(env.FILES,found.key);continue;
+        }
         if(step.kind==='facilitate'){
           const effect=await executePaymentEffect(ledger,decision,{clock,send});
           if(effect.unavailable)return failure(effect.unavailable);decision=effect.decision;continue;

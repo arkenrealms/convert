@@ -3,6 +3,7 @@ import {createPaidConversion} from './paid_conversion.js';
 import {Bucket} from './r2_bucket_fixture.js';
 import {paidConversionPacket,planPaidRequest} from './runtime.js';
 import sandbox from './sandbox_worker.js';
+import {chainFixture} from './settlement_chain_fixture.js';
 const check=(value,label)=>{if(!value)throw Error(label);};
 const token='test-only-paid-conversion-access-token-long-enough';
 const headers={authorization:`Bearer ${token}`,'content-type':'application/json',accept:'application/json, text/event-stream','mcp-protocol-version':'2025-11-25'};
@@ -16,7 +17,8 @@ export const paidHttp={async test(_controller,bindings){
   const env={ACCESS_TOKEN:token,FILES:new Bucket(),PAYMENT_LEDGER:bindings.LEDGER,RELEASE_ID:'07'.repeat(32)};
   let now=Math.floor(Date.now()/1000),verifies=0,settles=0,reject=false,lose=false,replaceRelease=false,corruptAfterVerifyId=null;
   let beforeVerify=null;
-  const adapter=createPaidConversion({clock:()=>String(now),send:async message=>{
+  let chain=null,chainReads=0;
+  const adapter=createPaidConversion({clock:()=>String(now),readChain:async message=>{chainReads++;return chain?chain(message):{status:503,body:''};},send:async message=>{
     const sent=JSON.parse(message.body),payer=sent.paymentPayload.payload.authorization.from;
     if(message.url.endsWith('/verify')){
       verifies++;if(beforeVerify){const before=beforeVerify;beforeVerify=null;await before();}if(replaceRelease)env.RELEASE_ID='08'.repeat(32);
@@ -88,6 +90,13 @@ export const paidHttp={async test(_controller,bindings){
   const before=settles;await call('conversion.v1.convert_image',{file_id:uncertain.file_id});check(settles===before,'uncertain HTTP retry settled again');
   const unknownOutput=[...env.FILES.values.entries()].find(([key])=>key.includes(uncertain.file_id)&&key.endsWith('/output'));
   check((await app.fetch(new Request(JSON.parse(unknownOutput[1].customMetadata.receipt).download_url),env)).status===403,'unknown payment released bytes');
+  chain=chainFixture(uncertainPayment,now);const readsBefore=chainReads;
+  const recoveries=await Promise.all([app,peer].map(host=>host.fetch(request('tools/call',{name:'conversion.v1.convert_image',arguments:{file_id:uncertain.file_id}}),env).then(r=>r.json())));
+  check(recoveries.every(r=>r.result._meta?.['x402/payment-response']?.success)&&settles===before,'reconciliation failed or charged again');
+  check(JSON.stringify(recoveries[0].result)===JSON.stringify(recoveries[1].result)&&chainReads>=readsBefore+3&&chainReads<=readsBefore+6,'concurrent chain observers disagreed');
+  check((await app.fetch(new Request(recoveries[0].result.structuredContent.download_url),env)).status===200,'reconciled output not downloadable');
+  const readsAfter=chainReads;await call('conversion.v1.convert_image',{file_id:uncertain.file_id});
+  check(chainReads===readsAfter&&settles===before,'fulfilled repeat performed chain or settlement work');chain=null;
   const invalid=await upload(),invalidPayment=await challenge(invalid);reject=true;
   check((await call('conversion.v1.convert_image',{file_id:invalid.file_id},invalidPayment)).result.structuredContent.code==='conversion_failed_no_charge','invalid verification result');reject=false;
   check(settles===before,'invalid verification settled');
