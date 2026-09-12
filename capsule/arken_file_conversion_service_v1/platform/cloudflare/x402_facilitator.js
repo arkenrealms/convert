@@ -4,18 +4,23 @@ import {paymentLedger} from './payment_ledger.js';
 const packet=value=>{const result=x402Packet(JSON.stringify(value));if(result.packetError)throw Error(result.packetError);return result;};
 const noRelease='0x'+'00'.repeat(32);
 const clockSeconds=()=>String(Math.floor(Date.now()/1000));
+class FacilitatorResponseError extends Error {
+  constructor(status,cause){super('facilitator_response_unavailable');this.httpStatus=status;this.name=String(cause?.name||'Error');}
+}
 // Explicit transport injection is for fixtures/CDP integration, never a fallback.
 // C++ chooses the fixed sandbox URL; no caller-controlled endpoint is accepted.
-export async function sendFacilitator(request) {
+export async function sendFacilitator(request,{fetcher=(url,options)=>fetch(url,options)}={}) {
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
   try {
-    const response=await fetch(request.url,{method:'POST',headers:{'content-type':'application/json'},body:request.body,redirect:'error',signal:controller.signal});
+    const response=await fetcher(request.url,{method:'POST',headers:{'content-type':'application/json'},body:request.body,redirect:'error',signal:controller.signal});
+    try {
     if(!response.body)return {status:response.status,body:''};
     const reader=response.body.getReader();let bytes=0;const parts=[];
     try{for(;;){const next=await reader.read();if(next.done)break;bytes+=next.value.length;if(bytes>16384){await reader.cancel();throw Error('facilitator_response_limit');}parts.push(next.value);}}
     finally{reader.releaseLock();}
     const value=new Uint8Array(bytes);let offset=0;for(const part of parts){value.set(part,offset);offset+=part.length;}
     return {status:response.status,body:new TextDecoder('utf-8',{fatal:true}).decode(value)};
+    } catch(error){throw new FacilitatorResponseError(response.status,error);}
   } finally {clearTimeout(timer);}
 }
 
@@ -28,7 +33,7 @@ export async function executePaymentEffect(ledger,decision,{clock=clockSeconds,s
   const dispatch=await ledger.claimDispatch(inspect,JSON.stringify(decision));
   if(!dispatch.claimed)return {decision:await ledger.transition(inspect),dispatched:false};
   let response;
-  try{response=await send(effect.request);}catch(error){console.warn('facilitator transport unavailable');response={status:0,body:''};}
+  try{response=await send(effect.request);}catch(error){console.warn('facilitator transport unavailable');response={status:error instanceof FacilitatorResponseError?error.httpStatus:0,body:JSON.stringify({transportError:String(error?.name||'Error').slice(0,64)})};}
   const callback=packet({kind:'callback',operation:decision.operation,phase:effect.effect,response:response.body,status:response.status,now:clock()});
   if(callback.kind==='unavailable')return {decision,unavailable:callback.code};
   return {decision:await ledger.transition(callback.command)};
