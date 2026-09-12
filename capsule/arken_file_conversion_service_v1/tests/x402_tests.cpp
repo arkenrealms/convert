@@ -1,5 +1,7 @@
 #include "arken_file_conversion_service_v1/x402.hpp"
 #include "arken_file_conversion_service_v1/payment_packet.hpp"
+#include "arken_file_conversion_service_v1/paid_conversion.hpp"
+#include "arken_file_conversion_service_v1/api.hpp"
 #include "../src/payment_json.hpp"
 #include "arken_schema_cpp_v1/tool_json.hpp"
 #include "../tools/native/platform.hpp"
@@ -13,9 +15,10 @@ namespace P=arken::file_conversion::service::v1::payment;
 namespace J=arken::schema::cpp::v1::tool_json;
 using Json=nlohmann::json;
 namespace {
-unsigned checks=0;Json vectors=Json::array();
+unsigned checks=0;Json vectors=Json::array(),paidVectors=Json::array();
 void Check(bool value,const char* label){++checks;if(!value)throw std::runtime_error(label);}
 Json Wire(Json input){const auto text=input.dump(),result=P::X402Packet(text);vectors.push_back({{"input",text},{"expected",result}});return Json::parse(result);}
+Json Paid(Json input){const auto text=input.dump(),result=P::PaidConversionPacket(text);paidVectors.push_back({{"input",text},{"expected",result}});return Json::parse(result);}
 P::Address Address(std::string_view text){const auto value=J::read<arken::schema::cpp::v1::fixed_id<20,1>>(std::string(text));P::Address out{};for(unsigned i=0;i<20;++i)out[i]=std::to_integer<std::uint8_t>(value.value[i]);return out;}
 P::Quote Quote(std::uint64_t now=100){P::Quote q;q.operation[0]=42;q.tenant[0]=2;q.input[0]=3;q.options[0]=4;q.release[0]=5;q.priceVersion[0]=6;
   q.scope.chain=84532;q.scope.asset=Address("036cbd53842c5426634e7929541ec2318f3dcf7e");
@@ -84,7 +87,8 @@ Json Fixture(){
   const auto unknown=Wire({{"kind","callback"},{"operation",decision["operation"]},{"phase","settle"},{"response",wrongNetwork.dump()},{"status",200},{"now","151"}});
   Check(Json::parse(unknown.at("command").get<std::string>())["event"]["kind"]==unsigned(P::EventKind::settlementUncertain),"wrong settlement network accepted");
   const auto receipt=Wire({{"kind","callback"},{"operation",decision["operation"]},{"phase","settle"},{"response",goodSettle.dump()},{"status",200},{"now","151"}});
-  Check(ledger.transition(receipt["command"].get<std::string>())["operation"]["stage"]==unsigned(P::Stage::settled),"settlement receipt");
+  const auto fulfilled=ledger.transition(receipt["command"].get<std::string>());
+  Check(fulfilled["operation"]["stage"]==unsigned(P::Stage::settled),"settlement receipt");
   Check(!ledger.dispatch(decision),"old settle decision dispatched after receipt");
   for(unsigned i=0;i<9;++i){auto invalid=payment;
     if(i==0)invalid["accepted"]["amount"]="1";if(i==1)invalid["accepted"]["network"]="eip155:8453";
@@ -93,15 +97,35 @@ Json Fixture(){
     if(i==6)invalid["payload"]["authorization"]["validBefore"]="0100";if(i==7)invalid["payload"]["signature"]="0xgg";
     if(i==8)invalid["x402Version"]=1;auto request=admission;request["payment"]=invalid.dump();Check(Wire(request).contains("packetError"),"untrusted payment mismatch accepted");}
   auto production=prepare;production["quote"]["scope"]["chain"]=8453;Check(Wire(production).contains("packetError"),"mainnet unintentionally enabled");
+  auto quoteRequest=Json{{"kind","quote"},{"fileId",q["operation"]},{"owner",q["tenant"]},{"inputDigest",q["input"]},{"release",q["release"]},{"expiresAt",q["expiresAt"]},
+    {"arguments",{{"source_bytes",22},{"input_format","tga"},{"output_format","png"}}}};
+  const auto fileQuote=Paid(quoteRequest).at("quote");Check(fileQuote["amount"]=="10000"&&fileQuote["scope"]["chain"]==84532,"sandbox quote");
+  const auto bound=Paid({{"kind","bind"},{"quote",fileQuote},{"payment",payment.dump()},{"binding",nullptr},{"now","100"}});
+  Check(bound["kind"]=="admit","file authorization binding");
+  const auto repeated=Paid({{"kind","bind"},{"quote",fileQuote},{"payment",payment.dump()},{"binding",bound["binding"]},{"now","101"}});
+  Check(repeated["binding"]==bound["binding"],"clock changed immutable payment binding");
+  for(const auto field:{"operation","tenant","input","options"}){auto changed=fileQuote;changed[field]=std::string(64,'e');
+    Check(Paid({{"kind","bind"},{"quote",changed},{"payment",nullptr},{"binding",bound["binding"]},{"now","101"}})["result"]["isError"]==true,"changed file identity rebound");}
+  const Json publicReceipt={{"file_id",q["operation"]},{"download_url","https://converter.example/output"},{"expires_at","2026-09-13T02:00:00.000Z"},
+    {"width",1},{"height",1},{"output_bytes",76},{"sha256",q["input"]},{"media_type","image/png"},{"alpha_disposition","preserved"}};
+  const auto delivered=Paid({{"kind","next"},{"decision",fulfilled},{"receipt",publicReceipt},{"now","151"},{"release",std::string(64,'8')}});
+  Check(delivered["result"]["_meta"]["x402/payment-response"]["success"]==true,"public settlement metadata");
+  auto incorrect=publicReceipt;incorrect["output_bytes"]=77;
+  Check(Paid({{"kind","next"},{"decision",fulfilled},{"receipt",incorrect},{"now","151"},{"release",q["release"]}}).contains("packetError"),"receipt bytes mismatch disclosed");
+  const auto waiting=Paid({{"kind","next"},{"decision",decision},{"receipt",publicReceipt},{"now","101"},{"release",q["release"]}});
+  Check(waiting["kind"]=="facilitate"&&!waiting.contains("result"),"unsettled receipt exposed");
+  const Json publicRequest={{"jsonrpc","2.0"},{"id",1},{"method","tools/call"},{"params",{{"name","conversion.v1.convert_image"},{"arguments",{{"file_id",q["operation"]}}},{"_meta",{{"x402/payment",payment}}}}}};
+  Check(Json::parse(arken::file_conversion::service::v1::PlanRequest(publicRequest.dump(),true))["payment"]==payment.dump(),"payment metadata not retained");
+  Check(Json::parse(arken::file_conversion::service::v1::PlanRequest(publicRequest.dump()))["kind"]=="response","preview accepted paid metadata");
   return {{"quote",q},{"payment",payment.dump()},{"challenge",challenge},{"verifiedResponse",goodVerify.dump()},{"settledResponse",goodSettle.dump()},
     {"outputCommand",outputCommand},{"verified",verified},{"settling",decision},{"release","0x05"+std::string(62,'0')}};
 }
 }
 int main(int argc,char** argv){
-  if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-x402-tests r4334\n";return 0;}
+  if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-x402-tests r4335\n";return 0;}
   try{const bool probe=argc==3&&std::string_view(argv[1])=="--probe-rejection";const bool write=argc==3&&std::string_view(argv[1])=="--write-fixtures";
     Check(argc==1||probe||write,"arguments");const auto fixture=Fixture();
-    if(write){const std::filesystem::path root(argv[2]);std::filesystem::create_directories(root);std::ofstream out(root/"x402-fixtures.json");out<<Json{{"fixture",fixture},{"vectors",vectors}}.dump();Check(bool(out),"fixture write");}
+    if(write){const std::filesystem::path root(argv[2]);std::filesystem::create_directories(root);std::ofstream out(root/"x402-fixtures.json");out<<Json{{"fixture",fixture},{"vectors",vectors},{"paidVectors",paidVectors}}.dump();Check(bool(out),"fixture write");}
     if(probe){namespace C=arken::conversion::cloudflare;const auto now=std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
       const auto quote=P::detail::WriteQuote(Quote(now));auto prep=Wire({{"kind","prepare"},{"quote",quote},{"payment",nullptr},{"now",std::to_string(now)}});
       prep=Wire({{"kind","prepare"},{"quote",quote},{"payment",Payment(prep,now).dump()},{"now",std::to_string(now)}});Ledger ledger;

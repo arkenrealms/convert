@@ -1,6 +1,7 @@
 #include "arken_file_conversion_service_v1/api.hpp"
 #include "arken_file_conversion_v1/api.hpp"
 #include "arken_schema_generated/command-json.hpp"
+#include "payment_json.hpp"
 namespace arken::file_conversion::service::v1 {
 namespace image = arken::image::v1;
 namespace J = arken::schema::cpp::v1::tool_json;
@@ -13,10 +14,10 @@ std::string Failure(const Json& id,int code,std::string_view text) {
 }
 }
 std::string Catalog() { return std::string(J::commandCatalog); }
-std::string PlanRequest(std::string_view text) noexcept {
+std::string PlanRequest(std::string_view text,bool sandboxPayments) noexcept {
     Json id=nullptr;
     try {
-        const auto request=J::parse(text,16384);
+        const auto request=payment::detail::Parse(text);
         if(!request.is_object()||!request.contains("jsonrpc")||!request.at("jsonrpc").is_string()
             ||request.at("jsonrpc")!="2.0")return Failure(id,-32600,"Invalid request");
         if(request.contains("id")) {
@@ -44,8 +45,8 @@ std::string PlanRequest(std::string_view text) noexcept {
               ||!params["clientInfo"].contains("version")||!params["clientInfo"]["version"].is_string())
             return Failure(id,-32602,"Invalid initialization parameters");
           return reply({{"protocolVersion","2025-11-25"},{"capabilities",{{"tools",Json::object()}}},
-            {"serverInfo",{{"name","MegaConvert"},{"version","r4328"}}},
-            {"instructions","Authenticated conversion preview. Prepare an upload, PUT the file bytes, then convert. No live charges are enabled."}},true);
+            {"serverInfo",{{"name","Arken Convert"},{"version","r4335"}}},
+            {"instructions",sandboxPayments?"Authenticated x402 sandbox. Upload then convert with test USDC on Base Sepolia. Mainnet payments are disabled.":"Authenticated conversion preview. Prepare an upload, PUT the file bytes, then convert. No live charges are enabled."}},true);
         }
         if(method=="ping")return reply(Json::object());
         if(method=="tools/list") {
@@ -54,7 +55,7 @@ std::string PlanRequest(std::string_view text) noexcept {
                 tools.push_back({{"name",command.at("name")},{"description",command.at("description")},
                     {"inputSchema",command.at("inputSchema")},{"outputSchema",command.at("outputSchema")},
                     {"annotations",{{"readOnlyHint",false},{"destructiveHint",false},
-                        {"idempotentHint",command.at("idempotency")=="idempotent"},{"openWorldHint",false}}}});
+                        {"idempotentHint",command.at("idempotency")=="idempotent"},{"openWorldHint",sandboxPayments&&command.at("commandId")==2}}}});
             return reply({{"tools",tools}});
         }
         if(method!="tools/call")return Failure(id,-32601,"Method not found");
@@ -77,7 +78,16 @@ std::string PlanRequest(std::string_view text) noexcept {
             const auto value=J::read<S::file_target>(input);
             args=J::write(value);
         } else return Failure(id,-32602,"Unknown tool");
-        return Json{{"kind","command"},{"commandId",commandId},{"arguments",args},
+        Json payment=nullptr;
+        if(params.contains("_meta")){
+            J::require(params.at("_meta").is_object(),"MCP metadata must be an object");
+            if(params.at("_meta").contains("x402/payment")){
+                J::require(sandboxPayments&&commandId==2,"payment not accepted by this tool");
+                const auto& payload=params.at("_meta").at("x402/payment");
+                J::require(payload.is_object(),"payment must be an object");payment=payload.dump();
+            }
+        }
+        return Json{{"kind","command"},{"commandId",commandId},{"arguments",args},{"payment",payment},
             {"responsePrefix","{\"jsonrpc\":\"2.0\",\"id\":"+id.dump()+",\"result\":"}}.dump();
     } catch(const nlohmann::json::parse_error&) { return Failure(nullptr,-32700,"Invalid JSON"); }
     catch(const std::exception&) { return Failure(id,-32602,"Invalid command arguments"); }

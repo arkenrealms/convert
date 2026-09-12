@@ -1,21 +1,8 @@
 import worker from './worker.js';
+import {Bucket} from './r2_bucket_fixture.js';
 export {payments} from './payment_worker_tests.js';
 const token='test-only-access-token-at-least-32-characters';
 const check=(value,message)=>{if(!value)throw Error(message);};
-// Storage is a fixture; C++ conversion and the Worker runtime are real.
-class Bucket {
-  values=new Map();
-  async put(key,value,options={}) {
-    if(options.onlyIf?.etagDoesNotMatch==='*'&&this.values.has(key))return null;
-    const bytes=typeof value==='string'?new TextEncoder().encode(value):new Uint8Array(value).slice();
-    this.values.set(key,{bytes,httpMetadata:options.httpMetadata});return {etag:key};
-  }
-  async get(key) {
-    const item=this.values.get(key);if(!item)return null;const bytes=item.bytes.slice();
-    return {size:bytes.length,body:new Response(bytes).body,httpMetadata:item.httpMetadata,
-      arrayBuffer:async()=>bytes.buffer,json:async()=>JSON.parse(new TextDecoder().decode(bytes))};
-  }
-}
 const env=()=>({ACCESS_TOKEN:token,FILES:new Bucket()});
 const headers={authorization:`Bearer ${token}`,'content-type':'application/json',
   accept:'application/json, text/event-stream','mcp-protocol-version':'2025-11-25'};
@@ -28,7 +15,7 @@ const tga=new Uint8Array([0,0,2,0,0,0,0,0,0,0,0,0,1,0,1,0,32,40,30,20,10,255]);
 export const protocol={async test(){
   const e=env();
   const init=await (await worker.fetch(request(rpc('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'test',version:'1'}})),e)).json();
-  check(init.result.serverInfo.name==='MegaConvert','initialize');
+  check(init.result.serverInfo.name==='Arken Convert','initialize');
   const listed=await (await worker.fetch(request(rpc('tools/list')),e)).json();
   check(listed.result.tools.length===2,'generated tool count');
   const upload=listed.result.tools.find(t=>t.name==='conversion.v1.prepare_upload');

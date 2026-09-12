@@ -1,5 +1,5 @@
 import text from './x402-fixtures.json';
-import {x402Packet} from './runtime.js';
+import {x402Packet,paidConversionPacket} from './runtime.js';
 import {paymentLedger} from './payment_ledger.js';
 import {admitPayment,executePaymentEffect,retryPaymentVerification} from './x402_facilitator.js';
 const data=JSON.parse(text),f=data.fixture;
@@ -12,6 +12,7 @@ function variant(id){const quote=structuredClone(f.quote);quote.operation=id.rep
   payment.payload.authorization.nonce='0x'+id.repeat(32);return {quote,payment:JSON.stringify(payment)};}
 export const x402Integration={async test(_controller,env){
   for(const vector of data.vectors)check(JSON.stringify(x402Packet(vector.input))===JSON.stringify(JSON.parse(vector.expected)),'native/Wasm x402 mismatch');
+  for(const vector of data.paidVectors)check(JSON.stringify(paidConversionPacket(vector.input))===JSON.stringify(JSON.parse(vector.expected)),'native/Wasm paid-controller mismatch');
   const admission=prepared(f.quote,f.payment),ledger=paymentLedger(env.LEDGER,admission.command);
   const options={clock:()=> '101'};
   if(env.PHASE==='write'){
