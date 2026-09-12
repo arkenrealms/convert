@@ -1,0 +1,9 @@
+{
+  "schemaVersion":1,"recipeId":"workerd-20260911-macos-arm64-v1","packageId":"workerd","upstreamVersion":"1.20260911.1","dependencyClass":"verified-prebuilt",
+  "supportedPlatforms":["macos"],
+  "source":{"kind":"archive","urls":["https://registry.npmjs.org/@cloudflare/workerd-darwin-arm64/-/workerd-darwin-arm64-1.20260911.1.tgz"],"sha256":"4e011ed3ce69476ad0fdd384d0a49eb2456b88c7499f424189fa761669e9accc","subdirectory":"package","maxArchiveBytes":40000000,"maxEntries":8,"maxExtractedBytes":160000000,"allowSafeSymlinks":false},
+  "adapter":{"kind":"verified-prebuilt","version":1},
+  "license":{"spdx":"Apache-2.0","distribution":"redistributable","files":[]},
+  "components":[{"name":"runtime","target":"arken::external_workerd_v1","kind":"executable","executablePath":"bin/workerd","expectedSha256":"3c3b245b344ea4b71b8f8e72fa9ae40eab25faae45b8daa55a06f358ad07ceaf","versionArguments":["--version"],"expectedVersionRegex":"workerd 2026-09-11"}],
+  "dependencies":[]
+}
