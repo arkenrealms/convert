@@ -2,6 +2,8 @@
 export class Bucket {
   values=new Map();
   outputWrites=0;
+  bodyReads={};
+  metadataReads={};
   loseOutputAcknowledgement=false;
   beforeOutput=null;
   async put(key,value,options={}) {
@@ -16,8 +18,13 @@ export class Bucket {
     return {etag:key};
   }
   async get(key) {
+    const kind=key.slice(key.lastIndexOf('/')+1);this.bodyReads[kind]=(this.bodyReads[kind]||0)+1;
     const item=this.values.get(key);if(!item)return null;const bytes=item.bytes.slice();
     return {size:bytes.length,body:new Response(bytes).body,httpMetadata:item.httpMetadata,customMetadata:item.customMetadata,
       arrayBuffer:async()=>bytes.buffer,text:async()=>new TextDecoder().decode(bytes),json:async()=>JSON.parse(new TextDecoder().decode(bytes))};
+  }
+  async head(key) {
+    const kind=key.slice(key.lastIndexOf('/')+1);this.metadataReads[kind]=(this.metadataReads[kind]||0)+1;
+    const item=this.values.get(key);return item?{size:item.bytes.length,httpMetadata:item.httpMetadata,customMetadata:item.customMetadata}:null;
   }
 }

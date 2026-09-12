@@ -9,8 +9,9 @@ execute_process(COMMAND "${WORKERD}" --version RESULT_VARIABLE version_result
 if(NOT version_result EQUAL 0 OR NOT version MATCHES "workerd 2026-09-11")
     message(FATAL_ERROR "Wrong Worker runtime: ${version}")
 endif()
-execute_process(COMMAND "${WORKERD}" test "${OUTPUT}/config.capnp"
-    RESULT_VARIABLE result OUTPUT_VARIABLE out ERROR_VARIABLE error TIMEOUT 20)
+include("${CMAKE_CURRENT_LIST_DIR}/run_workerd_process.cmake")
+run_conversion_workerd("${OUTPUT}/config.capnp" 20 result out error metrics)
+file(WRITE "${OUTPUT}/process-metrics.json" "${metrics}\n")
 file(WRITE "${OUTPUT}/workerd.log" "${out}${error}")
 if(NOT result EQUAL 0)
     message(FATAL_ERROR "Worker proof failed: ${out}${error}")

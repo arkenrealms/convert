@@ -1,5 +1,6 @@
 import {x402Packet} from './runtime.js';
 import {paymentLedger} from './payment_ledger.js';
+import {readBoundedBody} from './bounded_body.js';
 
 const packet=value=>{const result=x402Packet(JSON.stringify(value));if(result.packetError)throw Error(result.packetError);return result;};
 const noRelease='0x'+'00'.repeat(32);
@@ -16,11 +17,7 @@ export async function sendFacilitator(request,{fetcher=(url,options)=>fetch(url,
     // response lets C++ reject it without sending authorization to another URL.
     const response=await fetcher(request.url,{method:'POST',headers:{'content-type':'application/json'},body:request.body,redirect:'manual',signal:controller.signal});
     try {
-    if(!response.body)return {status:response.status,body:''};
-    const reader=response.body.getReader();let bytes=0;const parts=[];
-    try{for(;;){const next=await reader.read();if(next.done)break;bytes+=next.value.length;if(bytes>16384){await reader.cancel();throw Error('facilitator_response_limit');}parts.push(next.value);}}
-    finally{reader.releaseLock();}
-    const value=new Uint8Array(bytes);let offset=0;for(const part of parts){value.set(part,offset);offset+=part.length;}
+    const value=await readBoundedBody(response.body,16384,'facilitator_response_limit');
     return {status:response.status,body:new TextDecoder('utf-8',{fatal:true}).decode(value)};
     } catch(error){throw new FacilitatorResponseError(response.status,error);}
   } finally {clearTimeout(timer);}

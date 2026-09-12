@@ -1,4 +1,5 @@
 import {planRequest,convertImage} from './runtime.js';
+import {readBoundedBody} from './bounded_body.js';
 const jsonHeaders={'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'};
 const ttlMs=15*60*1000;
 const hex=bytes=>Array.from(new Uint8Array(bytes),v=>v.toString(16).padStart(2,'0')).join('');
@@ -11,15 +12,6 @@ async function signed(secret,message) {
 function equal(a,b) {
   if(typeof a!=='string'||typeof b!=='string'||a.length!==b.length)return false;
   let difference=0;for(let i=0;i<a.length;i++)difference|=a.charCodeAt(i)^b.charCodeAt(i);return difference===0;
-}
-async function boundedBody(request,limit) {
-  if(!request.body)return new Uint8Array();
-  const reader=request.body.getReader(),chunks=[];let size=0;
-  try {
-    while(true){const next=await reader.read();if(next.done)break;
-      size+=next.value.byteLength;if(size>limit){await reader.cancel();throw Error('body_limit');}chunks.push(next.value);}
-  } finally {reader.releaseLock();}
-  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes;
 }
 function toolReply(plan,value,error=false) {
   const result={content:[{type:'text',text:JSON.stringify(value)}],...(error?{isError:true}:{structuredContent:value})};
@@ -74,7 +66,7 @@ async function convertAndStore(env,url,owner,id,found,inputDigest,codec=found.re
   // A lost acknowledgement can be recovered without re-running conversion.
   const committed=await env.FILES.put(found.key+'/output',result.bytes,{onlyIf:{etagDoesNotMatch:'*'},httpMetadata:{contentType:mediaType},customMetadata:{receipt:JSON.stringify(receipt)}});
   if(committed===null){
-    const retained=await env.FILES.get(found.key+'/output');
+    const retained=await env.FILES.head(found.key+'/output');
     if(!retained?.customMetadata?.receipt)return {code:'output_receipt_unavailable'};
     return JSON.parse(retained.customMetadata.receipt);
   }
@@ -83,7 +75,7 @@ async function convertAndStore(env,url,owner,id,found,inputDigest,codec=found.re
 export function createWorker(payment=null){let bodyInFlight=false;return {
   async fetch(request,env) {
     const url=new URL(request.url);
-    if(url.pathname==='/health')return new Response(JSON.stringify({service:'megaconvert-mcp',displayName:'Arken Convert',version:'r4343',mode:payment?'x402-sandbox':'authenticated-preview',charging:false,testnetPayments:Boolean(payment),releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}),{headers:jsonHeaders});
+    if(url.pathname==='/health')return new Response(JSON.stringify({service:'megaconvert-mcp',displayName:'Arken Convert',version:'r4345',mode:payment?'x402-sandbox':'authenticated-preview',charging:false,testnetPayments:Boolean(payment),releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}),{headers:jsonHeaders});
     if(!env.ACCESS_TOKEN||env.ACCESS_TOKEN.length<32)return problem('preview_not_configured',503);
     const origin=request.headers.get('origin');
     if(origin&&origin!==url.origin)return problem('origin_denied',403);
@@ -112,7 +104,7 @@ export function createWorker(payment=null){let bodyInFlight=false;return {
         if(file[2]!=='input'||request.method!=='PUT')return problem('method_not_allowed',405);
         if(bodyInFlight)return problem('busy',429);bodyInFlight=true;
         try {
-          const bytes=await boundedBody(request,found.record.args.source_bytes);
+          const bytes=await readBoundedBody(request.body,found.record.args.source_bytes);
           if(bytes.byteLength!==found.record.args.source_bytes)return problem('source_size_mismatch');
           const stored=await env.FILES.put(found.key+'/input',bytes,{onlyIf:{etagDoesNotMatch:'*'},customMetadata:{sha256:await digest(bytes)}});
           return stored?new Response(null,{status:204}):problem('upload_already_committed',409);
@@ -127,7 +119,7 @@ export function createWorker(payment=null){let bodyInFlight=false;return {
       if(!accept.includes('application/json')||!accept.includes('text/event-stream'))return problem('accept_header_required',406);
       if(bodyInFlight)return problem('busy',429);bodyInFlight=true;
       try {
-        const bytes=await boundedBody(request,16384);
+        const bytes=await readBoundedBody(request.body,16384);
         let text;
         try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}
         catch(error){console.warn('invalid UTF-8 MCP request');return problem('invalid_utf8',400);}

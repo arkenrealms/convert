@@ -21,6 +21,9 @@ export const x402Integration={async test(_controller,env){
       new Request(url,options); // Exercise workerd's real request-option admission.
       return new Response('{"isValid":false}',{status:200});}});
     check(io.status===200&&io.body==='{"isValid":false}','facilitator stream decoding');
+    const expected=new TextEncoder().encode('{"isValid":false}');let position=0;const reused=new Uint8Array(1);
+    const fragmented=await sendFacilitator({url:'https://x402.org/facilitator/verify',body:'{}'},{fetcher:async()=>new Response(new ReadableStream({pull(controller){if(position===expected.length){controller.close();return;}reused[0]=expected[position++];controller.enqueue(reused);}},{highWaterMark:0}))});
+    check(fragmented.body==='{"isValid":false}','facilitator retained reused response chunks');
     const denied=await sendFacilitator({url:'https://x402.org/facilitator/verify',body:'{}'},{fetcher:async()=>new Response('denied',{status:403})});
     check(denied.status===403&&denied.body==='denied','HTTP status lost in transport');
     let redirectCalls=0;
