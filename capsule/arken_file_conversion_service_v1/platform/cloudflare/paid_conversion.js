@@ -6,7 +6,7 @@ const failure=code=>({isError:true,content:[{type:'text',text:JSON.stringify({co
 const clockSeconds=()=>String(Math.floor(Date.now()/1000));
 async function binding(bucket,key){const object=await bucket.get(key+'/payment');return object?await object.text():null;}
 async function outputReceipt(bucket,key){
-  const output=await bucket.get(key+'/output');
+  const output=await bucket.head(key+'/output');
   return output?.customMetadata?.receipt?JSON.parse(output.customMetadata.receipt):null;
 }
 // Thin platform effect interpreter. Quotes, transitions, retry choices and paid
@@ -16,7 +16,7 @@ export function createPaidConversion({clock=clockSeconds,send}={}){
     planRequest:planPaidRequest,
     async convert(plan,env,{found,owner,id,execute}){
       if(!env.PAYMENT_LEDGER||!env.RELEASE_ID)return failure('sandbox_payment_not_configured');
-      const source=await env.FILES.get(found.key+'/input');
+      const source=await env.FILES.head(found.key+'/input');
       if(!source)return failure('upload_required');
       if(source.size!==found.record.args.source_bytes)return failure('source_size_mismatch');
       const qualified=packet({kind:'quote',fileId:id,owner,inputDigest:source.customMetadata?.sha256,

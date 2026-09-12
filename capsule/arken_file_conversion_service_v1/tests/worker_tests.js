@@ -1,5 +1,6 @@
 import worker from './worker.js';
 import {Bucket} from './r2_bucket_fixture.js';
+import {readBoundedBody} from './bounded_body.js';
 export {payments} from './payment_worker_tests.js';
 const token='test-only-access-token-at-least-32-characters';
 const check=(value,message)=>{if(!value)throw Error(message);};
@@ -110,4 +111,34 @@ export const largeImage={async test(){
   check((await worker.fetch(new Request(lease.upload_url,{method:'PUT',headers,body:bytes}),e)).status===204,'large upload');
   const result=await (await worker.fetch(request(call('conversion.v1.convert_image',{file_id:lease.file_id})),e)).json();
   check(result.result.structuredContent.width===1024&&result.result.structuredContent.height===1024,'large C++ conversion');
+}};
+export const fragmentedUpload={async test(){
+  const e=env();
+  const prepared=await (await worker.fetch(request(call('conversion.v1.prepare_upload',{
+    source_bytes:tga.length,input_format:'tga',output_format:'png'})),e)).json();
+  let index=0;const reused=new Uint8Array(1);
+  const body=new ReadableStream({pull(controller){if(index===tga.length){controller.close();return;}reused[0]=tga[index++];controller.enqueue(reused);}},{highWaterMark:0});
+  check((await worker.fetch(new Request(prepared.result.structuredContent.upload_url,{method:'PUT',headers,body}),e)).status===204,'fragmented upload');
+  const stored=[...e.FILES.values.entries()].find(([key])=>key.endsWith('/input'))[1].bytes;
+  check(stored.length===tga.length&&stored.every((byte,i)=>byte===tga[i]),'upload retained mutable stream chunks');
+  const capacity=8388608,chunk=new Uint8Array(1024).fill(37);let chunks=0;
+  const large=await (await worker.fetch(request(call('conversion.v1.prepare_upload',{source_bytes:capacity,input_format:'png',output_format:'png'})),e)).json();
+  const stream=new ReadableStream({pull(controller){if(chunks===8192){controller.close();return;}chunks++;controller.enqueue(chunk);}},{highWaterMark:0});
+  check((await worker.fetch(new Request(large.result.structuredContent.upload_url,{method:'PUT',headers,body:stream}),e)).status===204,'maximum fragmented upload');
+  const item=[...e.FILES.values.entries()].find(([key])=>key.includes(large.result.structuredContent.file_id)&&key.endsWith('/input'))[1];
+  check(item.bytes.length===capacity&&item.bytes[0]===37&&item.bytes[capacity-1]===37&&chunks===8192,'maximum upload extent changed');
+}};
+export const boundedStreams={async test(){
+  check((await readBoundedBody(null,8)).byteLength===0,'absent body');
+  let at=0;const reused=new Uint8Array(1);
+  const source=new ReadableStream({pull(controller){if(at===3){controller.close();return;}reused[0]=++at;controller.enqueue(reused);}},{highWaterMark:0});
+  const value=await readBoundedBody(source,8);
+  check(value.length===3&&value.buffer.byteLength===8&&value[0]===1&&value[2]===3&&!source.locked,'bounded buffer ownership');
+  let cancelled=false,pulls=0;
+  const excessive=new ReadableStream({pull(controller){pulls++;controller.enqueue(new Uint8Array(4));},cancel(){cancelled=true;}},{highWaterMark:0});
+  let rejected=false;try{await readBoundedBody(excessive,5);}catch(error){rejected=error.message==='body_limit';}
+  check(rejected&&cancelled&&!excessive.locked&&pulls===2,'overflow not cancelled and released');
+  const broken=new ReadableStream({pull(controller){controller.error(Error('fixture stream failed'));}},{highWaterMark:0});
+  rejected=false;try{await readBoundedBody(broken,5);}catch(error){rejected=error.message==='fixture stream failed';}
+  check(rejected&&!broken.locked,'failed stream reader retained');
 }};

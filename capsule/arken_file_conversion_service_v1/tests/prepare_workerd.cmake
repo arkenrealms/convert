@@ -6,7 +6,7 @@ endforeach()
 get_filename_component(owner "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 file(MAKE_DIRECTORY "${OUTPUT}")
 file(COPY_FILE "${WASM}" "${OUTPUT}/conversion.wasm" ONLY_IF_DIFFERENT)
-foreach(file runtime.js worker.js)
+foreach(file runtime.js worker.js bounded_body.js)
     file(COPY_FILE "${owner}/platform/cloudflare/${file}" "${OUTPUT}/${file}" ONLY_IF_DIFFERENT)
 endforeach()
 file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/worker_tests.js" "${OUTPUT}/tests.js" ONLY_IF_DIFFERENT)
@@ -20,6 +20,7 @@ const config :Workerd.Config = (
   compatibilityDate="2026-09-11",
   modules=[(name="tests.js",esModule=embed "tests.js"),
            (name="worker.js",esModule=embed "worker.js"),
+           (name="bounded_body.js",esModule=embed "bounded_body.js"),
            (name="r2_bucket_fixture.js",esModule=embed "r2_bucket_fixture.js"),
            (name="runtime.js",esModule=embed "runtime.js"),
            (name="payment_worker_tests.js",esModule=embed "payment_worker_tests.js"),

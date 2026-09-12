@@ -51,6 +51,7 @@ export const paidHttp={async test(_controller,bindings){
   check(init.result.serverInfo.name==='Arken Convert','public MCP name');
   const listed=await rpc('tools/list',{});check(listed.result.tools.find(t=>t.name==='conversion.v1.convert_image').annotations.openWorldHint,'paid network annotation');
   const lease=await upload(),payment=await challenge(lease);
+  check((env.FILES.bodyReads.input||0)===0,'payment challenge opened image body');
   const free=createWorker();
   check((await (await free.fetch(request('tools/call',{name:'conversion.v1.convert_image',arguments:{file_id:lease.file_id}}),env)).json()).result.isError,'preview bypassed sandbox namespace');
   check(verifies===0&&settles===0&&env.FILES.outputWrites===0,'unpaid conversion performed work');
@@ -61,8 +62,10 @@ export const paidHttp={async test(_controller,bindings){
   check(complete.result._meta?.['x402/payment-response'].success,'paid receipt absent');
   const receipt=complete.result.structuredContent;
   check(receipt.width===1&&receipt.height===1&&verifies===1&&settles===1,'paid conversion identity');
+  check(env.FILES.bodyReads.input===1&&(env.FILES.bodyReads.output||0)===0,'paid metadata inspection opened image bodies');
   const download=await app.fetch(new Request(receipt.download_url),env),bytes=new Uint8Array(await download.arrayBuffer());
   check(download.status===200&&bytes[0]===137&&bytes[1]===80,'paid PNG download');
+  check(env.FILES.bodyReads.output===1,'download opened output more than once');
   check(hex(await crypto.subtle.digest('SHA-256',bytes))===receipt.sha256,'receipt digest differs from bytes');
   now++;
   const repeated=await call('conversion.v1.convert_image',{file_id:lease.file_id},payment);
