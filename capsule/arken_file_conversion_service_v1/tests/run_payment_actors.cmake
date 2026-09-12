@@ -12,13 +12,15 @@ string(RANDOM LENGTH 16 ALPHABET 0123456789abcdef run_id)
 set(run "${OUTPUT}/run-${run_id}")
 file(MAKE_DIRECTORY "${run}/state")
 file(COPY_FILE "${WASM}" "${run}/conversion.wasm")
-foreach(file runtime.js payment_ledger.js x402_facilitator.js)
+foreach(file runtime.js worker.js payment_ledger.js x402_facilitator.js paid_conversion.js sandbox_worker.js)
   file(COPY_FILE "${owner}/platform/cloudflare/${file}" "${run}/${file}")
 endforeach()
 file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/payment_actor_tests.js" "${run}/tests.js")
 file(COPY_FILE "${ACTOR_FIXTURES}" "${run}/payment-actor-fixtures.json")
 file(COPY_FILE "${X402_FIXTURES}" "${run}/x402-fixtures.json")
 file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/x402_actor_tests.js" "${run}/x402_actor_tests.js")
+file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/paid_http_tests.js" "${run}/paid_http_tests.js")
+file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/r2_bucket_fixture.js" "${run}/r2_bucket_fixture.js")
 set(template [=[
 using Workerd = import "/workerd/workerd.capnp";
 const config :Workerd.Config = (
@@ -28,6 +30,11 @@ const config :Workerd.Config = (
            (name="payment_ledger.js",esModule=embed "payment_ledger.js"),
            (name="runtime.js",esModule=embed "runtime.js"),
            (name="x402_facilitator.js",esModule=embed "x402_facilitator.js"),
+           (name="worker.js",esModule=embed "worker.js"),
+           (name="paid_conversion.js",esModule=embed "paid_conversion.js"),
+           (name="sandbox_worker.js",esModule=embed "sandbox_worker.js"),
+           (name="paid_http_tests.js",esModule=embed "paid_http_tests.js"),
+           (name="r2_bucket_fixture.js",esModule=embed "r2_bucket_fixture.js"),
            (name="x402_actor_tests.js",esModule=embed "x402_actor_tests.js"),
            (name="x402-fixtures.json",text=embed "x402-fixtures.json"),
            (name="payment-actor-fixtures.json",text=embed "payment-actor-fixtures.json"),
@@ -53,10 +60,11 @@ file(SHA256 "${run}/payment-actor-fixtures.json" fixture_hash)
 file(SHA256 "${run}/x402-fixtures.json" x402_hash)
 file(READ "${run}/x402-fixtures.json" x402_fixtures)
 string(JSON x402_vectors LENGTH "${x402_fixtures}" vectors)
+string(JSON paid_vectors LENGTH "${x402_fixtures}" paidVectors)
 set(source_hashes "{}")
-foreach(file runtime.js payment_ledger.js x402_facilitator.js tests.js x402_actor_tests.js)
+foreach(file runtime.js worker.js payment_ledger.js x402_facilitator.js paid_conversion.js sandbox_worker.js tests.js x402_actor_tests.js paid_http_tests.js r2_bucket_fixture.js)
   file(SHA256 "${run}/${file}" source_hash)
   string(JSON source_hashes SET "${source_hashes}" "${file}" "\"${source_hash}\"")
 endforeach()
-file(WRITE "${run}/proof.json" "{\"status\":\"passed\",\"storage\":\"workerd-disk-backed-durable-objects\",\"processPhases\":2,\"network\":\"denied\",\"facilitator\":\"mock\",\"moduleSha256\":\"${module_hash}\",\"fixtureSha256\":\"${fixture_hash}\",\"x402FixtureSha256\":\"${x402_hash}\",\"x402NativeWasmVectors\":${x402_vectors},\"sourceHashes\":${source_hashes}}\n")
+file(WRITE "${run}/proof.json" "{\"status\":\"passed\",\"storage\":\"workerd-disk-backed-durable-objects\",\"processPhases\":2,\"network\":\"denied\",\"facilitator\":\"mock\",\"r2\":\"fixture\",\"moduleSha256\":\"${module_hash}\",\"fixtureSha256\":\"${fixture_hash}\",\"x402FixtureSha256\":\"${x402_hash}\",\"x402NativeWasmVectors\":${x402_vectors},\"paidControllerNativeWasmVectors\":${paid_vectors},\"sourceHashes\":${source_hashes}}\n")
 message(STATUS "Durable payment proof: ${run}/proof.json")
