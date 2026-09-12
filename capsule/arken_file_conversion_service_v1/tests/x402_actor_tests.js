@@ -1,7 +1,7 @@
 import text from './x402-fixtures.json';
 import {x402Packet,paidConversionPacket} from './runtime.js';
 import {paymentLedger} from './payment_ledger.js';
-import {admitPayment,executePaymentEffect,retryPaymentVerification} from './x402_facilitator.js';
+import {admitPayment,executePaymentEffect,retryPaymentVerification,sendFacilitator} from './x402_facilitator.js';
 const data=JSON.parse(text),f=data.fixture;
 const check=(value,label)=>{if(!value)throw Error(label);};
 const packet=value=>{const result=x402Packet(JSON.stringify(value));check(!result.packetError,'C++ protocol rejected fixture');return result;};
@@ -16,6 +16,16 @@ export const x402Integration={async test(_controller,env){
   const admission=prepared(f.quote,f.payment),ledger=paymentLedger(env.LEDGER,admission.command);
   const options={clock:()=> '101'};
   if(env.PHASE==='write'){
+    const io=await sendFacilitator({url:'https://x402.org/facilitator/verify',body:'{}'},{fetcher:async(url,options)=>{
+      check(url.endsWith('/verify')&&options.method==='POST'&&options.redirect==='error'&&options.signal,'facilitator HTTP options');
+      return new Response('{"isValid":false}',{status:200});}});
+    check(io.status===200&&io.body==='{"isValid":false}','facilitator stream decoding');
+    const denied=await sendFacilitator({url:'https://x402.org/facilitator/verify',body:'{}'},{fetcher:async()=>new Response('denied',{status:403})});
+    check(denied.status===403&&denied.body==='denied','HTTP status lost in transport');
+    for(const bytes of [new Uint8Array(16385),new Uint8Array([195,40])]){
+      let rejected=false;try{await sendFacilitator({url:'https://x402.org/facilitator/verify',body:'{}'},{fetcher:async()=>new Response(bytes)});}catch(error){rejected=true;}
+      check(rejected,'unbounded or invalid UTF8 provider reply accepted');
+    }
     let verifies=0,settles=0;
     options.send=async request=>{
       const body=JSON.parse(request.body);

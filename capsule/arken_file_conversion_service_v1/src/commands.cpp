@@ -45,7 +45,7 @@ std::string PlanRequest(std::string_view text,bool sandboxPayments) noexcept {
               ||!params["clientInfo"].contains("version")||!params["clientInfo"]["version"].is_string())
             return Failure(id,-32602,"Invalid initialization parameters");
           return reply({{"protocolVersion","2025-11-25"},{"capabilities",{{"tools",Json::object()}}},
-            {"serverInfo",{{"name","Arken Convert"},{"version","r4335"}}},
+            {"serverInfo",{{"name","Arken Convert"},{"version","r4340"}}},
             {"instructions",sandboxPayments?"Authenticated x402 sandbox. Upload then convert with test USDC on Base Sepolia. Mainnet payments are disabled.":"Authenticated conversion preview. Prepare an upload, PUT the file bytes, then convert. No live charges are enabled."}},true);
         }
         if(method=="ping")return reply(Json::object());

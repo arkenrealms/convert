@@ -82,18 +82,28 @@ Json Callback(const Json& j){
   J::require(op.authorization&&op.stage==(verify?Stage::verifying:Stage::settling),"callback not dispatched");
   Event event;event.expectedRevision=op.revision;event.now=J::readScalar<std::uint64_t>(j.at("now"));
   event.kind=EventKind::settlementUncertain;
+  const auto status=J::readScalar<std::uint32_t>(j.at("status"));J::require(status<=599,"invalid HTTP status");
+  std::string reason=status==0?"transport":"http_"+std::to_string(status);
+  if(status==0){
+    try{const auto name=detail::Parse(J::readScalar<std::string>(j.at("response"))).value("transportError","");
+      if(name=="AbortError"||name=="TimeoutError")reason="transport_timeout";
+      else if(name=="TypeError")reason="transport_type_error";
+    }catch(const std::exception&){reason="transport";}
+  }
   try{
-    J::require(J::readScalar<std::uint32_t>(j.at("status"))==200,"facilitator HTTP failed");const auto response=detail::Parse(J::readScalar<std::string>(j.at("response")));
+    J::require(status==200,"facilitator HTTP failed");reason="invalid_json";
+    const auto response=detail::Parse(J::readScalar<std::string>(j.at("response")));
     if(verify){
+      reason="invalid_validity";
       if(!J::readScalar<bool>(response.at("isValid")))event.kind=EventKind::verificationRejected;
-      else {event.verifiedPayer=Hex<20>(response.at("payer"));J::require(event.verifiedPayer==op.quote.scope.payer,"verified payer mismatch");event.kind=EventKind::verificationPassed;}
+      else {reason="invalid_payer";event.verifiedPayer=Hex<20>(response.at("payer"));J::require(event.verifiedPayer==op.quote.scope.payer,"verified payer mismatch");event.kind=EventKind::verificationPassed;}
     }else{
       J::require(J::readScalar<bool>(response.at("success"))&&response.at("network")==network&&Hex<20>(response.at("payer"))==op.quote.scope.payer,"settlement not proven");
       Transfer transfer;transfer.transaction=Hex<32>(response.at("transaction"));J::require(std::ranges::any_of(transfer.transaction,[](auto b){return b!=0;}),"empty transaction");
       transfer.scope=op.quote.scope;transfer.recipient=op.quote.recipient;transfer.amount=op.quote.amount;transfer.nonce=op.authorization->nonce;
       event.transfer=transfer;event.kind=EventKind::settlementSucceeded;
     }
-  }catch(const std::exception&){if(verify)return {{"kind","unavailable"},{"code","facilitator_verification_unavailable"}};}
+  }catch(const std::exception&){if(verify)return {{"kind","unavailable"},{"code","facilitator_verification_unavailable_"+reason}};}
   return {{"kind","callback"},{"command",Command(op.quote,event).dump()}};
 }
 Json Control(const Json& j){

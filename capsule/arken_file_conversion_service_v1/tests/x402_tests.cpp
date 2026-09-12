@@ -11,6 +11,8 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <tuple>
+#include <vector>
 namespace P=arken::file_conversion::service::v1::payment;
 namespace J=arken::schema::cpp::v1::tool_json;
 using Json=nlohmann::json;
@@ -64,6 +66,11 @@ Json Fixture(){
     const auto bad=Wire({{"kind","callback"},{"operation",decision["operation"]},{"phase","verify"},{"response",invalid.dump()},{"status",200},{"now","101"}});
     Check(bad.at("kind")=="unavailable","untrusted facilitator verification accepted");}
   const Json goodVerify={{"isValid",true},{"payer","0x"+std::string(40,'1')}};
+  for(const auto& [status,response,reason]:std::vector<std::tuple<unsigned,std::string,std::string>>{
+    {403,"private provider text","http_403"},{200,"not JSON","invalid_json"},{200,"{}","invalid_validity"},{0,"{\"transportError\":\"TypeError\"}","transport_type_error"}}){
+    const auto diagnostic=Wire({{"kind","callback"},{"operation",decision["operation"]},{"phase","verify"},{"response",response},{"status",status},{"now","101"}});
+    Check(diagnostic.at("code")=="facilitator_verification_unavailable_"+reason,"unsafe or missing facilitator diagnostic");
+  }
   auto callback=Wire({{"kind","callback"},{"operation",decision["operation"]},{"phase","verify"},{"response",goodVerify.dump()},{"status",200},{"now","101"}});
   const auto verified=ledger.transition(callback["command"].get<std::string>());Check(verified["operation"]["stage"]==unsigned(P::Stage::authorized),"verified callback");
   const auto resume=Wire({{"kind","control"},{"operation",verified["operation"]},{"event","resume"},{"now","101"},{"release","0x05"+std::string(62,'0')}});
@@ -122,7 +129,7 @@ Json Fixture(){
 }
 }
 int main(int argc,char** argv){
-  if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-x402-tests r4335\n";return 0;}
+  if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-x402-tests r4340\n";return 0;}
   try{const bool probe=argc==3&&std::string_view(argv[1])=="--probe-rejection";const bool write=argc==3&&std::string_view(argv[1])=="--write-fixtures";
     Check(argc==1||probe||write,"arguments");const auto fixture=Fixture();
     if(write){const std::filesystem::path root(argv[2]);std::filesystem::create_directories(root);std::ofstream out(root/"x402-fixtures.json");out<<Json{{"fixture",fixture},{"vectors",vectors},{"paidVectors",paidVectors}}.dump();Check(bool(out),"fixture write");}
