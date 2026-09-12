@@ -20,7 +20,7 @@ export function createPaidConversion({clock=clockSeconds,send,readChain}={}){
       const source=await env.FILES.head(found.key+'/input');
       if(!source)return failure('upload_required');
       if(source.size!==found.record.args.source_bytes)return failure('source_size_mismatch');
-      const qualified=packet({kind:'quote',fileId:id,owner,inputDigest:source.customMetadata?.sha256,
+      const qualified=packet({kind:'quote',profileId:'base-sepolia-v1',fileId:id,owner,inputDigest:source.customMetadata?.sha256,
         arguments:found.record.args,release:env.RELEASE_ID,expiresAt:String(Math.floor(found.record.expiresAt/1000))});
       const quote=qualified.quote;
       let bound=await binding(env.FILES,found.key);

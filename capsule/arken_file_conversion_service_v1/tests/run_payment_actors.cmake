@@ -21,7 +21,7 @@ file(COPY_FILE "${X402_FIXTURES}" "${run}/x402-fixtures.json")
 file(COPY_FILE "${RECONCILIATION_FIXTURES}" "${run}/reconciliation-fixtures.json")
 file(COPY_FILE "${PUBLIC_ADMISSION_FIXTURES}" "${run}/public-admission-fixtures.json")
 file(COPY_FILE "${PROVIDER_FIXTURES}" "${run}/provider-fixtures.json")
-foreach(file public_admission_actor_tests.js public_http_tests.js cdp_authorization_tests.js)
+foreach(file public_admission_actor_tests.js public_http_tests.js cdp_authorization_tests.js mainnet_profile_tests.js)
   file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/${file}" "${run}/${file}")
 endforeach()
 file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/settlement_chain_fixture.js" "${run}/settlement_chain_fixture.js")
@@ -42,6 +42,7 @@ const config :Workerd.Config = (
            (name="public_admission.js",esModule=embed "public_admission.js"),
            (name="cdp_authorization.js",esModule=embed "cdp_authorization.js"),
            (name="cdp_authorization_tests.js",esModule=embed "cdp_authorization_tests.js"),
+           (name="mainnet_profile_tests.js",esModule=embed "mainnet_profile_tests.js"),
            (name="provider-fixtures.json",text=embed "provider-fixtures.json"),
            (name="public-admission-fixtures.json",text=embed "public-admission-fixtures.json"),
            (name="public_admission_actor_tests.js",esModule=embed "public_admission_actor_tests.js"),
@@ -93,7 +94,7 @@ file(READ "${run}/x402-fixtures.json" x402_fixtures)
 string(JSON x402_vectors LENGTH "${x402_fixtures}" vectors)
 string(JSON paid_vectors LENGTH "${x402_fixtures}" paidVectors)
 set(source_hashes "{}")
-foreach(file runtime.js worker.js payment_ledger.js x402_facilitator.js paid_conversion.js sandbox_worker.js bounded_body.js settlement_reconciliation.js public_admission.js cdp_authorization.js cdp_authorization_tests.js tests.js x402_actor_tests.js paid_http_tests.js r2_bucket_fixture.js payment_recovery_actor_tests.js settlement_chain_fixture.js public_admission_actor_tests.js public_http_tests.js)
+foreach(file runtime.js worker.js payment_ledger.js x402_facilitator.js paid_conversion.js sandbox_worker.js bounded_body.js settlement_reconciliation.js public_admission.js cdp_authorization.js cdp_authorization_tests.js mainnet_profile_tests.js tests.js x402_actor_tests.js paid_http_tests.js r2_bucket_fixture.js payment_recovery_actor_tests.js settlement_chain_fixture.js public_admission_actor_tests.js public_http_tests.js)
   file(SHA256 "${run}/${file}" source_hash)
   string(JSON source_hashes SET "${source_hashes}" "${file}" "\"${source_hash}\"")
 endforeach()
