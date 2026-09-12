@@ -1,12 +1,13 @@
 #include "arken_file_conversion_service_v1/payment.hpp"
 #include "arken_file_conversion_service_v1/payment_packet.hpp"
 #include <fstream>
+#include <filesystem>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <string_view>
-namespace P=arken::file_conversion::service::payment;
+namespace P=arken::file_conversion::service::v1::payment;
 namespace {
 unsigned checks=0;
 auto packets=nlohmann::json::array();
@@ -100,8 +101,61 @@ void Tests(){
     const auto input=invalidPacket.dump(),out=P::AdvancePacket(input);Check(nlohmann::json::parse(out).contains("packetError"),"invalid packet shape admitted");
     packets.push_back({{"input",input},{"expected",out}});}
 }
+using Json=nlohmann::json;
+Json ActorScenario(unsigned id,unsigned payer,unsigned nonce){
+  Machine m;m.op.quote.operation[0]=static_cast<std::uint8_t>(id);m.op.quote.scope.payer[0]=static_cast<std::uint8_t>(payer);
+  auto auth=Auth();auth.nonce[0]=static_cast<std::uint8_t>(nonce);auth.payload[0]=static_cast<std::uint8_t>(id+50);
+  Json scenario={{"commands",Json::object()},{"expected",Json::object()}};
+  const auto command=[&](P::Event e){const auto input=Json::parse(P::InputPacket(m.op,m.op.quote,m.claim,e));return Json{{"version",1},{"quote",input["quote"]},{"event",input["event"]}}.dump();};
+  const auto step=[&](const char* name,P::Event e){scenario["commands"][name]=command(e);scenario["expected"][name]=Json::parse(P::DecisionPacket(m.step(e)));};
+  const auto inspect=[&](const char* name){step(name,m.event(P::EventKind::inspect));};
+  auto e=m.event(P::EventKind::request);e.authorization=auth;step("start",e);inspect("inspectStart");
+  e=m.event(P::EventKind::verificationPassed);e.verifiedPayer=m.op.quote.scope.payer;step("verified",e);inspect("inspectAuthorized");
+  e=m.event(P::EventKind::request);e.executingRelease=m.op.quote.release;step("compute",e);inspect("inspectComputing");
+  e=m.event(P::EventKind::outputCommitted);e.output=Output();step("output",e);inspect("inspectOutput");
+  step("settle",m.event(P::EventKind::request));inspect("inspectSettling");
+  step("unknown",m.event(P::EventKind::settlementUncertain));inspect("inspectUnknown");
+  e=m.event(P::EventKind::reconciledSucceeded);e.now=1000;e.transfer=Transfer();e.transfer->nonce=auth.nonce;e.transfer->scope=m.op.quote.scope;step("reconciled",e);inspect("inspectSettled");
+  e=m.event(P::EventKind::request);e.now=1000;step("receipt",e);
+  return scenario;
 }
-int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-payment-tests r4332\n";return 0;}
-  try{Check(argc==1||(argc==3&&std::string_view(argv[1])=="--write-packets"),"invalid arguments");Tests();
-    if(argc==3){std::ofstream out(argv[2],std::ios::binary);out<<packets.dump();Check(bool(out),"packet fixture write failed");}
+Json ActorFixtures(){
+  Json fixtures={{"version",1},{"scenarios",Json::object()},
+    {"constants",{{"staleRevision",unsigned(P::Error::staleRevision)},{"nonceConflict",unsigned(P::Error::nonceConflict)},
+      {"verify",unsigned(P::Action::verify)},{"settle",unsigned(P::Action::settle)},{"receipt",unsigned(P::Action::receipt)}}}};
+  fixtures["scenarios"]["main"]=ActorScenario(1,7,0);
+  fixtures["scenarios"]["reuse"]=ActorScenario(2,7,0);
+  fixtures["scenarios"]["rollback"]=ActorScenario(3,8,9);
+  fixtures["scenarios"]["rollbackReuse"]=ActorScenario(4,8,9);
+  fixtures["scenarios"]["lostOutput"]=ActorScenario(5,9,3);
+  fixtures["scenarios"]["lostSync"]=ActorScenario(6,10,4);
+  // Exercise the exact opaque storage codec with an in-memory native oracle.
+  // Real transactional persistence is separately proved by workerd actors.
+  std::map<std::string,std::string> values;
+  for(const auto* name:{"start","verified","compute","output","settle","unknown","reconciled","receipt"}){
+    const auto cmd=fixtures["scenarios"]["main"]["commands"][name].get<std::string>();
+    auto keys=Json::parse(P::StorageLookupPacket(Json{{"command",cmd},{"record",nullptr}}.dump()));
+    const auto get=[&](const Json& key)->Json{if(key.is_null())return nullptr;auto at=values.find(key.get<std::string>());return at==values.end()?Json(nullptr):Json(at->second);};
+    const auto record=get(keys["operationKey"]);keys=Json::parse(P::StorageLookupPacket(Json{{"command",cmd},{"record",record}}.dump()));
+    auto input=Json{{"command",cmd},{"record",record},{"scope",get(keys["scopeKey"])},{"claim",get(keys["nonceKey"])}};
+    const auto plan=Json::parse(P::StorageAdvancePacket(input.dump()));
+    Check(plan.at("decision")==fixtures["scenarios"]["main"]["expected"][name],"storage packet differs from native policy");
+    Check(plan.at("writes").size()<=3,"unbounded storage write set");
+    for(const auto& write:plan.at("writes"))values[write.at("key").get<std::string>()]=write.at("value").get<std::string>();
+    if(std::string_view(name)=="receipt")Check(plan["writes"].empty(),"receipt rewrote ledger");
+    if(std::string_view(name)=="verified"){
+      input["scope"]=nullptr;Check(Json::parse(P::StorageAdvancePacket(input.dump())).contains("packetError"),"partial store missing scope admitted");
+    }
+  }
+  auto bad=Json::parse(fixtures["scenarios"]["main"]["commands"]["start"].get<std::string>());
+  bad["operation"]={{"stage",7}};
+  Check(Json::parse(P::StorageLookupPacket(Json{{"command",bad.dump()},{"record",nullptr}}.dump())).contains("packetError"),"client-authored operation state admitted");
+  return fixtures;
+}
+}
+int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-payment-tests r4333\n";return 0;}
+  try{Check(argc==1||(argc==3&&std::string_view(argv[1])=="--write-fixtures"),"invalid arguments");Tests();const auto actors=ActorFixtures();
+    if(argc==3){const std::filesystem::path dir(argv[2]);std::filesystem::create_directories(dir);
+      std::ofstream out(dir/"payment-packets.json",std::ios::binary);out<<packets.dump();Check(bool(out),"packet fixture write failed");
+      std::ofstream actorOut(dir/"payment-actor-fixtures.json",std::ios::binary);actorOut<<actors.dump();Check(bool(actorOut),"actor fixture write failed");}
     std::cout<<checks<<" payment policy checks passed; "<<packets.size()<<" native/Wasm packets\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

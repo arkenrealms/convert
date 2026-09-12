@@ -2,7 +2,7 @@
 #include "arken_schema_cpp_v1/tool_json.hpp"
 #include <set>
 #include <vector>
-namespace arken::file_conversion::service::payment {
+namespace arken::file_conversion::service::v1::payment {
 namespace J=arken::schema::cpp::v1::tool_json;
 using Json=J::Json;
 namespace {
@@ -34,21 +34,72 @@ template<> Operation Get<Operation>(const Json& j){Fields(j,{"quote","revision",
 Json Put(const Event& e){return {{"kind",unsigned(e.kind)},{"expectedRevision",J::writeScalar(e.expectedRevision)},{"now",J::writeScalar(e.now)},
   {"authorization",Put(e.authorization)},{"output",Put(e.output)},{"transfer",Put(e.transfer)},{"verifiedPayer",Put(e.verifiedPayer)},{"executingRelease",Put(e.executingRelease)},{"failure",unsigned(e.failure)}};}
 template<> Event Get<Event>(const Json& j){Fields(j,{"kind","expectedRevision","now","authorization","output","transfer","verifiedPayer","executingRelease","failure"});
-  return {Enum(j.at("kind"),EventKind::reconciledFailed),J::readScalar<std::uint64_t>(j.at("expectedRevision")),J::readScalar<std::uint64_t>(j.at("now")),Optional<Authorization>(j.at("authorization")),Optional<Output>(j.at("output")),Optional<Transfer>(j.at("transfer")),Bytes<20>(j.at("verifiedPayer")),Bytes<32>(j.at("executingRelease")),Enum(j.at("failure"),Failure::settlementRejected)};}
+  return {Enum(j.at("kind"),EventKind::inspect),J::readScalar<std::uint64_t>(j.at("expectedRevision")),J::readScalar<std::uint64_t>(j.at("now")),Optional<Authorization>(j.at("authorization")),Optional<Output>(j.at("output")),Optional<Transfer>(j.at("transfer")),Bytes<20>(j.at("verifiedPayer")),Bytes<32>(j.at("executingRelease")),Enum(j.at("failure"),Failure::settlementRejected)};}
+Json Parse(std::string_view text){
+  J::require(text.size()<=16384,"packet byte limit");std::vector<std::set<std::string>> keys;
+  return Json::parse(text.begin(),text.end(),[&](int depth,Json::parse_event_t event,Json& value){
+    J::require(depth<=32,"packet depth limit");
+    if(event==Json::parse_event_t::object_start)keys.emplace_back();
+    if(event==Json::parse_event_t::key)J::require(!keys.empty()&&keys.back().insert(value.get<std::string>()).second,"duplicate packet key");
+    if(event==Json::parse_event_t::object_end)keys.pop_back();return true;});
+}
+void Version(const Json& j){J::require(J::readScalar<std::uint32_t>(j.at("version"))==1,"packet version mismatch");}
+struct StoredInput {Quote quote;Event event;Operation operation;};
+StoredInput Stored(const Json& outer){
+  const auto command=Parse(J::readScalar<std::string>(outer.at("command")));
+  Fields(command,{"version","quote","event"});Version(command);
+  StoredInput input{Get<Quote>(command.at("quote")),Get<Event>(command.at("event")),{}};
+  input.operation.quote=input.quote;
+  if(!outer.at("record").is_null()){
+    const auto record=Parse(J::readScalar<std::string>(outer.at("record")));Fields(record,{"version","operation"});Version(record);
+    input.operation=Get<Operation>(record.at("operation"));J::require(input.operation.quote==input.quote,"stored quote changed");
+  }
+  return input;
+}
+Json Keys(const StoredInput& input){
+  const auto& q=input.quote;const auto auth=input.operation.authorization?input.operation.authorization:input.event.authorization;
+  const auto actor=std::to_string(q.scope.chain)+"/"+Put(q.scope.asset).get<std::string>()+"/"+Put(q.scope.payer).get<std::string>();
+  return {{"scopeKey","scope"},{"actorKey",actor},{"operationKey","operation/"+Put(q.operation).get<std::string>()},
+    {"nonceKey",auth?Json("nonce/"+Put(auth->nonce).get<std::string>()):Json(nullptr)}};
+}
 }
 std::string InputPacket(const Operation& op,const Quote& q,const std::optional<NonceClaim>& claim,const Event& event){return Json{{"version",1},{"operation",Put(op)},{"quote",Put(q)},{"claim",Put(claim)},{"event",Put(event)}}.dump();}
 std::string DecisionPacket(const Decision& d){return Json{{"version",1},{"error",unsigned(d.error)},{"action",unsigned(d.action)},{"changed",d.changed},{"operation",Put(d.operation)},{"claim",Put(d.nonceClaim)}}.dump();}
 std::string AdvancePacket(std::string_view text) noexcept {
   try {
-    J::require(text.size()<=16384,"packet byte limit");std::vector<std::set<std::string>> keys;
-    const auto j=Json::parse(text.begin(),text.end(),[&](int depth,Json::parse_event_t event,Json& value){
-      J::require(depth<=32,"packet depth limit");
-      if(event==Json::parse_event_t::object_start)keys.emplace_back();
-      if(event==Json::parse_event_t::key)J::require(!keys.empty()&&keys.back().insert(value.get<std::string>()).second,"duplicate packet key");
-      if(event==Json::parse_event_t::object_end)keys.pop_back();return true;});
-    Fields(j,{"version","operation","quote","claim","event"});J::require(J::readScalar<std::uint32_t>(j.at("version"))==1,"packet version mismatch");
+    const auto j=Parse(text);
+    Fields(j,{"version","operation","quote","claim","event"});Version(j);
     return DecisionPacket(Advance(Get<Operation>(j.at("operation")),Get<Quote>(j.at("quote")),Optional<NonceClaim>(j.at("claim")),Get<Event>(j.at("event"))));
   } catch(const std::exception&){return "{\"packetError\":\"invalid_payment_packet\"}";}
   catch(...){return "{\"packetError\":\"payment_packet_unavailable\"}";}
+}
+std::string StorageLookupPacket(std::string_view text) noexcept {
+  try{const auto outer=Parse(text);Fields(outer,{"command","record"});return Keys(Stored(outer)).dump();}
+  catch(const std::exception&){return "{\"packetError\":\"invalid_payment_storage_lookup\"}";}
+  catch(...){return "{\"packetError\":\"payment_storage_unavailable\"}";}
+}
+std::string StorageAdvancePacket(std::string_view text) noexcept {
+  try {
+    const auto outer=Parse(text);Fields(outer,{"command","record","scope","claim"});auto input=Stored(outer);
+    // A read observes the current durable revision. Effect callbacks still
+    // require the exact revision frozen by the dispatching controller.
+    if(input.event.kind==EventKind::inspect)input.event.expectedRevision=input.operation.revision;
+    if(!outer.at("scope").is_null())J::require(Get<Scope>(Parse(J::readScalar<std::string>(outer.at("scope"))))==input.quote.scope,"actor scope changed");
+    // A record without its atomically committed scope denotes corrupt/partial storage.
+    J::require((outer.at("record").is_null()&&outer.at("claim").is_null())||!outer.at("scope").is_null(),"actor scope missing");
+    std::optional<NonceClaim> claim;
+    if(!outer.at("claim").is_null()){
+      const auto stored=Parse(J::readScalar<std::string>(outer.at("claim")));Fields(stored,{"version","claim"});Version(stored);claim=Get<NonceClaim>(stored.at("claim"));}
+    const auto decision=Advance(input.operation,input.quote,claim,input.event);auto writes=Json::array();
+    const auto keys=Keys(input);
+    if(decision.changed){
+      writes.push_back({{"key",keys.at("operationKey")},{"value",Json{{"version",1},{"operation",Put(decision.operation)}}.dump()}});
+      if(decision.nonceClaim&&decision.nonceClaim!=claim){J::require(!keys.at("nonceKey").is_null(),"nonce key absent");
+        writes.push_back({{"key",keys.at("nonceKey")},{"value",Json{{"version",1},{"claim",Put(*decision.nonceClaim)}}.dump()}});}
+      if(outer.at("scope").is_null())writes.push_back({{"key","scope"},{"value",Put(input.quote.scope).dump()}});
+    }
+    return Json{{"decision",Json::parse(DecisionPacket(decision))},{"writes",writes}}.dump();
+  } catch(const std::exception&){return "{\"packetError\":\"invalid_payment_storage_packet\"}";}
+  catch(...){return "{\"packetError\":\"payment_storage_unavailable\"}";}
 }
 }
