@@ -66,6 +66,13 @@ export const productionHttp={async test(_controller,bindings){
   check((await health()).charging===false&&(await health()).admissionReady===false&&probes===3,'qualification affected public health');
   check((await call('conversion.v1.prepare_upload',uploadArgs)).isError&&probes===3&&env.FILES.values.size===0,'qualification cache admitted upload');
   const again=await qualify();check(again.status===200&&probes===3,'qualification cache missed');
+  const rurl='https://production.example/_arken/production/readiness';
+  const readiness=(options={})=>app.fetch(new Request(rurl,{method:'POST',headers:{authorization:'Bearer '+env.ACCESS_TOKEN},...options}),env);
+  for(const options of [{headers:{}},{headers:{authorization:'Bearer wrong'}},{method:'GET'},{body:'{}'},{headers:{authorization:'Bearer '+env.ACCESS_TOKEN,origin:'https://foreign.example'}}]){
+    check((await readiness(options)).status>=400&&probes===3&&env.FILES.values.size===0,'readiness request gate did I/O');}
+  check((await app.fetch(new Request(rurl+'?ready=true',{method:'POST',headers:{authorization:'Bearer '+env.ACCESS_TOKEN}}),env)).status===400&&probes===3,'readiness query accepted');
+  for(const other of [sandbox,preview])check((await other.fetch(new Request(rurl,{method:'POST',headers:{authorization:'Bearer '+env.ACCESS_TOKEN}}),env)).status===404,'nonproduction readiness exposed');
+  check((await readiness()).status===503&&probes===3&&env.FILES.values.size===0,'readiness bypassed disabled admission');
   const emptyStream=new ReadableStream({start(controller){controller.close();}});
   check((await qualify({body:emptyStream})).status===200&&probes===3,'empty POST stream treated as nonempty input');
   const originalRelease=env.RELEASE_ID;let qualifyRelease;waitProbe=new Promise(resolve=>{qualifyRelease=resolve;});
@@ -75,8 +82,10 @@ export const productionHttp={async test(_controller,bindings){
   env.PAYMENTS_ENABLED='true';failSupported=true;
   check((await call('conversion.v1.prepare_upload',uploadArgs)).isError&&probes===2&&env.FILES.values.size===0,'failed provider admitted upload');
   check((await health()).admissionCode==='provider_authentication_unavailable'&&probes===2,'health lost error or retried');failSupported=false;
-  const before=probes;const admissions=await Promise.all([startup.ensure(env),startup.ensure(env)]);
-  check(admissions.every(r=>r.ready)&&probes===before+3,'startup checks not coalesced');
+  const before=probes;const admissions=await Promise.all([readiness(),readiness()]);
+  for(const response of admissions){const r=await response.json();check(response.status===200&&r.providerQualified&&r.admissionReady&&r.charging,'readiness did not use normal startup');}
+  check(probes===before+3&&env.FILES.values.size===0&&settles===0&&verifies===0,'readiness made a purchase or checks not coalesced');
+  check((await qualify()).status===503&&probes===before+3,'disabled-only qualification accepted enabled environment');
   check((await health()).charging===true&&probes===before+3,'ready health probed again');
   const readyCalls=probes;
   const prepared=await call('conversion.v1.prepare_upload',uploadArgs),lease=prepared.structuredContent;
@@ -91,10 +100,12 @@ export const productionHttp={async test(_controller,bindings){
   check(complete._meta?.['x402/payment-response']?.network==='eip155:8453'&&verifies===1&&settles===1,'production payment flow failed');
   const receipt=complete.structuredContent,download=await app.fetch(new Request(receipt.download_url),env),bytes=new Uint8Array(await download.arrayBuffer());
   check(download.status===200&&bytes[0]===137&&bytes[1]===80&&hex(await crypto.subtle.digest('SHA-256',bytes))===receipt.sha256&&receipt.sha256===f.nativePngSha256,'production PNG bytes differ from native result');
-  env.PAYMENTS_ENABLED='false';
+  env.PAYMENTS_ENABLED='false';failSupported=true;const disabledProbes=probes;
+  check((await readiness()).status===503&&probes===disabledProbes,'disable depends on provider health');
   check((await call('conversion.v1.prepare_upload',uploadArgs)).isError,'disabled new purchase accepted');
   check(JSON.stringify(await call('conversion.v1.convert_image',target))===JSON.stringify(complete)&&settles===1,'disable stranded paid receipt');
   check((await app.fetch(new Request(receipt.download_url),env)).status===200,'disable stranded paid download');
+  check(probes===disabledProbes&&verifies===1&&settles===1,'disable recontacted provider or resettled');failSupported=false;
   // Even deliberate identity copies in the same bucket cannot cross HMAC domains.
   for(const [key,value] of [...env.FILES.values])for(const prefix of ['sandbox','preview'])env.FILES.values.set(key.replace(/^production/,prefix),structuredClone(value));
   for(const other of [sandbox,preview])check((await other.fetch(new Request(receipt.download_url),env)).status===403,'cross-surface capability accepted');
