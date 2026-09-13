@@ -7,7 +7,10 @@ const encoder=new TextEncoder(), decoder=new TextDecoder();
 export function planRequest(text) {
   return invokePacket(text,api.arken_mcp_plan);
 }
-export function planPaidRequest(text) {return invokePacket(text,api.arken_mcp_paid_plan);}
+export function planSandboxRequest(text) {return invokePacket(text,api.arken_mcp_sandbox_plan);}
+export function planProductionRequest(text) {return invokePacket(text,api.arken_mcp_production_plan);}
+export function serverSurface(text) {return invokePacket(text,api.arken_server_surface);}
+export function productionStartupPacket(text) {return invokePacket(text,api.arken_production_startup,api.arken_settlement_prepare,true);}
 export function paidConversionPacket(text) {return invokePacket(text,api.arken_paid_conversion_packet);}
 // Private actor/storage integration only; this is not exposed as an MCP tool.
 export function advancePayment(text) {

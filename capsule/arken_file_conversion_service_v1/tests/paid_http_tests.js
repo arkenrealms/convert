@@ -1,7 +1,7 @@
 import {createWorker} from './worker.js';
 import {createPaidConversion} from './paid_conversion.js';
 import {Bucket} from './r2_bucket_fixture.js';
-import {paidConversionPacket,planPaidRequest} from './runtime.js';
+import {paidConversionPacket,planSandboxRequest} from './runtime.js';
 import sandbox from './sandbox_worker.js';
 import {chainFixture} from './settlement_chain_fixture.js';
 const check=(value,label)=>{if(!value)throw Error(label);};
@@ -122,7 +122,7 @@ export const paidHttp={async test(_controller,bindings){
   check(largeResult.result._meta?.['x402/payment-response']?.success&&largeResult.result.structuredContent.width===1024&&largeResult.result.structuredContent.height===1024,'full-limit paid conversion');
   const actualLarge=new Uint8Array(await (await app.fetch(new Request(largeResult.result.structuredContent.download_url),env)).arrayBuffer());
   check(actualLarge[0]===137&&actualLarge[1]===80,'stored codec hint overrode C++ options');
-  const malformed=planPaidRequest('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"conversion.v1.convert_image","arguments":{"file_id":"'+'11'.repeat(32)+'"},"_meta":{"x402/payment":{},"x402/payment":{}}}}');
+  const malformed=planSandboxRequest('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"conversion.v1.convert_image","arguments":{"file_id":"'+'11'.repeat(32)+'"},"_meta":{"x402/payment":{},"x402/payment":{}}}}');
   check(malformed.kind==='response','duplicate metadata key accepted');
   // Exact quote owner/input/options changes reject against the retained binding.
   const bindingRecord=JSON.parse(await (await env.FILES.get([...env.FILES.values.keys()].find(k=>k.includes(lease.file_id)&&k.endsWith('/payment')))).text());

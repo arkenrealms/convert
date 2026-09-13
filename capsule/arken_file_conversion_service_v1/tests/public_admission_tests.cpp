@@ -37,16 +37,16 @@ void Tests(){
   Check(capability.at("owner")==C::Hash(Id(2)),"capability owner digest differs");
   Check(Run({{"kind","capability"},{"fileId",Id(1)},{"fileToken",nullptr}}).at("allowed")==false,"missing capability accepted");
   Check(Run({{"kind","capability"},{"fileId",Id(1)},{"fileToken","invalid"}}).contains("packetError"),"invalid capability accepted");
-  Json access={{"kind","access"},{"sandbox",true},{"hasAuthorization",false},{"administrator",false},{"intent","discovery"},{"fileId",nullptr},{"fileToken",nullptr}};
+  Json access={{"kind","access"},{"publicAccess",true},{"hasAuthorization",false},{"administrator",false},{"intent","discovery"},{"fileId",nullptr},{"fileToken",nullptr}};
   Check(Run(access).at("mode")=="public","public discovery denied");access["intent"]="file";access["fileId"]=Id(1);
   Check(Run(access).at("mode")=="denied","public file without capability admitted");access["fileToken"]=Id(2);
   Check(Run(access).at("owner")==capability.at("owner"),"file access changed owner");
   access["hasAuthorization"]=true;Check(Run(access).at("mode")=="denied","bad bearer fell back to public");
   access["administrator"]=true;Check(Run(access).at("mode")=="operator","operator path lost");
-  access["sandbox"]=false;access["administrator"]=false;access["hasAuthorization"]=false;access["intent"]="discovery";Check(Run(access).at("mode")=="denied","private preview opened");
+  access["publicAccess"]=false;access["administrator"]=false;access["hasAuthorization"]=false;access["intent"]="discovery";Check(Run(access).at("mode")=="denied","private preview opened");
 }
 }
-int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-public-admission-tests r4348\n";return 0;}
+int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-public-admission-tests r4354\n";return 0;}
   try{Check(argc==1||(argc==3&&std::string_view(argv[1])=="--write-fixtures"),"invalid arguments");Tests();
     if(argc==3){const auto path=C::fs::absolute(argv[2]);C::PrivateDirectory(path);C::Write(path/"public-admission-fixtures.json",vectors.dump()+"\n");}
     std::cout<<checks<<" public admission checks passed\n";return 0;

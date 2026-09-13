@@ -1,8 +1,7 @@
-import {planRequest,convertImage} from './runtime.js';
+import {planRequest,convertImage,serverSurface} from './runtime.js';
 import {readBoundedBody} from './bounded_body.js';
 import {accessPlan,fileOwner,reservePublicUpload} from './public_admission.js';
 const jsonHeaders={'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'};
-const ttlMs=15*60*1000;
 const hex=bytes=>Array.from(new Uint8Array(bytes),v=>v.toString(16).padStart(2,'0')).join('');
 async function digest(bytes){return hex(await crypto.subtle.digest('SHA-256',bytes));}
 function problem(code,status=400){return new Response(JSON.stringify({error:code}),{status,headers:jsonHeaders});}
@@ -27,15 +26,16 @@ async function fileRecord(env,owner,id,prefix) {
   if(record.owner!==owner||record.expiresAt<=Date.now())return null;
   return {key,record};
 }
-async function downloadUrl(env,url,owner,id,expiresAt) {
-  const token=await signed(env.ACCESS_TOKEN,`${owner}:${id}:output:${expiresAt}`);
+async function downloadUrl(env,url,owner,id,expiresAt,surface) {
+  const token=await signed(env.ACCESS_TOKEN,`${surface.downloadDomain}${owner}:${id}:output:${expiresAt}`);
   return `${url.origin}/files/${id}/output?owner=${owner}&expires=${expiresAt}&token=${token}`;
 }
-async function command(plan,env,url,owner,payment,publicRequest=false) {
-  const prefix=payment?'sandbox':'preview';
+async function command(plan,env,url,owner,payment,surface,publicRequest=false) {
+  const prefix=surface.artifactPrefix;
   if(!env.FILES)return toolReply(plan,{code:'storage_not_configured'},true);
   if(plan.commandId===1) {
-    const id=hex(crypto.getRandomValues(new Uint8Array(32))),expiresAt=Date.now()+ttlMs;
+    if(payment?.startup){const admission=await payment.startup.ensure(env);if(!admission.ready)return toolReply(plan,{code:admission.code},true);}
+    const id=hex(crypto.getRandomValues(new Uint8Array(32))),expiresAt=Date.now()+surface.accessMilliseconds;
     let fileToken;
     if(publicRequest){
       const admission=await reservePublicUpload(env.PAYMENT_LEDGER,id,plan.arguments.source_bytes,Math.floor(Date.now()/1000));
@@ -51,13 +51,13 @@ async function command(plan,env,url,owner,payment,publicRequest=false) {
   if(!found)return toolReply(plan,{code:'file_unavailable'},true);
   if(publicRequest&&found.record.publicFile!==true)return toolReply(plan,{code:'file_unavailable'},true);
   if(payment)return toolResult(plan,await payment.convert(plan,env,{found,url,owner,id,
-    execute:(inputDigest,codec)=>convertAndStore(env,url,owner,id,found,inputDigest,codec)}));
+    execute:(inputDigest,codec)=>convertAndStore(env,url,owner,id,found,surface,inputDigest,codec)}));
   const previous=await env.FILES.get(found.key+'/result');
   if(previous)return toolReply(plan,await previous.json());
-  const receipt=await convertAndStore(env,url,owner,id,found);
+  const receipt=await convertAndStore(env,url,owner,id,found,surface);
   return toolReply(plan,receipt,Boolean(receipt.code));
 }
-async function convertAndStore(env,url,owner,id,found,inputDigest,codec=found.record.args.codec) {
+async function convertAndStore(env,url,owner,id,found,surface,inputDigest,codec=found.record.args.codec) {
   const source=await env.FILES.get(found.key+'/input');
   if(!source)return {code:'upload_required'};
   if(source.size>8388608||source.size!==found.record.args.source_bytes)return {code:'source_size_mismatch'};
@@ -67,7 +67,7 @@ async function convertAndStore(env,url,owner,id,found,inputDigest,codec=found.re
   if(result.error)return {code:'conversion_rejected',...result};
   const format=found.record.args.output_format;
   const mediaType=format==='jpeg'?'image/jpeg':format==='tga'?'image/x-tga':`image/${format}`;
-  const receipt={file_id:id,download_url:await downloadUrl(env,url,owner,id,found.record.expiresAt),
+  const receipt={file_id:id,download_url:await downloadUrl(env,url,owner,id,found.record.expiresAt,surface),
     expires_at:new Date(found.record.expiresAt).toISOString(),width:result.width,height:result.height,
     output_bytes:result.bytes.byteLength,sha256:await digest(result.bytes),media_type:mediaType,
     alpha_disposition:result.alphaFlattened?'flattened_white':'preserved'};
@@ -81,22 +81,27 @@ async function convertAndStore(env,url,owner,id,found,inputDigest,codec=found.re
   }
   await env.FILES.put(found.key+'/result',JSON.stringify(receipt));return receipt;
 }
-export function createWorker(payment=null){let bodyInFlight=false;return {
+export function createWorker(payment=null){let bodyInFlight=false;const profileId=payment?.profileId??null;
+const describe=ready=>{const result=serverSurface(JSON.stringify({profileId,ready}));if(result.packetError)throw Error(result.packetError);return result;};
+const surface=describe(false);return {
   async fetch(request,env) {
     const url=new URL(request.url);
-    if(url.pathname==='/health')return new Response(JSON.stringify({service:'megaconvert-mcp',displayName:'Arken Convert',version:'r4348',mode:payment?'x402-sandbox':'authenticated-preview',publicDiscovery:Boolean(payment),charging:false,testnetPayments:Boolean(payment),releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}),{headers:jsonHeaders});
-    if(!env.ACCESS_TOKEN||env.ACCESS_TOKEN.length<32)return problem('preview_not_configured',503);
+    if(url.pathname==='/health'){const admission=payment?.startup?.status(env),view=describe(admission?.ready===true);
+      return new Response(JSON.stringify({service:'megaconvert-mcp',displayName:'Arken Convert',version:'r4354',mode:view.mode,publicDiscovery:view.publicAccess,charging:view.charging,testnetPayments:view.testnetPayments,...(admission?{admissionReady:admission.ready,admissionCode:admission.code}:{}),releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}),{headers:jsonHeaders});}
+    const secretValid=typeof env.ACCESS_TOKEN==='string'&&env.ACCESS_TOKEN.length>=32;
+    if(!secretValid&&!surface.publicAccess)return problem('server_not_configured',503);
     const origin=request.headers.get('origin');
     if(origin&&origin!==url.origin)return problem('origin_denied',403);
     const file=url.pathname.match(/^\/files\/([a-f0-9]{64})\/(input|output)$/);
+    if(file&&!secretValid)return problem('server_not_configured',503);
     const capabilityDownload=file&&file[2]==='output'&&request.method==='GET';
     let owner,publicRequest=false;
     const authorization=request.headers.get('authorization');
-    const context={sandbox:Boolean(payment),hasAuthorization:authorization!==null,administrator:equal(authorization,`Bearer ${env.ACCESS_TOKEN}`)};
+    const context={publicAccess:surface.publicAccess,hasAuthorization:authorization!==null,administrator:secretValid&&equal(authorization,`Bearer ${env.ACCESS_TOKEN}`)};
     if(capabilityDownload) {
       owner=url.searchParams.get('owner');const expires=url.searchParams.get('expires'),token=url.searchParams.get('token');
       if(!/^[a-f0-9]{64}$/.test(owner||'')||!/^\d{13}$/.test(expires||'')||Number(expires)<=Date.now()
-        ||!equal(token,await signed(env.ACCESS_TOKEN,`${owner}:${file[1]}:output:${expires}`)))return problem('download_denied',403);
+        ||!equal(token,await signed(env.ACCESS_TOKEN,`${surface.downloadDomain}${owner}:${file[1]}:output:${expires}`)))return problem('download_denied',403);
     } else {
       const access=accessPlan(context,'discovery');
       if(access.mode==='denied')return problem(access.code,401);
@@ -107,7 +112,7 @@ export function createWorker(payment=null){let bodyInFlight=false;return {
       if(file) {
         if(!env.FILES)return problem('storage_not_configured',503);
         if(publicRequest){const access=accessPlan(context,'file',file[1],url.searchParams.get('file_token'));if(access.mode==='denied')return problem(access.code,401);owner=access.owner;}
-        const found=await fileRecord(env,owner,file[1],payment?'sandbox':'preview');if(!found)return problem('file_unavailable',404);
+        const found=await fileRecord(env,owner,file[1],surface.artifactPrefix);if(!found)return problem('file_unavailable',404);
         if(publicRequest&&found.record.publicFile!==true)return problem('file_unavailable',404);
         if(capabilityDownload) {
           if(String(found.record.expiresAt)!==url.searchParams.get('expires'))return problem('download_denied',403);
@@ -141,8 +146,9 @@ export function createWorker(payment=null){let bodyInFlight=false;return {
         const plan=(payment?.planRequest||planRequest)(text);
         if(!version&&!plan.initialize)return problem('protocol_version_required',400);
         if(plan.kind==='response')return new Response(plan.status===202?null:plan.body,{status:plan.status,headers:jsonHeaders});
+        if(!secretValid)return toolReply(plan,{code:'server_not_configured'},true);
         if(publicRequest){const access=accessPlan(context,plan.commandId===1?'upload':'file',plan.arguments.file_id??null,plan.arguments.file_token??null);if(access.mode==='denied')return problem(access.code,401);owner=access.owner;}
-        return await command(plan,env,url,owner,payment,publicRequest);
+        return await command(plan,env,url,owner,payment,surface,publicRequest);
       } finally {bodyInFlight=false;}
     } catch(error) {
       console.error('conversion request failed',{code:error.message==='body_limit'?'body_limit':'request_failed'});

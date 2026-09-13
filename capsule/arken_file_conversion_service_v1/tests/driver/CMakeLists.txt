@@ -12,6 +12,7 @@ set(CONVERSION_X402_FIXTURES "" CACHE FILEPATH "Native x402-fixtures.json output
 set(CONVERSION_RECONCILIATION_FIXTURES "" CACHE FILEPATH "Native reconciliation-fixtures.json output")
 set(CONVERSION_PUBLIC_ADMISSION_FIXTURES "" CACHE FILEPATH "Native public-admission-fixtures.json output")
 set(CONVERSION_PROVIDER_FIXTURES "" CACHE FILEPATH "Native provider self-test provider-fixtures.json output")
+set(CONVERSION_STARTUP_FIXTURES "" CACHE FILEPATH "Native startup-fixtures.json output")
 if(CONVERSION_WASM)
     if(NOT EXISTS "${CONVERSION_WASM}")
         message(FATAL_ERROR "CONVERSION_WASM does not exist")
@@ -42,6 +43,9 @@ if(CONVERSION_WASM)
         if(NOT EXISTS "${CONVERSION_PROVIDER_FIXTURES}")
             message(FATAL_ERROR "Generate provider fixtures with arken-conversion-provider self-test first")
         endif()
+        if(NOT EXISTS "${CONVERSION_STARTUP_FIXTURES}")
+            message(FATAL_ERROR "Generate startup fixtures with arken-conversion-startup-tests first")
+        endif()
         add_test(NAME FileConversionWorker.DurablePayments COMMAND "${CMAKE_COMMAND}"
             "-DWASM=${CONVERSION_WASM}" "-DWORKERD=${workerd}"
             "-DACTOR_FIXTURES=${CONVERSION_PAYMENT_ACTORS}" "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/actor-proof"
@@ -49,6 +53,7 @@ if(CONVERSION_WASM)
             "-DRECONCILIATION_FIXTURES=${CONVERSION_RECONCILIATION_FIXTURES}"
             "-DPUBLIC_ADMISSION_FIXTURES=${CONVERSION_PUBLIC_ADMISSION_FIXTURES}"
             "-DPROVIDER_FIXTURES=${CONVERSION_PROVIDER_FIXTURES}"
+            "-DSTARTUP_FIXTURES=${CONVERSION_STARTUP_FIXTURES}"
             -P "${CMAKE_CURRENT_LIST_DIR}/../run_payment_actors.cmake")
         set_tests_properties(FileConversionWorker.DurablePayments PROPERTIES TIMEOUT 60)
     endif()

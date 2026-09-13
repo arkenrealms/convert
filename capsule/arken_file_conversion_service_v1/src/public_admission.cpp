@@ -18,11 +18,11 @@ Json Capability(const Json& j){payment::detail::Fields(j,{"kind","fileId","fileT
   arken::schema::cpp::v1::fixed_id<32,1> owner;for(std::size_t i=0;i<32;++i)owner.value[i]=std::byte(hash[i]);
   return {{"allowed",true},{"owner",J::write(owner)}};
 }
-Json Access(const Json& j){payment::detail::Fields(j,{"kind","sandbox","hasAuthorization","administrator","intent","fileId","fileToken"});
+Json Access(const Json& j){payment::detail::Fields(j,{"kind","publicAccess","hasAuthorization","administrator","intent","fileId","fileToken"});
   const bool supplied=J::readScalar<bool>(j.at("hasAuthorization")),administrator=J::readScalar<bool>(j.at("administrator"));
   J::require(!administrator||supplied,"invalid administrator observation");
   if(administrator)return {{"mode","operator"}};
-  if(supplied||!J::readScalar<bool>(j.at("sandbox")))return {{"mode","denied"},{"code","authorization_required"}};
+  if(supplied||!J::readScalar<bool>(j.at("publicAccess")))return {{"mode","denied"},{"code","authorization_required"}};
   const auto intent=J::readScalar<std::string>(j.at("intent"));
   if(intent=="discovery"||intent=="upload")return {{"mode","public"}};
   J::require(intent=="file","public access intent invalid");

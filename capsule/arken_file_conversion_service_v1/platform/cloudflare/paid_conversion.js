@@ -1,6 +1,6 @@
-import {paidConversionPacket,planPaidRequest} from './runtime.js';
+import {paidConversionPacket,planSandboxRequest} from './runtime.js';
 import {paymentLedger} from './payment_ledger.js';
-import {executePaymentEffect} from './x402_facilitator.js';
+import {executePaymentEffect,sendFacilitator} from './x402_facilitator.js';
 import {reconcileSettlement} from './settlement_reconciliation.js';
 const packet=value=>{const result=paidConversionPacket(JSON.stringify(value));if(result.packetError)throw Error(result.packetError);return result;};
 const failure=code=>({isError:true,content:[{type:'text',text:JSON.stringify({code})}],structuredContent:{code}});
@@ -12,18 +12,20 @@ async function outputReceipt(bucket,key){
 }
 // Thin platform effect interpreter. Quotes, transitions, retry choices and paid
 // disclosure come exclusively from the private C++ controller.
-export function createPaidConversion({clock=clockSeconds,send,readChain}={}){
+export function createPaidConversion({clock=clockSeconds,send,fetcher,readChain,profileId='base-sepolia-v1',requestPlan=planSandboxRequest,startup,executionContext}={}){
   return {
-    planRequest:planPaidRequest,
+    profileId,startup,planRequest:requestPlan,
     async convert(plan,env,{found,owner,id,execute}){
-      if(!env.PAYMENT_LEDGER||!env.RELEASE_ID)return failure('sandbox_payment_not_configured');
+      if(!env.PAYMENT_LEDGER||!env.RELEASE_ID)return failure('payment_not_configured');
       const source=await env.FILES.head(found.key+'/input');
       if(!source)return failure('upload_required');
       if(source.size!==found.record.args.source_bytes)return failure('source_size_mismatch');
-      const qualified=packet({kind:'quote',profileId:'base-sepolia-v1',fileId:id,owner,inputDigest:source.customMetadata?.sha256,
+      let bound=await binding(env.FILES,found.key);
+      if(bound===null&&startup){const admission=await startup.ensure(env);if(!admission.ready)return failure(admission.code);}
+      const context=executionContext?executionContext(env):{};
+      const qualified=packet({kind:'quote',profileId,fileId:id,owner,inputDigest:source.customMetadata?.sha256,
         arguments:found.record.args,release:env.RELEASE_ID,expiresAt:String(Math.floor(found.record.expiresAt/1000))});
       const quote=qualified.quote;
-      let bound=await binding(env.FILES,found.key);
       let prepared=packet({kind:'bind',quote,payment:plan.payment,binding:bound,now:clock()});
       if(prepared.kind!=='admit')return prepared.result;
       if(bound===null){
@@ -44,12 +46,12 @@ export function createPaidConversion({clock=clockSeconds,send,readChain}={}){
         if(step.kind==='transition'){decision=await ledger.transition(step.command);continue;}
         if(step.kind==='recover'){decision=await ledger.recover(step.command);receipt=await outputReceipt(env.FILES,found.key);continue;}
         if(step.kind==='reconcile'){
-          const result=await reconcileSettlement(ledger,decision.operation,{clock,readChain});
+          const result=await reconcileSettlement(ledger,decision.operation,{clock,readChain,rpcClientKey:context.rpcClientKey??null});
           if(result.pending)return failure('settlement_pending_reconciliation');
           decision=result.decision;receipt=await outputReceipt(env.FILES,found.key);continue;
         }
         if(step.kind==='facilitate'){
-          const effect=await executePaymentEffect(ledger,decision,{clock,send});
+          const effect=await executePaymentEffect(ledger,decision,{clock,send:send??(request=>sendFacilitator(request,{cdpCredential:context.cdpCredential,fetcher}))});
           if(effect.unavailable)return failure(effect.unavailable);decision=effect.decision;continue;
         }
         if(step.kind==='convert'){

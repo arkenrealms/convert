@@ -1,5 +1,7 @@
 #include "arken_file_conversion_service_v1/settlement_reconciliation.hpp"
 #include "arken_file_conversion_service_v1/payment_profile.hpp"
+#include "arken_file_conversion_service_v1/reconciliation_configuration.hpp"
+#include "rpc_evidence.hpp"
 #include "payment_json.hpp"
 #include "arken_schema_cpp_v1/tool_json.hpp"
 #include <algorithm>
@@ -9,28 +11,15 @@
 namespace arken::file_conversion::service::v1::payment {
 namespace {
 using detail::Json;namespace J=arken::schema::cpp::v1::tool_json;
+using rpc::Data;using rpc::Quantity;using rpc::Hash;using rpc::Header;using rpc::Replies;
 constexpr std::string_view used="0x98de503528ee59b575ef0c0a2576a82497bfc029a5685b209e9ec333479b10a5";
 constexpr std::string_view transferTopic="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 template<std::size_t N> std::string Hex(const std::array<std::uint8_t,N>& value){
   arken::schema::cpp::v1::fixed_id<N,1> id;for(std::size_t i=0;i<N;++i)id.value[i]=std::byte(value[i]);return "0x"+J::write(id).template get<std::string>();}
-std::string Data(const Json& j,std::size_t bytes){auto s=J::readScalar<std::string>(j);J::require(s.size()==2+bytes*2&&s.starts_with("0x"),"data width");
-  for(std::size_t i=2;i<s.size();++i){auto& c=s[i];if(c>='A'&&c<='F')c=char(c-'A'+'a');J::require((c>='0'&&c<='9')||(c>='a'&&c<='f'),"data hex");}return s;}
-std::uint64_t Quantity(const Json& j){const auto s=J::readScalar<std::string>(j);J::require(s.size()>=3&&s.size()<=18&&s.starts_with("0x")&&(s.size()==3||s[2]!='0'),"quantity shape");
-  std::uint64_t n=0;const auto r=std::from_chars(s.data()+2,s.data()+s.size(),n,16);J::require(r.ec==std::errc{}&&r.ptr==s.data()+s.size(),"quantity overflow");return n;}
-std::string Quantity(std::uint64_t n){char bytes[16];const auto r=std::to_chars(bytes,bytes+16,n,16);return "0x"+std::string(bytes,r.ptr);}
-std::string Hash(const Json& j){const auto s=Data(j,32);J::require(s!=std::string("0x")+std::string(64,'0'),"zero hash");return s;}
 std::string AddressTopic(const Address& a){return "0x"+std::string(24,'0')+Hex(a).substr(2);}
-struct Block {std::uint64_t number,time;std::string hash;bool operator==(const Block&)const=default;};
-Block Header(const Json& j){return {Quantity(j.at("number")),Quantity(j.at("timestamp")),Hash(j.at("hash"))};}
 Json Call(unsigned id,std::string_view method,Json params){return {{"jsonrpc","2.0"},{"id",id},{"method",method},{"params",params}};}
 Json Read(std::string_view slot,Json requests,std::string_view endpoint){return {{"kind","rpc"},{"slot",slot},{"request",{{"url",endpoint},{"body",requests.dump()}}}};}
 Json Pending(std::string_view code){return {{"kind","pending"},{"code",code}};}
-std::map<unsigned,Json> Replies(const Json& value,std::initializer_list<unsigned> ids){
-  const auto array=detail::Parse(J::readScalar<std::string>(value),262144);J::require(array.is_array()&&array.size()==ids.size(),"RPC batch size");std::map<unsigned,Json> results;
-  for(const auto& reply:array){detail::Fields(reply,{"jsonrpc","id","result"});J::require(reply.at("jsonrpc")=="2.0","RPC version");
-    const auto id=J::readScalar<unsigned>(reply.at("id"));J::require(std::find(ids.begin(),ids.end(),id)!=ids.end()&&results.emplace(id,reply.at("result")).second,"RPC id mismatch");}
-  return results;
-}
 void Identity(const Json& log,const Json& event){
   J::require(!J::readScalar<bool>(log.at("removed"))&&Hash(log.at("transactionHash"))==Hash(event.at("transactionHash"))
     &&Hash(log.at("blockHash"))==Hash(event.at("blockHash"))&&Quantity(log.at("blockNumber"))==Quantity(event.at("blockNumber"))
@@ -47,17 +36,9 @@ Json Verify(const Json& j){
   detail::Fields(j,{"operation","anchor","logs","receipt","now","rpcClientKey"});const auto op=detail::ReadOperation(j.at("operation"));
   J::require(ValidOperationRecord(op)&&op.authorization&&op.output&&(op.stage==Stage::settling||op.stage==Stage::settlementUnknown),"operation not reconcilable");
   const auto profile=PaymentProfileForQuote(op.quote);J::require(profile.has_value(),"unsupported reconciliation profile");
-  std::string endpoint;
-  if(profile->reconciliationProvider==ReconciliationProvider::cdpBaseMainnet){
-    if(j.at("rpcClientKey").is_null())return Pending("mainnet_reconciliation_not_configured");
-    if(!j.at("rpcClientKey").is_string())return Pending("mainnet_rpc_client_key_invalid");
-    const auto& key=j.at("rpcClientKey").get_ref<const std::string&>();
-    if(key.empty()||key.size()>256||key.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")!=std::string::npos)return Pending("mainnet_rpc_client_key_invalid");
-    endpoint="https://api.developer.coinbase.com/rpc/v1/base/"+key;
-  }else{
-    if(!j.at("rpcClientKey").is_null())return Pending("testnet_rpc_configuration_rejected");
-    endpoint="https://sepolia.base.org";
-  }
+  if(!j.at("rpcClientKey").is_null()&&!j.at("rpcClientKey").is_string())return Pending(profile->reconciliationProvider==ReconciliationProvider::cdpBaseMainnet?"mainnet_rpc_client_key_invalid":"testnet_rpc_configuration_rejected");
+  const auto resolved=ResolveReconciliationEndpoint(*profile,j.at("rpcClientKey").is_null()?std::nullopt:std::optional<std::string_view>(j.at("rpcClientKey").get_ref<const std::string&>()));
+  if(!resolved.error.empty())return Pending(resolved.error);const auto& endpoint=resolved.url;
   const auto asset=Hex(op.quote.scope.asset);
   const auto now=J::readScalar<std::uint64_t>(j.at("now"));
   if(j.at("anchor").is_null())return Read("anchor",Json::array({Call(1,"eth_chainId",Json::array()),Call(2,"eth_getBlockByNumber",Json::array({"safe",false}))}),endpoint);
