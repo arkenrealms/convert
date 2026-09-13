@@ -6,7 +6,9 @@
 namespace {
 // Bound every inflater/decoder allocation, including malformed compressed data
 // that expands beyond its declared image. There is no mutable allocator context.
-constexpr std::size_t maximum_allocation=64u*1024u*1024u;
+// A full 4096-square RGBA PNG has 64 MiB of samples plus one filter
+// byte per row in its inflated stream. Preserve that bounded overhead.
+constexpr std::size_t maximum_allocation=64u*1024u*1024u+8192u;
 void* raster_allocate(std::size_t size){return size<=maximum_allocation?std::malloc(size):nullptr;}
 void* raster_reallocate(void* pointer,std::size_t size){return size<=maximum_allocation?std::realloc(pointer,size):nullptr;}
 }
