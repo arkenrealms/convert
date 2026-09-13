@@ -78,11 +78,19 @@ void Tests(const C::fs::path& providerFile,const C::fs::path& output){
   namespace F=arken::file_conversion::v1;F::ImageOptions options;options.input=F::image::Format::tga;options.output=F::image::Format::png;
   const auto png=F::ConvertImage(std::span(reinterpret_cast<const std::byte*>(source),sizeof(source)),options);Check(bool(png),"native production PNG fixture");
   const auto pngSha=C::Hash(std::string_view(reinterpret_cast<const char*>(png.bytes.data()),png.bytes.size()));
-  C::PrivateDirectory(output);C::Write(output/"startup-fixtures.json",Json{{"vectors",vectors},{"qualificationVectors",qualificationVectors},{"surfaces",surfaces},{"configuration",configuration},{"anonymous",input["anonymous"]},{"supported",input["supported"]},{"rpc",input["rpc"]},{"nativePngSha256",pngSha}}.dump(2)+"\n");
+  std::vector<std::uint8_t> entropy(1024*1024*4);std::uint32_t seed=123456789;
+  for(std::size_t i=0;i<entropy.size();++i){seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;entropy[i]=i%4==3?255:static_cast<std::uint8_t>(seed);}
+  const auto largeSource=F::image::EncodeImage(F::image::Format::png,1024,1024,entropy);
+  const auto largeJpeg=F::ConvertImage(largeSource.bytes,{.output=F::image::Format::jpeg});Check(bool(largeSource)&&bool(largeJpeg),"large JPEG fixture failed");
+  const auto largeJpegHash=C::Hash(std::string_view(reinterpret_cast<const char*>(largeJpeg.bytes.data()),largeJpeg.bytes.size()));
+  Check(largeJpegHash=="61f5dd69e9fcc1b921b5217cdfc568f4fd1fc6cbf48cc6cec38e8d96f1623088","portable JPEG quantization changed");
+  const Json jpegFixture={{"sha256",largeJpegHash},{"codec",{{"input",static_cast<unsigned>(F::image::Format::png)},{"output",static_cast<unsigned>(F::image::Format::jpeg)},{"quality",95},{"alpha",0}}}};
+  C::PrivateDirectory(output);C::Write(output/"startup-fixtures.json",Json{{"vectors",vectors},{"qualificationVectors",qualificationVectors},{"surfaces",surfaces},{"configuration",configuration},{"anonymous",input["anonymous"]},{"supported",input["supported"]},{"rpc",input["rpc"]},{"nativePngSha256",pngSha},{"largeJpeg",jpegFixture}}.dump(2)+"\n");
+  C::Write(output/"jpeg-input.png",std::string_view(reinterpret_cast<const char*>(largeSource.bytes.data()),largeSource.bytes.size()));
   std::cout<<checks<<" startup checks passed; "<<vectors.size()<<" native vectors\n";
 }
 }
-int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-startup-tests r4368\n";return 0;}
+int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-startup-tests r4370\n";return 0;}
   try{C::Require(argc==4&&std::string_view(argv[1])=="--write-fixtures","invalid_arguments");Tests(argv[2],argv[3]);return 0;}
   catch(const std::exception& error){const std::string message=error.what();
     std::cerr<<Json{{"code",message.size()<160&&message.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ /_")==std::string::npos?message:"startup_test_failed"},{"checkIndex",checks},{"vectorCount",vectors.size()},{"lastKind",lastResult.value("kind","")},{"lastCode",lastResult.value("code","")}}.dump()<<'\n';return 1;}}

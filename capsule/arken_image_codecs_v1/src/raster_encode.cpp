@@ -1,5 +1,8 @@
 #include "arken_image_codecs_v1/encode.hpp"
 #include <new>
+// JPEG's floating-point DCT must round the same way on native CPUs and
+// WebAssembly. Fusing multiply-adds changes coefficients near quantization ties.
+#pragma STDC FP_CONTRACT OFF
 #define STBI_WRITE_NO_STDIO
 #define STB_IMAGE_WRITE_STATIC
 #define STB_IMAGE_WRITE_IMPLEMENTATION
