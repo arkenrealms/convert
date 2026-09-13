@@ -87,7 +87,7 @@ const surface=describe(false);return {
   async fetch(request,env) {
     const url=new URL(request.url);
     if(url.pathname==='/health'){const admission=payment?.startup?.status(env),view=describe(admission?.ready===true);
-      return new Response(JSON.stringify({service:'megaconvert-mcp',displayName:'Arken Convert',version:'r4368',mode:view.mode,publicDiscovery:view.publicAccess,charging:view.charging,testnetPayments:view.testnetPayments,...(admission?{admissionReady:admission.ready,admissionCode:admission.code}:{}),releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}),{headers:jsonHeaders});}
+      return new Response(JSON.stringify({service:'megaconvert-mcp',displayName:'Arken Convert',version:'r4369',mode:view.mode,publicDiscovery:view.publicAccess,charging:view.charging,testnetPayments:view.testnetPayments,...(admission?{admissionReady:admission.ready,admissionCode:admission.code}:{}),releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}),{headers:jsonHeaders});}
     const secretValid=typeof env.ACCESS_TOKEN==='string'&&env.ACCESS_TOKEN.length>=32;
     if(!secretValid&&!surface.publicAccess)return problem('server_not_configured',503);
     const origin=request.headers.get('origin');
@@ -100,7 +100,7 @@ const surface=describe(false);return {
     const context={publicAccess:surface.publicAccess,hasAuthorization:authorization!==null,administrator:secretValid&&equal(authorization,`Bearer ${env.ACCESS_TOKEN}`)};
     if(url.pathname==='/_arken/production/qualify'){
       if(!payment?.startup?.qualify)return problem('not_found',404);
-      const result=await payment.startup.qualify(env,{kind:'request',administrator:context.administrator,method:request.method,hasBody:request.body!==null,hasQuery:url.search!==''});
+      const result=await payment.startup.qualify(env,{kind:'request',administrator:context.administrator,method:request.method,hasBody:false,hasQuery:url.search!==''},request.body);
       return new Response(JSON.stringify(result.body),{status:result.status,headers:jsonHeaders});
     }
     if(capabilityDownload) {

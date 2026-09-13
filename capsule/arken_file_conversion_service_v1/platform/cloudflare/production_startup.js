@@ -46,9 +46,14 @@ export function createProductionStartup({fetcher=(url,options)=>fetch(url,option
       if(result.kind==='probe'&&value.last?.fingerprint===result.fingerprint&&!value.last.result.ready)result=value.last.result;
       return {ready:result.ready===true,code:result.code};},
     ensure:env=>ensure(env,packet),
-    async qualify(env,request){
+    async qualify(env,request,body){
       const gate=productionQualificationPacket(JSON.stringify(request));
       if(!gate.allowed)return {status:gate.status,body:{code:gate.code}};
+      // A body stream can exist for an empty HTTP POST. Authenticate first,
+      // then admit exactly zero bytes, rather than testing stream presence.
+      try{await readBoundedBody(body,0,'qualification_input_forbidden');}
+      catch(error){console.warn('production qualification body rejected',{code:'qualification_input_forbidden'});
+        const rejected=productionQualificationPacket(JSON.stringify({...request,hasBody:true}));return {status:rejected.status,body:{code:rejected.code}};}
       const result=await ensure(env,qualifyPacket);
       return {status:result.ready?200:503,body:{providerQualified:result.ready,code:result.code,charging:false,admissionReady:false,
         releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}};

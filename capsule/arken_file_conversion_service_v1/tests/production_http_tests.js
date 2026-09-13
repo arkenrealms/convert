@@ -15,10 +15,10 @@ export const productionHttp={async test(_controller,bindings){
   for(const v of f.qualificationVectors)check(JSON.stringify(productionQualificationPacket(v.input))===JSON.stringify(v.expected),'native/Wasm qualification mismatch');
   for(const v of f.surfaces)check(JSON.stringify(serverSurface(v.input))===JSON.stringify(v.expected),'native/Wasm surface mismatch');
   if(bindings.PHASE!=='write')return;
-  let now=1000,probes=0,failSupported=false,waitProbe=null;
+  let now=1000,probes=0,failSupported=false,waitProbe=null,probeStarted=null;
   const fetcher=async(url,options)=>{
     probes++;check(options.redirect==='manual','startup redirects followed');new Request(url,options);
-    if(waitProbe){const wait=waitProbe;waitProbe=null;await wait;}
+    if(waitProbe){const wait=waitProbe;waitProbe=null;const started=probeStarted;probeStarted=null;started?.();await wait;}
     if(url.endsWith('/supported')){
       check(options.method==='GET','startup supported method');
       return options.headers.Authorization?new Response(failSupported?'denied':f.supported.body,{status:failSupported?403:200}):new Response('',{status:401});
@@ -63,8 +63,11 @@ export const productionHttp={async test(_controller,bindings){
   check((await health()).charging===false&&(await health()).admissionReady===false&&probes===3,'qualification affected public health');
   check((await call('conversion.v1.prepare_upload',uploadArgs)).isError&&probes===3&&env.FILES.values.size===0,'qualification cache admitted upload');
   const again=await qualify();check(again.status===200&&probes===3,'qualification cache missed');
+  const emptyStream=new ReadableStream({start(controller){controller.close();}});
+  check((await qualify({body:emptyStream})).status===200&&probes===3,'empty POST stream treated as nonempty input');
   const originalRelease=env.RELEASE_ID;let qualifyRelease;waitProbe=new Promise(resolve=>{qualifyRelease=resolve;});
-  env.RELEASE_ID='d'.repeat(64);const changingQualification=qualify();env.RELEASE_ID='e'.repeat(64);qualifyRelease();
+  const startedQualification=new Promise(resolve=>{probeStarted=resolve;});
+  env.RELEASE_ID='d'.repeat(64);const changingQualification=qualify();await startedQualification;env.RELEASE_ID='e'.repeat(64);qualifyRelease();
   check((await changingQualification).status===503&&!startup.status(env).ready&&env.FILES.values.size===0,'late qualification accepted changed environment');env.RELEASE_ID=originalRelease;probes=0;
   env.PAYMENTS_ENABLED='true';failSupported=true;
   check((await call('conversion.v1.prepare_upload',uploadArgs)).isError&&probes===2&&env.FILES.values.size===0,'failed provider admitted upload');
