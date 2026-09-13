@@ -138,7 +138,7 @@ Json Fixture(bool mainnet=false){
     {"width",1},{"height",1},{"output_bytes",76},{"sha256",q["input"]},{"media_type","image/png"},{"alpha_disposition","preserved"}};
   const auto delivered=Paid({{"kind","next"},{"decision",fulfilled},{"receipt",publicReceipt},{"now","151"},{"release",std::string(64,'8')}});
   Check(delivered["result"]["_meta"]["x402/payment-response"]["success"]==true&&delivered["result"]["_meta"]["x402/payment-response"]["network"]==network,"public settlement metadata");
-  if(mainnet){const auto recovery=Json::parse(P::SettlementReconciliationPacket(Json{{"operation",decision["operation"]},{"anchor",nullptr},{"logs",nullptr},{"receipt",nullptr},{"now","151"}}.dump()));
+  if(mainnet){const auto recovery=Json::parse(P::SettlementReconciliationPacket(Json{{"operation",decision["operation"]},{"anchor",nullptr},{"logs",nullptr},{"receipt",nullptr},{"now","151"},{"rpcClientKey",nullptr}}.dump()));
     Check(recovery==Json{{"kind","pending"},{"code","mainnet_reconciliation_not_configured"}},"mainnet recovery used unqualified RPC");}
   auto incorrect=publicReceipt;incorrect["output_bytes"]=77;
   Check(Paid({{"kind","next"},{"decision",fulfilled},{"receipt",incorrect},{"now","151"},{"release",q["release"]}}).contains("packetError"),"receipt bytes mismatch disclosed");

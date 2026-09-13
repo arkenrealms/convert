@@ -10,8 +10,8 @@ export async function readSettlementChain(request){
 }
 // Opaque C++ evidence/request plumbing only. No signature, write-RPC or second
 // facilitator settlement is sent from this adapter.
-export async function reconcileSettlement(ledger,operation,{clock,readChain=readSettlementChain}){
-  const evidence={operation,anchor:null,logs:null,receipt:null,now:clock()};
+export async function reconcileSettlement(ledger,operation,{clock,readChain=readSettlementChain,rpcClientKey=null}){
+  const evidence={operation,anchor:null,logs:null,receipt:null,now:clock(),rpcClientKey};
   for(let remaining=4;remaining>0;--remaining){
     evidence.now=clock();const step=settlementReconciliationPacket(JSON.stringify(evidence));
     if(step.kind==='pending')return {pending:true,code:step.code};
