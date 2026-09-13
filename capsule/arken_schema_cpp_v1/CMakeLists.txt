@@ -91,7 +91,7 @@ endif()
 if(BUILD_TESTING AND TARGET arken-schema-cpp-v1-codegen)
     add_test(NAME ArkenSchemaCppV1.CodegenVersion COMMAND arken-schema-cpp-v1-codegen --version --invalid)
     set_tests_properties(ArkenSchemaCppV1.CodegenVersion PROPERTIES TIMEOUT 5
-        PASS_REGULAR_EXPRESSION "^arken-schema-cpp-v1-codegen r4315")
+        PASS_REGULAR_EXPRESSION "^arken-schema-cpp-v1-codegen r4328")
 endif()
 
 if(BUILD_TESTING AND NOT ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
