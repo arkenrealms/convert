@@ -9,8 +9,6 @@
 namespace arken::file_conversion::service::v1::payment {
 namespace {
 using detail::Json;namespace J=arken::schema::cpp::v1::tool_json;
-constexpr std::string_view rpc="https://sepolia.base.org";
-constexpr std::string_view asset="0x036cbd53842c5426634e7929541ec2318f3dcf7e";
 constexpr std::string_view used="0x98de503528ee59b575ef0c0a2576a82497bfc029a5685b209e9ec333479b10a5";
 constexpr std::string_view transferTopic="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 template<std::size_t N> std::string Hex(const std::array<std::uint8_t,N>& value){
@@ -25,7 +23,7 @@ std::string AddressTopic(const Address& a){return "0x"+std::string(24,'0')+Hex(a
 struct Block {std::uint64_t number,time;std::string hash;bool operator==(const Block&)const=default;};
 Block Header(const Json& j){return {Quantity(j.at("number")),Quantity(j.at("timestamp")),Hash(j.at("hash"))};}
 Json Call(unsigned id,std::string_view method,Json params){return {{"jsonrpc","2.0"},{"id",id},{"method",method},{"params",params}};}
-Json Read(std::string_view slot,Json requests){return {{"kind","rpc"},{"slot",slot},{"request",{{"url",rpc},{"body",requests.dump()}}}};}
+Json Read(std::string_view slot,Json requests,std::string_view endpoint){return {{"kind","rpc"},{"slot",slot},{"request",{{"url",endpoint},{"body",requests.dump()}}}};}
 Json Pending(std::string_view code){return {{"kind","pending"},{"code",code}};}
 std::map<unsigned,Json> Replies(const Json& value,std::initializer_list<unsigned> ids){
   const auto array=detail::Parse(J::readScalar<std::string>(value),262144);J::require(array.is_array()&&array.size()==ids.size(),"RPC batch size");std::map<unsigned,Json> results;
@@ -39,29 +37,40 @@ void Identity(const Json& log,const Json& event){
     &&Quantity(log.at("transactionIndex"))==Quantity(event.at("transactionIndex")),"log identity mismatch");
 }
 void AuthorizationLog(const Json& log,const Operation& op){
-  J::require(Data(log.at("address"),20)==asset&&log.at("topics").is_array()&&log.at("topics").size()==3
+  J::require(Data(log.at("address"),20)==Hex(op.quote.scope.asset)&&log.at("topics").is_array()&&log.at("topics").size()==3
     &&Data(log.at("topics")[0],32)==used&&Data(log.at("topics")[1],32)==AddressTopic(op.quote.scope.payer)
     &&Data(log.at("topics")[2],32)==Hex(op.authorization->nonce)&&Data(log.at("data"),0)=="0x","authorization event mismatch");
 }
 std::uint64_t Amount(const Json& j){const auto s=Data(j,32);J::require(s.substr(2,48)==std::string(48,'0'),"amount overflow");
   std::uint64_t value=0;const auto r=std::from_chars(s.data()+50,s.data()+66,value,16);J::require(r.ec==std::errc{}&&r.ptr==s.data()+66,"amount invalid");return value;}
 Json Verify(const Json& j){
-  detail::Fields(j,{"operation","anchor","logs","receipt","now"});const auto op=detail::ReadOperation(j.at("operation"));
+  detail::Fields(j,{"operation","anchor","logs","receipt","now","rpcClientKey"});const auto op=detail::ReadOperation(j.at("operation"));
   J::require(ValidOperationRecord(op)&&op.authorization&&op.output&&(op.stage==Stage::settling||op.stage==Stage::settlementUnknown),"operation not reconcilable");
   const auto profile=PaymentProfileForQuote(op.quote);J::require(profile.has_value(),"unsupported reconciliation profile");
-  if(!profile->reconciliationAvailable)return Pending("mainnet_reconciliation_not_configured");
+  std::string endpoint;
+  if(profile->reconciliationProvider==ReconciliationProvider::cdpBaseMainnet){
+    if(j.at("rpcClientKey").is_null())return Pending("mainnet_reconciliation_not_configured");
+    if(!j.at("rpcClientKey").is_string())return Pending("mainnet_rpc_client_key_invalid");
+    const auto& key=j.at("rpcClientKey").get_ref<const std::string&>();
+    if(key.empty()||key.size()>256||key.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")!=std::string::npos)return Pending("mainnet_rpc_client_key_invalid");
+    endpoint="https://api.developer.coinbase.com/rpc/v1/base/"+key;
+  }else{
+    if(!j.at("rpcClientKey").is_null())return Pending("testnet_rpc_configuration_rejected");
+    endpoint="https://sepolia.base.org";
+  }
+  const auto asset=Hex(op.quote.scope.asset);
   const auto now=J::readScalar<std::uint64_t>(j.at("now"));
-  if(j.at("anchor").is_null())return Read("anchor",Json::array({Call(1,"eth_chainId",Json::array()),Call(2,"eth_getBlockByNumber",Json::array({"safe",false}))}));
-  const auto anchorReplies=Replies(j.at("anchor"),{1,2});J::require(Quantity(anchorReplies.at(1))==84532,"wrong chain");
+  if(j.at("anchor").is_null())return Read("anchor",Json::array({Call(1,"eth_chainId",Json::array()),Call(2,"eth_getBlockByNumber",Json::array({"safe",false}))}),endpoint);
+  const auto anchorReplies=Replies(j.at("anchor"),{1,2});J::require(Quantity(anchorReplies.at(1))==profile->chain,"wrong chain");
   const auto anchor=Header(anchorReplies.at(2));J::require(anchor.time<=now,"future anchor");const auto first=anchor.number>2047?anchor.number-2047:0;
   if(j.at("logs").is_null())return Read("logs",Json::array({Call(3,"eth_getLogs",Json::array({Json{{"address",asset},{"fromBlock",Quantity(first)},{"toBlock",Quantity(anchor.number)},
-    {"topics",Json::array({used,AddressTopic(op.quote.scope.payer),Hex(op.authorization->nonce)})}}}))}));
+    {"topics",Json::array({used,AddressTopic(op.quote.scope.payer),Hex(op.authorization->nonce)})}}}))}),endpoint);
   const auto logs=Replies(j.at("logs"),{3}).at(3);J::require(logs.is_array(),"logs shape");
   if(logs.empty())return Pending("settlement_not_observed");J::require(logs.size()==1,"ambiguous authorization");
   const auto& event=logs[0];AuthorizationLog(event,op);Identity(event,event);const auto eventIndex=Quantity(event.at("logIndex"));
   const auto number=Quantity(event.at("blockNumber"));J::require(number>=first&&number<=anchor.number,"event outside search");
   if(j.at("receipt").is_null())return Read("receipt",Json::array({Call(4,"eth_getTransactionReceipt",Json::array({Hash(event.at("transactionHash"))})),
-    Call(5,"eth_getBlockByNumber",Json::array({Quantity(number),false})),Call(6,"eth_getBlockByNumber",Json::array({Quantity(anchor.number),false}))}));
+    Call(5,"eth_getBlockByNumber",Json::array({Quantity(number),false})),Call(6,"eth_getBlockByNumber",Json::array({Quantity(anchor.number),false}))}),endpoint);
   const auto receipts=Replies(j.at("receipt"),{4,5,6});const auto& receipt=receipts.at(4);
   if(receipt.is_null())return Pending("settlement_receipt_pending");
   const auto block=Header(receipts.at(5)),anchorNow=Header(receipts.at(6));
@@ -86,7 +95,7 @@ Json Verify(const Json& j){
   const auto hash=J::read<arken::schema::cpp::v1::fixed_id<32,1>>(Hash(event.at("transactionHash")).substr(2));
   for(std::size_t i=0;i<32;++i)transfer.transaction[i]=std::to_integer<std::uint8_t>(hash.value[i]);
   e.kind=EventKind::reconciledSucceeded;e.transfer=transfer;commands.push_back(command());
-  return {{"kind","complete"},{"commands",commands},{"evidence",{{"chain",84532},{"transaction",Hex(transfer.transaction)},
+  return {{"kind","complete"},{"commands",commands},{"evidence",{{"chain",profile->chain},{"profileId",profile->id},{"transaction",Hex(transfer.transaction)},
     {"blockHash",block.hash},{"blockNumber",Quantity(number)},{"safeAnchorHash",anchor.hash},{"safeAnchorNumber",Quantity(anchor.number)},
     {"finality","rpc-safe-not-irreversible"}}}};
 }

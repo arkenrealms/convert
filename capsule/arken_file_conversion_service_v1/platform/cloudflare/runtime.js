@@ -20,7 +20,7 @@ export function paymentStorageDispatch(text) {return invokePacket(text,api.arken
 export function paymentStorageRecover(text) {return invokePacket(text,api.arken_payment_storage_recover);}
 export function publicAdmissionPacket(text) {return invokePacket(text,api.arken_public_admission_packet);}
 export function cdpProviderPacket(text) {return invokePacket(text,api.arken_cdp_provider_packet,api.arken_mcp_prepare,true);}
-export function settlementReconciliationPacket(text) {return invokePacket(text,api.arken_settlement_reconciliation_packet,api.arken_settlement_prepare);}
+export function settlementReconciliationPacket(text) {return invokePacket(text,api.arken_settlement_reconciliation_packet,api.arken_settlement_prepare,true);}
 function invokePacket(text,invoke,prepare=api.arken_mcp_prepare,sensitive=false) {
   const bytes=encoder.encode(text);
   const pointer=prepare(bytes.length);

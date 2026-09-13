@@ -1,5 +1,6 @@
 #include "arken_file_conversion_service_v1/settlement_reconciliation.hpp"
 #include "arken_file_conversion_service_v1/payment_packet.hpp"
+#include "arken_file_conversion_service_v1/payment_profile.hpp"
 #include "arken_schema_cpp_v1/tool_json.hpp"
 #include "../tools/native/platform.hpp"
 #include "../src/payment_json.hpp"
@@ -16,14 +17,15 @@ Json Run(Json input){auto text=input.dump(),output=P::SettlementReconciliationPa
 P::Address Address(std::string_view text){const auto id=J::read<arken::schema::cpp::v1::fixed_id<20,1>>(std::string(text));P::Address a{};for(unsigned i=0;i<20;++i)a[i]=std::to_integer<std::uint8_t>(id.value[i]);return a;}
 Json Reply(unsigned id,Json result){return {{"jsonrpc","2.0"},{"id",id},{"result",result}};}
 std::string Hash(char c){return "0x"+std::string(64,c);}
-Json Fixture(){
+Json Fixture(bool mainnet=false){
   P::Operation op;auto& q=op.quote;q.operation[0]=51;q.tenant[0]=2;q.input[0]=3;q.options[0]=4;q.release[0]=5;q.priceVersion[0]=6;
-  q.scope.chain=84532;q.scope.asset=Address("036cbd53842c5426634e7929541ec2318f3dcf7e");q.scope.payer.fill(0x11);
+  const auto profile=P::PaymentProfileById(mainnet?"base-mainnet-v1":"base-sepolia-v1");
+  q.scope.chain=profile->chain;q.scope.asset=profile->asset;q.scope.payer.fill(0x11);
   q.recipient=Address("554933cd7c5275ff3692bf97e0bc90b69c85d3dc");q.amount=10000;q.expiresAt=200;
   op.stage=P::Stage::settlementUnknown;op.revision=6;op.authorization=P::Authorization{.validAfter=90,.validBefore=150};op.authorization->nonce.fill(0x22);
   op.output=P::Output{.release=q.release,.bytes=70,.width=1,.height=1};op.output->digest[0]=8;
   const auto operation=Json::parse(P::InputPacket(op,q,{},{})).at("operation");
-  const std::string asset="0x036cbd53842c5426634e7929541ec2318f3dcf7e",payer="0x"+std::string(24,'0')+std::string(40,'1');
+  const std::string asset(profile->assetText),payer="0x"+std::string(24,'0')+std::string(40,'1');
   Json event={{"address",asset},{"removed",false},{"transactionHash",Hash('a')},{"blockHash",Hash('b')},{"blockNumber","0xf0"},
     {"transactionIndex","0x1"},{"logIndex","0x2"},{"data","0x"},
     {"topics",Json::array({"0x98de503528ee59b575ef0c0a2576a82497bfc029a5685b209e9ec333479b10a5",payer,Hash('2')})}};
@@ -32,11 +34,12 @@ Json Fixture(){
   Json anchor={{"number","0x100"},{"timestamp","0x82"},{"hash",Hash('c')}};
   Json block={{"number","0xf0"},{"timestamp","0x6e"},{"hash",Hash('b')}};
   Json receipt={{"status","0x1"},{"transactionHash",Hash('a')},{"blockHash",Hash('b')},{"blockNumber","0xf0"},{"transactionIndex","0x1"},{"logs",Json::array({event,transfer})}};
-  return {{"operation",operation},{"anchor",Json::array({Reply(2,anchor),Reply(1,"0x14a34")}).dump()},
-    {"logs",Json::array({Reply(3,Json::array({event}))}).dump()},{"receipt",Json::array({Reply(6,anchor),Reply(4,receipt),Reply(5,block)}).dump()},{"now","140"}};
+  return {{"operation",operation},{"anchor",Json::array({Reply(2,anchor),Reply(1,mainnet?"0x2105":"0x14a34")}).dump()},
+    {"logs",Json::array({Reply(3,Json::array({event}))}).dump()},{"receipt",Json::array({Reply(6,anchor),Reply(4,receipt),Reply(5,block)}).dump()},{"now","140"},
+    {"rpcClientKey",mainnet?Json("fixture_cdp_client_1234"):Json(nullptr)}};
 }
-Json Scenario(){
-  const auto target=P::detail::ReadOperation(Fixture().at("operation"));P::Operation op{.quote=target.quote};std::optional<P::NonceClaim> claim;Json commands=Json::array();
+Json Scenario(bool mainnet=false){
+  const auto target=P::detail::ReadOperation(Fixture(mainnet).at("operation"));P::Operation op{.quote=target.quote};std::optional<P::NonceClaim> claim;Json commands=Json::array();
   for(const auto kind:{P::EventKind::request,P::EventKind::verificationPassed,P::EventKind::beginConversion,P::EventKind::outputCommitted,P::EventKind::beginSettlement}){
     P::Event e;e.kind=kind;e.expectedRevision=op.revision;e.now=100;
     if(kind==P::EventKind::request)e.authorization=target.authorization;
@@ -49,15 +52,19 @@ Json Scenario(){
   P::Event inspect;inspect.kind=P::EventKind::inspect;inspect.now=140;
   return {{"commands",commands},{"inspect",Json{{"version",1},{"quote",P::detail::WriteQuote(op.quote)},{"event",P::detail::WriteEvent(inspect)}}.dump()}};
 }
-void Tests(){
-  const auto valid=Fixture();auto input=valid;input["anchor"]=nullptr;input["logs"]=nullptr;input["receipt"]=nullptr;
+void Tests(bool mainnet=false){
+  const auto profile=P::PaymentProfileById(mainnet?"base-mainnet-v1":"base-sepolia-v1");
+  const auto valid=Fixture(mainnet);auto input=valid;input["anchor"]=nullptr;input["logs"]=nullptr;input["receipt"]=nullptr;
   auto step=Run(input);Check(step.at("kind")=="rpc"&&step.at("slot")=="anchor","initial RPC");
-  Check(step.at("request").at("url")=="https://sepolia.base.org","RPC endpoint not fixed");
+  const auto endpoint=mainnet?"https://api.developer.coinbase.com/rpc/v1/base/fixture_cdp_client_1234":"https://sepolia.base.org";
+  Check(step.at("request").at("url")==endpoint,"RPC endpoint not fixed");
   input["anchor"]=valid.at("anchor");step=Run(input);Check(step.at("slot")=="logs","log discovery");
   const auto filter=Json::parse(step.at("request").at("body").get<std::string>())[0].at("params")[0];
-  Check(filter.at("address")=="0x036cbd53842c5426634e7929541ec2318f3dcf7e"&&filter.at("topics").size()==3&&filter.at("fromBlock")=="0x0","search not bounded and scoped");
+  Check(filter.at("address")==profile->assetText&&filter.at("topics").size()==3&&filter.at("fromBlock")=="0x0","search not bounded and scoped");
   input["logs"]=valid.at("logs");step=Run(input);Check(step.at("slot")=="receipt","receipt discovery");
   step=Run(valid);Check(step.at("kind")=="complete"&&step.at("commands").size()==1,"positive reconciliation");
+  Check(step.at("evidence").at("chain")==profile->chain&&step.at("evidence").at("profileId")==profile->id,"recovery evidence wrong profile");
+  Check(step.dump().find("fixture_cdp_client_1234")==std::string::npos,"RPC account key leaked into completion");
   auto command=Json::parse(step.at("commands")[0].get<std::string>());
   Check(command.at("event").at("kind")==unsigned(P::EventKind::reconciledSucceeded)&&command.at("event").at("expectedRevision")=="6","wrong completion transition");
   Check(command.at("event").at("transfer").at("amount")=="10000"&&command.at("event").at("transfer").at("transaction")==std::string(64,'a'),"unvalidated transfer values");
@@ -94,14 +101,25 @@ void Tests(){
   auto large=valid;auto headers=Json::parse(large["anchor"].get<std::string>());headers[0]["result"]["transactions"]=Json::array();
   for(unsigned i=0;i<1000;++i)headers[0]["result"]["transactions"].push_back(Hash('f'));large["anchor"]=headers.dump();
   Check(Run(large).at("kind")=="complete","production-sized irrelevant block fields broke proof");
+  for(const Json& key:{Json(nullptr),Json(""),Json("https://foreign.invalid"),Json("a/b"),Json(".."),Json("a?b"),Json("a#b"),Json("bad key"),Json(std::string(257,'a')),Json(12)}){
+    if(!mainnet&&key.is_null())continue;
+    auto wrong=valid;wrong["rpcClientKey"]=key;const auto outcome=Run(wrong);
+    Check(outcome.at("kind")=="pending"&&!outcome.contains("request")&&!outcome.contains("commands"),"RPC configuration bypassed by supplied evidence");
+  }
+  if(mainnet){auto missing=input;missing["anchor"]=nullptr;missing["rpcClientKey"]=nullptr;
+    Check(Run(missing)==Json{{"kind","pending"},{"code","mainnet_reconciliation_not_configured"}},"missing RPC key not explicit");}
+  else {auto wrong=valid;wrong["rpcClientKey"]="fixture_cdp_client_1234";
+    Check(Run(wrong)==Json{{"kind","pending"},{"code","testnet_rpc_configuration_rejected"}},"testnet ignored mainnet key");}
 }
-void Probe(const C::fs::path& state){C::PrivateDirectory(state);C::Lock lock(state/"probe.lock");C::Require(!C::fs::exists(state/"proof.json"),"probe_already_recorded");
-  auto input=Fixture();input["anchor"]=nullptr;input["logs"]=nullptr;input["receipt"]=nullptr;input["operation"]["authorization"]["nonce"]=C::Random();
+void Probe(const C::fs::path& state,const C::fs::path& clientKeyFile={}){C::PrivateDirectory(state);C::Lock lock(state/"probe.lock");C::Require(!C::fs::exists(state/"proof.json"),"probe_already_recorded");
+  const bool mainnet=!clientKeyFile.empty();auto input=Fixture(mainnet);
+  if(mainnet){const auto configuration=P::detail::Parse(C::Read(clientKeyFile,2048,true));P::detail::Fields(configuration,{"rpcClientKey"});input["rpcClientKey"]=configuration.at("rpcClientKey");}
+  input["anchor"]=nullptr;input["logs"]=nullptr;input["receipt"]=nullptr;input["operation"]["authorization"]["nonce"]=C::Random();
   input["now"]=std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
   const auto send=C::CurlTransport(state/"http");Json probes=Json::array();
   for(unsigned i=0;i<4;++i){const auto step=Json::parse(P::SettlementReconciliationPacket(input.dump()));
     if(step.at("kind")!="rpc"){C::Require(step.at("kind")=="pending"&&step.at("code")=="settlement_not_observed","chain_probe_not_accepted");
-      const Json proof={{"status","passed"},{"kind","read-only-chain-probe"},{"requests",probes},{"result",step},{"ledgerMutations",0},{"settlementCalls",0},{"recoveredPayment",false}};
+      const Json proof={{"status","passed"},{"kind","read-only-chain-probe"},{"profileId",mainnet?"base-mainnet-v1":"base-sepolia-v1"},{"requests",probes},{"result",step},{"ledgerMutations",0},{"settlementCalls",0},{"recoveredPayment",false}};
       C::Write(state/"proof.json",proof.dump(2)+"\n",true);std::cout<<proof.dump(2)<<'\n';return;}
     const auto& request=step.at("request");const auto response=send({"POST",request.at("url"),request.at("body"),"application/json",{}});
     C::Require(response.status==200&&response.body.size()<=262144,"chain_probe_http_unavailable");const auto slot=step.at("slot").get<std::string>();
@@ -111,9 +129,14 @@ void Probe(const C::fs::path& state){C::PrivateDirectory(state);C::Lock lock(sta
   throw std::runtime_error("chain_probe_step_limit");
 }
 }
-int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-reconciliation-tests r4346\n";return 0;}
+int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-reconciliation-tests r4353\n";return 0;}
+  if(argc>1&&std::string_view(argv[1])=="--help"){std::cout<<"--write-fixtures OUTPUT | --probe-chain UNUSED_OUTPUT | --probe-mainnet CLIENT_KEY_JSON UNUSED_OUTPUT\nClient key file: owner-only JSON with rpcClientKey. Probe is read-only, never a recovered-payment proof.\n";return 0;}
   try{if(argc==3&&std::string_view(argv[1])=="--probe-chain"){Probe(C::fs::absolute(argv[2]));return 0;}
-    Check(argc==1||(argc==3&&std::string_view(argv[1])=="--write-fixtures"),"invalid arguments");Tests();
-    if(argc==3){const auto path=C::fs::absolute(argv[2]);C::PrivateDirectory(path);C::Write(path/"reconciliation-fixtures.json",Json{{"fixture",Fixture()},{"scenario",Scenario()},{"vectors",vectors}}.dump()+"\n");}
+    if(argc==4&&std::string_view(argv[1])=="--probe-mainnet"){Probe(C::fs::absolute(argv[3]),C::fs::absolute(argv[2]));return 0;}
+    Check(argc==1||(argc==3&&std::string_view(argv[1])=="--write-fixtures"),"invalid arguments");Tests();Tests(true);
+    if(argc==3){const auto path=C::fs::absolute(argv[2]);C::PrivateDirectory(path);C::Write(path/"reconciliation-fixtures.json",Json{{"fixture",Fixture()},{"scenario",Scenario()},{"mainnetFixture",Fixture(true)},{"mainnetScenario",Scenario(true)},{"vectors",vectors}}.dump()+"\n");
+      C::Write(path/"invalid-client-key.json","{\"rpcClientKey\":\"private_key_echo_marker");}
     std::cout<<checks<<" settlement reconciliation checks passed\n";return 0;
-  }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+  }catch(const std::exception& e){const std::string message=e.what();
+    const auto code=message.size()<=128&&message.find_first_not_of("abcdefghijklmnopqrstuvwxyz_0123456789")==std::string::npos?message:"reconciliation_command_failed";
+    std::cerr<<Json{{"status","failed"},{"code",code}}.dump()<<'\n';return 1;}}

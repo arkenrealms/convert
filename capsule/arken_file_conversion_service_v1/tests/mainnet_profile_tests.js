@@ -38,7 +38,7 @@ export const mainnetProfile={async test(_controller,env){
     const settling=await ledger.transition(control(ready.operation,'resume'));
     const effects=await Promise.all(Array.from({length:8},()=>executePaymentEffect(ledger,settling,options)));
     check(settles===1&&effects.some(r=>r.decision.operation.transfer!==null),'CDP effect duplicate or missing settlement');
-    const noRecovery=settlementReconciliationPacket(JSON.stringify({operation:settling.operation,anchor:null,logs:null,receipt:null,now:'151'}));
+    const noRecovery=settlementReconciliationPacket(JSON.stringify({operation:settling.operation,anchor:null,logs:null,receipt:null,now:'151',rpcClientKey:null}));
     check(noRecovery.kind==='pending'&&noRecovery.code==='mainnet_reconciliation_not_configured'&&!noRecovery.request,'mainnet used unqualified recovery RPC');
     const effect=packet({kind:'effect',decision:f.settling,payment:f.payment,now:'101'});let requests=0,failed=false;
     try{await sendFacilitator(effect.request,{fetcher:async()=>{requests++;return new Response('{}');}});}catch{failed=true;}

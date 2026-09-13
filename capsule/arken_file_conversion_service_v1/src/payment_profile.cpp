@@ -7,9 +7,9 @@ constexpr Address AddressBytes(std::string_view text){Address out{};
 }
 constexpr PaymentProfile profiles[]={
     {"base-sepolia-v1","eip155:84532","0x036cbd53842c5426634e7929541ec2318f3dcf7e","https://x402.org/facilitator", "arken-convert:base-sepolia:image:v1:10000",
-      84532,AddressBytes("036cbd53842c5426634e7929541ec2318f3dcf7e"),10000,FacilitatorAuthentication::none,true},
+      84532,AddressBytes("036cbd53842c5426634e7929541ec2318f3dcf7e"),10000,FacilitatorAuthentication::none,ReconciliationProvider::publicBaseSepolia},
     {"base-mainnet-v1","eip155:8453","0x833589fcd6edb6e08f4c7c32d4f71b54bda02913","https://api.cdp.coinbase.com/platform/v2/x402", "arken-convert:base-mainnet:image:v1:10000",
-      8453,AddressBytes("833589fcd6edb6e08f4c7c32d4f71b54bda02913"),10000,FacilitatorAuthentication::cdp,false}
+      8453,AddressBytes("833589fcd6edb6e08f4c7c32d4f71b54bda02913"),10000,FacilitatorAuthentication::cdp,ReconciliationProvider::cdpBaseMainnet}
 };
 }
 std::optional<PaymentProfile> PaymentProfileById(std::string_view id) noexcept {for(const auto& p:profiles)if(p.id==id)return p;return std::nullopt;}
