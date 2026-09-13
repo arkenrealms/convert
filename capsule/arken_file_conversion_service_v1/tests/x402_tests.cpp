@@ -145,14 +145,14 @@ Json Fixture(bool mainnet=false){
   const auto waiting=Paid({{"kind","next"},{"decision",decision},{"receipt",publicReceipt},{"now","101"},{"release",q["release"]}});
   Check(waiting["kind"]=="facilitate"&&!waiting.contains("result"),"unsettled receipt exposed");
   const Json publicRequest={{"jsonrpc","2.0"},{"id",1},{"method","tools/call"},{"params",{{"name","conversion.v1.convert_image"},{"arguments",{{"file_id",q["operation"]}}},{"_meta",{{"x402/payment",payment}}}}}};
-  Check(Json::parse(arken::file_conversion::service::v1::PlanRequest(publicRequest.dump(),true))["payment"]==payment.dump(),"payment metadata not retained");
+  Check(Json::parse(arken::file_conversion::service::v1::PlanRequest(publicRequest.dump(),arken::file_conversion::service::v1::ServerMode::sandbox))["payment"]==payment.dump(),"payment metadata not retained");
   Check(Json::parse(arken::file_conversion::service::v1::PlanRequest(publicRequest.dump()))["kind"]=="response","preview accepted paid metadata");
   return {{"quote",q},{"payment",payment.dump()},{"challenge",challenge},{"verifiedResponse",goodVerify.dump()},{"settledResponse",goodSettle.dump()},
     {"outputCommand",outputCommand},{"verified",verified},{"settling",decision},{"release","0x05"+std::string(62,'0')}};
 }
 }
 int main(int argc,char** argv){
-  if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-x402-tests r4352\n";return 0;}
+  if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-x402-tests r4354\n";return 0;}
   try{const bool probe=argc==3&&std::string_view(argv[1])=="--probe-rejection";const bool write=argc==3&&std::string_view(argv[1])=="--write-fixtures";
     Check(argc==1||probe||write,"arguments");const auto fixture=Fixture();const auto mainnetFixture=Fixture(true);
     if(write){const std::filesystem::path root(argv[2]);std::filesystem::create_directories(root);std::ofstream out(root/"x402-fixtures.json");out<<Json{{"fixture",fixture},{"mainnetFixture",mainnetFixture},{"vectors",vectors},{"paidVectors",paidVectors}}.dump();Check(bool(out),"fixture write");}

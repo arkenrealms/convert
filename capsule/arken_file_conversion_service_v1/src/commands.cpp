@@ -14,9 +14,10 @@ std::string Failure(const Json& id,int code,std::string_view text) {
 }
 }
 std::string Catalog() { return std::string(J::commandCatalog); }
-std::string PlanRequest(std::string_view text,bool sandboxPayments) noexcept {
+std::string PlanRequest(std::string_view text,ServerMode mode) noexcept {
     Json id=nullptr;
     try {
+        const auto surface=Surface(mode);const bool payments=mode!=ServerMode::preview;
         const auto request=payment::detail::Parse(text);
         if(!request.is_object()||!request.contains("jsonrpc")||!request.at("jsonrpc").is_string()
             ||request.at("jsonrpc")!="2.0")return Failure(id,-32600,"Invalid request");
@@ -45,8 +46,8 @@ std::string PlanRequest(std::string_view text,bool sandboxPayments) noexcept {
               ||!params["clientInfo"].contains("version")||!params["clientInfo"]["version"].is_string())
             return Failure(id,-32602,"Invalid initialization parameters");
           return reply({{"protocolVersion","2025-11-25"},{"capabilities",{{"tools",Json::object()}}},
-            {"serverInfo",{{"name","Arken Convert"},{"version","r4348"}}},
-            {"instructions",sandboxPayments?"Public x402 sandbox. Prepare an upload, keep file_token private, PUT bytes to upload_url, then convert using file_id and file_token. Public preparations are limited to 64 files and 64 MiB per UTC day. Payments use test USDC on Base Sepolia; mainnet payments are disabled.":"Authenticated conversion preview. Prepare an upload, PUT the file bytes, then convert. No live charges are enabled."}},true);
+            {"serverInfo",{{"name","Arken Convert"},{"version","r4354"}}},
+            {"instructions",surface.instructions}},true);
         }
         if(method=="ping")return reply(Json::object());
         if(method=="tools/list") {
@@ -55,7 +56,7 @@ std::string PlanRequest(std::string_view text,bool sandboxPayments) noexcept {
                 tools.push_back({{"name",command.at("name")},{"description",command.at("description")},
                     {"inputSchema",command.at("inputSchema")},{"outputSchema",command.at("outputSchema")},
                     {"annotations",{{"readOnlyHint",false},{"destructiveHint",false},
-                        {"idempotentHint",command.at("idempotency")=="idempotent"},{"openWorldHint",sandboxPayments&&command.at("commandId")==2}}}});
+                        {"idempotentHint",command.at("idempotency")=="idempotent"},{"openWorldHint",payments&&command.at("commandId")==2}}}});
             return reply({{"tools",tools}});
         }
         if(method!="tools/call")return Failure(id,-32601,"Method not found");
@@ -82,7 +83,7 @@ std::string PlanRequest(std::string_view text,bool sandboxPayments) noexcept {
         if(params.contains("_meta")){
             J::require(params.at("_meta").is_object(),"MCP metadata must be an object");
             if(params.at("_meta").contains("x402/payment")){
-                J::require(sandboxPayments&&commandId==2,"payment not accepted by this tool");
+                J::require(payments&&commandId==2,"payment not accepted by this tool");
                 const auto& payload=params.at("_meta").at("x402/payment");
                 J::require(payload.is_object(),"payment must be an object");payment=payload.dump();
             }

@@ -5,6 +5,7 @@
 #include "arken_file_conversion_service_v1/settlement_reconciliation.hpp"
 #include "arken_file_conversion_service_v1/public_admission.hpp"
 #include "arken_file_conversion_service_v1/provider_signing.hpp"
+#include "arken_file_conversion_service_v1/production_startup.hpp"
 #include <cstdint>
 #include <string>
 #define EXPORT __attribute__((used,visibility("default")))
@@ -18,7 +19,10 @@ char* Prepare(std::uint32_t bytes,std::uint32_t limit) noexcept {
 extern "C" EXPORT char* arken_mcp_prepare(std::uint32_t bytes) noexcept {return Prepare(bytes,16384);}
 extern "C" EXPORT char* arken_settlement_prepare(std::uint32_t bytes) noexcept {return Prepare(bytes,1048576);}
 extern "C" EXPORT void arken_mcp_plan() noexcept {output=arken::file_conversion::service::v1::PlanRequest(input);}
-extern "C" EXPORT void arken_mcp_paid_plan() noexcept {output=arken::file_conversion::service::v1::PlanRequest(input,true);}
+extern "C" EXPORT void arken_mcp_sandbox_plan() noexcept {output=arken::file_conversion::service::v1::PlanRequest(input,arken::file_conversion::service::v1::ServerMode::sandbox);}
+extern "C" EXPORT void arken_mcp_production_plan() noexcept {output=arken::file_conversion::service::v1::PlanRequest(input,arken::file_conversion::service::v1::ServerMode::production);}
+extern "C" EXPORT void arken_server_surface() noexcept {output=arken::file_conversion::service::v1::SurfacePacket(input);}
+extern "C" EXPORT void arken_production_startup() noexcept {output=arken::file_conversion::service::v1::ProductionStartupPacket(input);}
 extern "C" EXPORT void arken_paid_conversion_packet() noexcept {output=arken::file_conversion::service::v1::payment::PaidConversionPacket(input);}
 extern "C" EXPORT void arken_settlement_reconciliation_packet() noexcept {output=arken::file_conversion::service::v1::payment::SettlementReconciliationPacket(input);}
 extern "C" EXPORT void arken_public_admission_packet() noexcept {output=arken::file_conversion::service::v1::PublicAdmissionPacket(input);}
