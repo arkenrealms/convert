@@ -14,11 +14,14 @@ Json Probe(std::string_view slot,const std::string& identity,std::string_view me
   return {{"kind","probe"},{"ready",false},{"code","provider_checks_required"},{"fingerprint",identity},{"slot",slot},
     {"request",{{"method",method},{"url",url},{"authentication",authentication},{"body",body}}}};
 }
-Json Startup(const Json& j){
+Json Startup(const Json& j,bool qualification=false){
   P::detail::Fields(j,{"configuration","cached","anonymous","supported","rpc","now"});const auto& c=j.at("configuration");
   P::detail::Fields(c,{"enabled","keyId","keySecret","rpcClientKey","releaseId","downloadSecret","hasFiles","hasLedger","bindingGeneration"});
-  if(c.at("enabled").is_null()||c.at("enabled")=="false")return Unavailable("production_admission_disabled");
-  if(c.at("enabled")!="true")return Unavailable("production_enable_setting_invalid");
+  if(qualification){if(c.at("enabled")!="false")return Unavailable("production_qualification_requires_disabled");}
+  else{
+    if(c.at("enabled").is_null()||c.at("enabled")=="false")return Unavailable("production_admission_disabled");
+    if(c.at("enabled")!="true")return Unavailable("production_enable_setting_invalid");
+  }
   for(const auto name:{"keyId","keySecret","rpcClientKey","releaseId","downloadSecret"})if(!c.at(name).is_string()||c.at(name).get_ref<const std::string&>().empty())return Unavailable("production_configuration_missing");
   if(!J::readScalar<bool>(c.at("hasFiles"))||!J::readScalar<bool>(c.at("hasLedger")))return Unavailable("production_bindings_missing");
   J::require(J::readScalar<std::uint64_t>(c.at("bindingGeneration"))>0,"binding generation missing");
@@ -61,4 +64,14 @@ Json Startup(const Json& j){
 }
 std::string ProductionStartupPacket(std::string_view text) noexcept {try{return Startup(payment::detail::Parse(text,1048576)).dump();}
   catch(...){return Unavailable("production_configuration_or_probe_invalid").dump();}}
+std::string ProductionQualificationPacket(std::string_view text) noexcept {
+  try{const auto j=payment::detail::Parse(text,1048576);const auto kind=J::readScalar<std::string>(j.at("kind"));
+    if(kind=="startup"){P::detail::Fields(j,{"kind","input"});return Startup(j.at("input"),true).dump();}
+    P::detail::Fields(j,{"kind","administrator","method","hasBody","hasQuery"});J::require(kind=="request","qualification kind invalid");
+    if(!J::readScalar<bool>(j.at("administrator")))return Json{{"allowed",false},{"status",401},{"code","authorization_required"}}.dump();
+    if(J::readScalar<std::string>(j.at("method"))!="POST")return Json{{"allowed",false},{"status",405},{"code","method_not_allowed"}}.dump();
+    if(J::readScalar<bool>(j.at("hasBody"))||J::readScalar<bool>(j.at("hasQuery")))return Json{{"allowed",false},{"status",400},{"code","qualification_input_forbidden"}}.dump();
+    return Json{{"allowed",true},{"status",200},{"code","qualified_request"}}.dump();
+  }catch(...){return Json{{"allowed",false},{"status",400},{"code","qualification_request_invalid"}}.dump();}
+}
 }
