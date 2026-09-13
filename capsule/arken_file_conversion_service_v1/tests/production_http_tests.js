@@ -1,5 +1,5 @@
 import text from './startup-fixtures.json';
-import {productionStartupPacket,serverSurface} from './runtime.js';
+import {productionStartupPacket,productionQualificationPacket,serverSurface} from './runtime.js';
 import {createProductionStartup} from './production_startup.js';
 import {createProductionWorker} from './production_worker.js';
 import sandbox from './sandbox_worker.js';
@@ -12,6 +12,7 @@ const tga=new Uint8Array([0,0,2,0,0,0,0,0,0,0,0,0,1,0,1,0,32,40,30,20,10,255]);
 const hex=b=>Array.from(new Uint8Array(b),x=>x.toString(16).padStart(2,'0')).join('');
 export const productionHttp={async test(_controller,bindings){
   for(const v of f.vectors)check(JSON.stringify(productionStartupPacket(v.input))===JSON.stringify(v.expected),'native/Wasm startup mismatch');
+  for(const v of f.qualificationVectors)check(JSON.stringify(productionQualificationPacket(v.input))===JSON.stringify(v.expected),'native/Wasm qualification mismatch');
   for(const v of f.surfaces)check(JSON.stringify(serverSurface(v.input))===JSON.stringify(v.expected),'native/Wasm surface mismatch');
   if(bindings.PHASE!=='write')return;
   let now=1000,probes=0,failSupported=false,waitProbe=null;
@@ -47,6 +48,24 @@ export const productionHttp={async test(_controller,bindings){
   await app.fetch(req('tools/list',{}),env);check(probes===0&&env.FILES.values.size===0,'static discovery did I/O');
   const uploadArgs={source_bytes:tga.length,input_format:'tga',output_format:'png'};
   check((await call('conversion.v1.prepare_upload',uploadArgs)).isError&&probes===0&&env.FILES.values.size===0,'disabled upload accepted');
+  const qurl='https://production.example/_arken/production/qualify';
+  const qualify=(options={})=>app.fetch(new Request(qurl,{method:'POST',headers:{authorization:'Bearer '+env.ACCESS_TOKEN},...options}),env);
+  for(const options of [{headers:{}},{headers:{authorization:'Bearer wrong'}},{method:'GET'},{body:'{"ready":true}'},{headers:{authorization:'Bearer '+env.ACCESS_TOKEN,origin:'https://foreign.example'}}]){
+    check((await qualify(options)).status>=400&&probes===0&&env.FILES.values.size===0,'qualification request gate did I/O');}
+  check((await app.fetch(new Request(qurl+'?ready=true',{method:'POST',headers:{authorization:'Bearer '+env.ACCESS_TOKEN}}),env)).status===400&&probes===0,'qualification query accepted');
+  for(const other of [sandbox,preview])check((await other.fetch(new Request(qurl,{method:'POST',headers:{authorization:'Bearer '+env.ACCESS_TOKEN}}),env)).status===404,'nonproduction qualification exposed');
+  failSupported=true;const failedQualification=await qualify();
+  check(failedQualification.status===503&&probes===2&&env.FILES.values.size===0&&(await health()).admissionCode==='production_admission_disabled','failed qualification changed admission');failSupported=false;probes=0;
+  const qualificationResults=await Promise.all([qualify(),qualify()]);
+  for(const response of qualificationResults){const value=await response.json();check(response.status===200&&value.providerQualified&&value.charging===false&&value.admissionReady===false,'private provider qualification failed');
+    check(!JSON.stringify(value).includes(env.CDP_API_KEY_SECRET)&&!JSON.stringify(value).includes(env.CDP_RPC_CLIENT_KEY),'private qualification leaked secret');}
+  check(probes===3&&env.PAYMENTS_ENABLED==='false'&&env.FILES.values.size===0&&settles===0&&verifies===0,'qualification widened purchase or storage authority');
+  check((await health()).charging===false&&(await health()).admissionReady===false&&probes===3,'qualification affected public health');
+  check((await call('conversion.v1.prepare_upload',uploadArgs)).isError&&probes===3&&env.FILES.values.size===0,'qualification cache admitted upload');
+  const again=await qualify();check(again.status===200&&probes===3,'qualification cache missed');
+  const originalRelease=env.RELEASE_ID;let qualifyRelease;waitProbe=new Promise(resolve=>{qualifyRelease=resolve;});
+  env.RELEASE_ID='d'.repeat(64);const changingQualification=qualify();env.RELEASE_ID='e'.repeat(64);qualifyRelease();
+  check((await changingQualification).status===503&&!startup.status(env).ready&&env.FILES.values.size===0,'late qualification accepted changed environment');env.RELEASE_ID=originalRelease;probes=0;
   env.PAYMENTS_ENABLED='true';failSupported=true;
   check((await call('conversion.v1.prepare_upload',uploadArgs)).isError&&probes===2&&env.FILES.values.size===0,'failed provider admitted upload');
   check((await health()).admissionCode==='provider_authentication_unavailable'&&probes===2,'health lost error or retried');failSupported=false;

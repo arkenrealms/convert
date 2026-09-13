@@ -11,6 +11,7 @@ export function planSandboxRequest(text) {return invokePacket(text,api.arken_mcp
 export function planProductionRequest(text) {return invokePacket(text,api.arken_mcp_production_plan);}
 export function serverSurface(text) {return invokePacket(text,api.arken_server_surface);}
 export function productionStartupPacket(text) {return invokePacket(text,api.arken_production_startup,api.arken_settlement_prepare,true);}
+export function productionQualificationPacket(text) {return invokePacket(text,api.arken_production_qualification,api.arken_settlement_prepare,true);}
 export function paidConversionPacket(text) {return invokePacket(text,api.arken_paid_conversion_packet);}
 // Private actor/storage integration only; this is not exposed as an MCP tool.
 export function advancePayment(text) {

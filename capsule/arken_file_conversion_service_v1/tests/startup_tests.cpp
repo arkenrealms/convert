@@ -7,7 +7,7 @@
 namespace S=arken::file_conversion::service::v1;
 namespace C=arken::conversion::cloudflare;using C::Json;
 namespace {
-unsigned checks=0;Json vectors=Json::array();
+unsigned checks=0;Json vectors=Json::array(),qualificationVectors=Json::array();
 Json lastResult=Json::object();
 void Check(bool ok,const char* text){++checks;C::Require(ok,text);}
 Json Run(const Json& input){const auto result=Json::parse(S::ProductionStartupPacket(input.dump()));lastResult=result;vectors.push_back({{"input",input.dump()},{"expected",result}});return result;}
@@ -49,6 +49,21 @@ void Tests(const C::fs::path& providerFile,const C::fs::path& output){
     if(i==20)bad["configuration"]["bindingGeneration"]="0";
     const auto rejected=Run(bad);Check(rejected.at("kind")=="unavailable"&&rejected.at("ready")==false,"unqualified readiness admitted");
   }
+  const auto qualify=[&](const Json& request){auto result=Json::parse(S::ProductionQualificationPacket(request.dump()));qualificationVectors.push_back({{"input",request.dump()},{"expected",result}});return result;};
+  const Json gate={{"kind","request"},{"administrator",true},{"method","POST"},{"hasBody",false},{"hasQuery",false}};
+  Check(qualify(gate).at("allowed")==true,"private qualification gate refused");
+  for(unsigned i=0;i<6;++i){auto bad=gate;if(i==0)bad["administrator"]=false;if(i==1)bad["method"]="GET";if(i==2)bad["hasBody"]=true;
+    if(i==3)bad["hasQuery"]=true;if(i==4)bad["administrator"]="true";if(i==5)bad["ready"]=true;Check(qualify(bad).at("allowed")==false,"qualification gate widened");}
+  auto disabled=input;disabled["configuration"]["enabled"]="false";
+  auto qualified=qualify({{"kind","startup"},{"input",disabled}});Check(qualified.at("ready")==true,"disabled qualification failed");
+  auto normal=disabled;normal["cached"]=qualified.at("record");Check(Run(normal).at("ready")==false,"qualification admitted purchase");
+  auto enable=original;enable["cached"]=qualified.at("record");Check(Run(enable).at("kind")=="probe","qualification cache reused after enablement");
+  disabled["cached"]=qualified.at("record");Check(qualify({{"kind","startup"},{"input",disabled}}).at("reused")==true,"qualification cache not reused");
+  for(unsigned i=0;i<5;++i){auto bad=disabled;if(i==0)bad["configuration"]["enabled"]="true";if(i==1)bad["configuration"]["enabled"]=false;
+    if(i==2)bad["configuration"]["keySecret"]="invalid";if(i==3)bad["configuration"]["hasLedger"]=false;if(i==4){bad["cached"]=nullptr;bad["rpc"]["status"]=503;}
+    Check(qualify({{"kind","startup"},{"input",bad}}).value("ready",false)==false,"qualification accepted bad context");}
+  auto probing=original;probing["configuration"]["enabled"]="false";
+  Check(qualify({{"kind","startup"},{"input",probing}}).at("slot")=="anonymous","qualification skipped live checks");
   Json surfaces=Json::array();
   for(const Json& id:{Json(nullptr),Json("base-sepolia-v1"),Json("base-mainnet-v1")})for(bool isReady:{false,true}){
     const Json request={{"profileId",id},{"ready",isReady}};const auto surface=Json::parse(S::SurfacePacket(request.dump()));
@@ -63,11 +78,11 @@ void Tests(const C::fs::path& providerFile,const C::fs::path& output){
   namespace F=arken::file_conversion::v1;F::ImageOptions options;options.input=F::image::Format::tga;options.output=F::image::Format::png;
   const auto png=F::ConvertImage(std::span(reinterpret_cast<const std::byte*>(source),sizeof(source)),options);Check(bool(png),"native production PNG fixture");
   const auto pngSha=C::Hash(std::string_view(reinterpret_cast<const char*>(png.bytes.data()),png.bytes.size()));
-  C::PrivateDirectory(output);C::Write(output/"startup-fixtures.json",Json{{"vectors",vectors},{"surfaces",surfaces},{"configuration",configuration},{"anonymous",input["anonymous"]},{"supported",input["supported"]},{"rpc",input["rpc"]},{"nativePngSha256",pngSha}}.dump(2)+"\n");
+  C::PrivateDirectory(output);C::Write(output/"startup-fixtures.json",Json{{"vectors",vectors},{"qualificationVectors",qualificationVectors},{"surfaces",surfaces},{"configuration",configuration},{"anonymous",input["anonymous"]},{"supported",input["supported"]},{"rpc",input["rpc"]},{"nativePngSha256",pngSha}}.dump(2)+"\n");
   std::cout<<checks<<" startup checks passed; "<<vectors.size()<<" native vectors\n";
 }
 }
-int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-startup-tests r4354\n";return 0;}
+int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-startup-tests r4368\n";return 0;}
   try{C::Require(argc==4&&std::string_view(argv[1])=="--write-fixtures","invalid_arguments");Tests(argv[2],argv[3]);return 0;}
   catch(const std::exception& error){const std::string message=error.what();
     std::cerr<<Json{{"code",message.size()<160&&message.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ /_")==std::string::npos?message:"startup_test_failed"},{"checkIndex",checks},{"vectorCount",vectors.size()},{"lastKind",lastResult.value("kind","")},{"lastCode",lastResult.value("code","")}}.dump()<<'\n';return 1;}}
