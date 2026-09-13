@@ -1,5 +1,6 @@
 import text from './startup-fixtures.json';
-import {productionStartupPacket,productionQualificationPacket,serverSurface} from './runtime.js';
+import {productionStartupPacket,productionQualificationPacket,serverSurface,convertImage} from './runtime.js';
+import largePng from './jpeg-input.png';
 import {createProductionStartup} from './production_startup.js';
 import {createProductionWorker} from './production_worker.js';
 import sandbox from './sandbox_worker.js';
@@ -15,6 +16,8 @@ export const productionHttp={async test(_controller,bindings){
   for(const v of f.qualificationVectors)check(JSON.stringify(productionQualificationPacket(v.input))===JSON.stringify(v.expected),'native/Wasm qualification mismatch');
   for(const v of f.surfaces)check(JSON.stringify(serverSurface(v.input))===JSON.stringify(v.expected),'native/Wasm surface mismatch');
   if(bindings.PHASE!=='write')return;
+  const largeJpeg=convertImage(largePng,f.largeJpeg.codec);
+  check(!largeJpeg.error&&largeJpeg.width===1024&&largeJpeg.height===1024&&hex(await crypto.subtle.digest('SHA-256',largeJpeg.bytes))===f.largeJpeg.sha256,'portable large JPEG native/Wasm bytes differ');
   let now=1000,probes=0,failSupported=false,waitProbe=null,probeStarted=null;
   const fetcher=async(url,options)=>{
     probes++;check(options.redirect==='manual','startup redirects followed');new Request(url,options);

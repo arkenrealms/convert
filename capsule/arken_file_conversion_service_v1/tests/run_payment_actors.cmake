@@ -22,6 +22,8 @@ file(COPY_FILE "${RECONCILIATION_FIXTURES}" "${run}/reconciliation-fixtures.json
 file(COPY_FILE "${PUBLIC_ADMISSION_FIXTURES}" "${run}/public-admission-fixtures.json")
 file(COPY_FILE "${PROVIDER_FIXTURES}" "${run}/provider-fixtures.json")
 file(COPY_FILE "${STARTUP_FIXTURES}" "${run}/startup-fixtures.json")
+get_filename_component(startup_fixture_root "${STARTUP_FIXTURES}" DIRECTORY)
+file(COPY_FILE "${startup_fixture_root}/jpeg-input.png" "${run}/jpeg-input.png")
 foreach(file public_admission_actor_tests.js public_http_tests.js cdp_authorization_tests.js mainnet_profile_tests.js production_http_tests.js)
   file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/${file}" "${run}/${file}")
 endforeach()
@@ -48,6 +50,7 @@ const config :Workerd.Config = (
            (name="production_worker.js",esModule=embed "production_worker.js"),
            (name="production_startup.js",esModule=embed "production_startup.js"),
            (name="startup-fixtures.json",text=embed "startup-fixtures.json"),
+           (name="jpeg-input.png",data=embed "jpeg-input.png"),
            (name="provider-fixtures.json",text=embed "provider-fixtures.json"),
            (name="public-admission-fixtures.json",text=embed "public-admission-fixtures.json"),
            (name="public_admission_actor_tests.js",esModule=embed "public_admission_actor_tests.js"),
