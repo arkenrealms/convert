@@ -11,6 +11,7 @@ struct PaymentProfile {
     std::uint64_t imagePrice;
     FacilitatorAuthentication authentication;
     ReconciliationProvider reconciliationProvider;
+    std::string_view domainName, domainVersion;
 };
 std::optional<PaymentProfile> PaymentProfileById(std::string_view) noexcept;
 // Always resolve a retained operation from its own chain/token, never a new default.

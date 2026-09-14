@@ -36,7 +36,7 @@ bool Any(const Address& a){return std::ranges::any_of(a,[](auto b){return b!=0;}
 Json Requirements(const Quote& q){
   const auto profile=Profile(q);J::require(Any(q.recipient)&&q.amount>0,"payment recipient or amount missing");
   return {{"scheme","exact"},{"network",profile.network},{"asset",profile.assetText},{"amount",std::to_string(q.amount)},
-    {"payTo",Hex(q.recipient)},{"maxTimeoutSeconds",60},{"extra",{{"name","USDC"},{"version","2"}}}};
+    {"payTo",Hex(q.recipient)},{"maxTimeoutSeconds",60},{"extra",{{"name",profile.domainName},{"version",profile.domainVersion}}}};
 }
 Json Resource(const Quote& q){return {{"url","mcp://tool/conversion.v1.convert_image/"+Hex(q.operation).substr(2)},
   {"description","Bounded image conversion"},{"mimeType","application/json"}};}
