@@ -60,6 +60,7 @@ Json Fixture(bool mainnet=false){
   const auto q=P::detail::WriteQuote(Quote(100,mainnet));const Json prepare={{"kind","prepare"},{"quote",q},{"payment",nullptr},{"now","100"}};
   const auto challenge=Wire(prepare);Check(challenge.at("kind")=="challenge","challenge");const auto& r=challenge.at("result");
   Check(r.at("isError")==true&&Json::parse(r.at("content")[0].at("text").get<std::string>())==r.at("structuredContent"),"MCP challenge mirrors");
+  Check(r.at("structuredContent").at("accepts")[0].at("extra")==Json{{"name",mainnet?"USD Coin":"USDC"},{"version","2"}},"wrong token signature domain");
   const auto payment=Payment(challenge);auto admission=prepare;admission["payment"]=payment.dump();const auto admitted=Wire(admission);
   Check(admitted.at("kind")=="admit","payment shape admission");Ledger ledger;auto decision=ledger.transition(admitted.at("command").get<std::string>());
   Check(decision["action"]==unsigned(P::Action::verify),"verify not selected");
@@ -110,12 +111,15 @@ Json Fixture(bool mainnet=false){
   const auto fulfilled=ledger.transition(receipt["command"].get<std::string>());
   Check(fulfilled["operation"]["stage"]==unsigned(P::Stage::settled),"settlement receipt");
   Check(!ledger.dispatch(decision),"old settle decision dispatched after receipt");
-  for(unsigned i=0;i<9;++i){auto invalid=payment;
+  for(unsigned i=0;i<11;++i){auto invalid=payment;
     if(i==0)invalid["accepted"]["amount"]="1";if(i==1)invalid["accepted"]["network"]=otherNetwork;
     if(i==2)invalid["accepted"]["asset"]="0x"+std::string(40,'0');if(i==3)invalid["accepted"]["payTo"]="0x"+std::string(40,'1');
     if(i==4)invalid["payload"]["authorization"]["value"]="9999";if(i==5)invalid["resource"]["url"]="mcp://different-operation";
     if(i==6)invalid["payload"]["authorization"]["validBefore"]="0100";if(i==7)invalid["payload"]["signature"]="0xgg";
-    if(i==8)invalid["x402Version"]=1;auto request=admission;request["payment"]=invalid.dump();Check(Wire(request).contains("packetError"),"untrusted payment mismatch accepted");}
+    if(i==8)invalid["x402Version"]=1;
+    if(i==9)invalid["accepted"]["extra"]["name"]=mainnet?"USDC":"USD Coin";
+    if(i==10)invalid["accepted"]["extra"]["version"]="1";
+    auto request=admission;request["payment"]=invalid.dump();Check(Wire(request).contains("packetError"),"untrusted payment mismatch accepted");}
   auto wrongChain=prepare;wrongChain["quote"]["scope"]["chain"]=mainnet?84532:8453;Check(Wire(wrongChain).contains("packetError"),"mismatched chain/token accepted");
   auto quoteRequest=Json{{"kind","quote"},{"profileId",profileId},{"fileId",q["operation"]},{"owner",q["tenant"]},{"inputDigest",q["input"]},{"release",q["release"]},{"expiresAt",q["expiresAt"]},
     {"arguments",{{"source_bytes",22},{"input_format","tga"},{"output_format","png"}}}};
@@ -152,7 +156,7 @@ Json Fixture(bool mainnet=false){
 }
 }
 int main(int argc,char** argv){
-  if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-x402-tests r4354\n";return 0;}
+  if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-x402-tests r4407\n";return 0;}
   try{const bool probe=argc==3&&std::string_view(argv[1])=="--probe-rejection";const bool write=argc==3&&std::string_view(argv[1])=="--write-fixtures";
     Check(argc==1||probe||write,"arguments");const auto fixture=Fixture();const auto mainnetFixture=Fixture(true);
     if(write){const std::filesystem::path root(argv[2]);std::filesystem::create_directories(root);std::ofstream out(root/"x402-fixtures.json");out<<Json{{"fixture",fixture},{"mainnetFixture",mainnetFixture},{"vectors",vectors},{"paidVectors",paidVectors}}.dump();Check(bool(out),"fixture write");}
