@@ -32,7 +32,7 @@ target_sources(arken_file_conversion_service_v1 PRIVATE src/transfer_evidence.cp
 target_include_directories(arken_file_conversion_service_v1 PUBLIC "${CMAKE_CURRENT_LIST_DIR}/.."
     PRIVATE "${CMAKE_CURRENT_LIST_DIR}/generated")
 target_link_libraries(arken_file_conversion_service_v1 PUBLIC arken_file_conversion_v1
-    PRIVATE arken_schema_cpp_v1_tool_json arken_digest_v1)
+    PRIVATE arken_schema_cpp_v1_tool_json arken_digest_v1 arken_mcp_protocol_v1)
 if(ARKEN_BROWSER_CPP)
     include("${CMAKE_CURRENT_LIST_DIR}/../arken_file_conversion_v1/cmake/ArkenFileConversionReactor.cmake")
     arken_file_conversion_reactor(arken-file-conversion-service-module)
