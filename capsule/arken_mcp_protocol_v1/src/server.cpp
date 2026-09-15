@@ -7,7 +7,10 @@
 namespace arken::mcp::v1 {
 namespace J = ::arken::schema::cpp::v1::tool_json;
 Json parseRequestJson(std::string_view text) {
-  J::require(text.size() <= maximumRequestBytes, "MCP request byte limit");
+  return parseBoundedJson(text, maximumRequestBytes);
+}
+Json parseBoundedJson(std::string_view text, std::size_t maximumBytes) {
+  J::require(maximumBytes > 0 && maximumBytes <= 65536 && text.size() <= maximumBytes, "MCP packet byte limit");
   std::vector<std::set<std::string>> keys;
   return Json::parse(
       text.begin(), text.end(),
