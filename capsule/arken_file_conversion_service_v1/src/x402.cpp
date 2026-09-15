@@ -4,6 +4,7 @@
 #include "payment_json.hpp"
 #include "arken_schema_cpp_v1/tool_json.hpp"
 #include "arken/digest/v1/digest.hpp"
+#include "arken_x402_v1/api.hpp"
 #include <algorithm>
 namespace arken::file_conversion::service::v1::payment {
 namespace {
@@ -32,40 +33,22 @@ template<std::size_t N> std::array<std::uint8_t,N> Hex(const Json& j){
 template<std::size_t N> std::string Hex(const std::array<std::uint8_t,N>& bytes){
   arken::schema::cpp::v1::fixed_id<N,1> id;for(std::size_t i=0;i<N;++i)id.value[i]=std::byte(bytes[i]);return "0x"+J::write(id).template get<std::string>();
 }
-bool Any(const Address& a){return std::ranges::any_of(a,[](auto b){return b!=0;});}
-Json Requirements(const Quote& q){
-  const auto profile=Profile(q);J::require(Any(q.recipient)&&q.amount>0,"payment recipient or amount missing");
-  return {{"scheme","exact"},{"network",profile.network},{"asset",profile.assetText},{"amount",std::to_string(q.amount)},
-    {"payTo",Hex(q.recipient)},{"maxTimeoutSeconds",60},{"extra",{{"name",profile.domainName},{"version",profile.domainVersion}}}};
-}
-Json Resource(const Quote& q){return {{"url","mcp://tool/conversion.v1.convert_image/"+Hex(q.operation).substr(2)},
-  {"description","Bounded image conversion"},{"mimeType","application/json"}};}
+arken::x402::v1::ExactEvmTerms Terms(const Quote& q){const auto p=Profile(q);return {std::string(p.network),p.asset,q.recipient,q.amount,60,std::string(p.domainName),std::string(p.domainVersion)};}
+Json Requirements(const Quote& q){const auto result=arken::x402::v1::requirements(Terms(q));J::require(!result.empty(),"payment terms");return detail::Parse(result);}
+arken::x402::v1::Resource Resource(const Quote& q){return {"mcp://tool/conversion.v1.convert_image/"+Hex(q.operation).substr(2),"Bounded image conversion","application/json"};}
 Json Command(const Quote& q,const Event& e){return {{"version",1},{"quote",detail::WriteQuote(q)},{"event",detail::WriteEvent(e)}};}
 struct Submitted {Quote quote;Authorization auth;Json payload;};
 Submitted Submission(Quote q,std::string_view text){
-  auto p=detail::Parse(text);detail::Fields(p,{"x402Version","resource","accepted","payload"});
-  J::require(J::readScalar<std::uint32_t>(p.at("x402Version"))==2,"x402 version");
-  auto accepted=p.at("accepted");accepted["asset"]=Hex(Hex<20>(accepted.at("asset")));accepted["payTo"]=Hex(Hex<20>(accepted.at("payTo")));
-  J::require(accepted==Requirements(q)&&p.at("resource")==Resource(q),"payment requirements changed");
-  auto& body=p.at("payload");detail::Fields(body,{"signature","authorization"});
-  auto signature=J::readScalar<std::string>(body.at("signature"));
-  J::require(signature.starts_with("0x")&&signature.size()>=4&&signature.size()<=4098&&signature.size()%2==0,"signature shape");
-  for(std::size_t i=2;i<signature.size();++i){auto& c=signature[i];if(c>='A'&&c<='F')c=char(c-'A'+'a');J::require((c>='0'&&c<='9')||(c>='a'&&c<='f'),"signature hex");}
-  body["signature"]=signature;
-  auto& auth=body.at("authorization");detail::Fields(auth,{"from","to","value","validAfter","validBefore","nonce"});
-  const auto payer=Hex<20>(auth.at("from"));J::require(Any(payer)&&(!Any(q.scope.payer)||q.scope.payer==payer),"payer changed");q.scope.payer=payer;
-  J::require(Hex<20>(auth.at("to"))==q.recipient&&J::readScalar<std::uint64_t>(auth.at("value"))==q.amount,"authorization amount or recipient changed");
-  Authorization a;a.nonce=Hex<32>(auth.at("nonce"));a.validAfter=J::readScalar<std::uint64_t>(auth.at("validAfter"));a.validBefore=J::readScalar<std::uint64_t>(auth.at("validBefore"));
-  J::require(a.validAfter<a.validBefore&&a.validBefore<=q.expiresAt,"authorization lifetime");
-  auth["from"]=Hex(payer);auth["to"]=Hex(q.recipient);auth["nonce"]=Hex(a.nonce);p["accepted"]=accepted;
-  a.payload=detail::PayloadDigest(p.dump());return {q,a,p};
+  const auto parsed=arken::x402::v1::inspectSubmission(Terms(q),Resource(q),text,q.expiresAt,q.scope.payer);J::require(parsed.has_value(),"payment submission");
+  q.scope.payer=parsed->payer;Authorization auth{parsed->payloadDigest,parsed->nonce,parsed->validAfter,parsed->validBefore};
+  return {q,auth,detail::Parse(parsed->normalizedPayload)};
 }
 Json Prepare(const Json& j){
   detail::Fields(j,{"kind","quote","payment","now"});const auto q=detail::ReadQuote(j.at("quote"));const auto now=J::readScalar<std::uint64_t>(j.at("now"));
   if(j.at("payment").is_null()){
     J::require(now<q.expiresAt&&q.expiresAt-now>=60,"file expiry too close");
-    const Json required={{"x402Version",2},{"error","PAYMENT_REQUIRED"},{"resource",Resource(q)},{"accepts",Json::array({Requirements(q)})}};
-    return {{"kind","challenge"},{"result",{{"isError",true},{"structuredContent",required},{"content",Json::array({{{"type","text"},{"text",required.dump()}}})}}}};
+    const auto challenge=arken::x402::v1::paymentRequired(Terms(q),Resource(q));J::require(!challenge.empty(),"payment challenge");
+    return {{"kind","challenge"},{"result",detail::Parse(challenge)}};
   }
   const auto submitted=Submission(q,J::readScalar<std::string>(j.at("payment")));
   Event event;event.kind=EventKind::request;event.now=now;event.authorization=submitted.auth;
