@@ -24,11 +24,20 @@ function(arken_browser_cpp_reactor target)
     if(ARG_NO_HOST_IO)
         target_sources(${target} PRIVATE
             "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src/platform/wasm/closed_reactor.cpp")
-        foreach(call environ_get environ_sizes_get clock_time_get fd_close fd_seek fd_write proc_exit)
+        foreach(call environ_get environ_sizes_get clock_time_get fd_close fd_seek fd_write
+                fd_fdstat_get fd_fdstat_set_flags fd_prestat_get fd_prestat_dir_name fd_read path_open proc_exit)
             target_link_options(${target} PRIVATE "-Wl,--wrap=__wasi_${call}")
         endforeach()
     endif()
     set_target_properties(${target} PROPERTIES SUFFIX .wasm)
     target_link_options(${target} PRIVATE -Wl,--export-dynamic -Wl,--export=malloc
         -Wl,--export=free "-Wl,--max-memory=${ARG_MAX_MEMORY_BYTES}" -Wl,-z,stack-size=1048576)
+endfunction()
+
+# Consumers exercise the SDK-owned denial contract without compiling private
+# platform sources through a product-specific path.
+function(arken_browser_cpp_closed_profile_probe target)
+    add_executable(${target}
+        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src/platform/wasm/tests/closed_reactor_probe.cpp")
+    arken_browser_cpp_reactor(${target} NO_HOST_IO MAX_MEMORY_BYTES 2097152)
 endfunction()

@@ -13,7 +13,7 @@ std::string Failure(const Json& id,int code,std::string_view text) {
         {"error",{{"code",code},{"message",text}}}}.dump()}}.dump();
 }
 }
-std::string Catalog() { return std::string(J::commandCatalog); }
+std::string Catalog() { return std::string(S::commandCatalog); }
 std::string PlanRequest(std::string_view text,ServerMode mode) noexcept {
     Json id=nullptr;
     try {
@@ -33,7 +33,7 @@ std::string PlanRequest(std::string_view text,ServerMode mode) noexcept {
                 return Json{{"kind","response"},{"status",202},{"body",""}}.dump();
             return Json{{"kind","response"},{"status",400},{"body",""}}.dump();
         }
-        const auto catalog=Json::parse(J::commandCatalog);
+        const auto catalog=Json::parse(S::commandCatalog);
         const auto params=request.value("params",Json::object());
         if(!params.is_object())return Failure(id,-32602,"Parameters must be an object");
         const auto reply=[&](Json result,bool initialize=false){return Json{{"kind","response"},{"status",200},{"initialize",initialize},
