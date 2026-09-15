@@ -26,7 +26,7 @@ EncodeResult EncodeImage(Format format,std::uint32_t width,std::uint32_t height,
     std::span<const std::uint8_t> rgba,const EncodeOptions& options) noexcept {
     if(format!=Format::png&&format!=Format::bmp&&format!=Format::jpeg&&format!=Format::tga)return failure(EncodeError::unsupported_format);
     if(!options.maximumOutputBytes||options.maximumOutputBytes>64ull*1024*1024
-        ||!options.maximumPixels||options.maximumPixels>(format==Format::png?16ull:8ull)*1024*1024
+        ||!options.maximumPixels||options.maximumPixels>8ull*1024*1024
         ||!options.maximumDimension||options.maximumDimension>8192
         ||options.jpegQuality<1||options.jpegQuality>100
         ||(options.alphaPolicy!=AlphaPolicy::preserve&&options.alphaPolicy!=AlphaPolicy::flatten_white)

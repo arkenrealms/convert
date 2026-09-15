@@ -112,6 +112,17 @@ std::vector<uint8_t> encode_directory(FileKind kind, std::vector<ChunkPlacement>
 }
 }
 
+uint64_t fnv1a64(uint8_t const* data, size_t size)
+{
+    return fnv1a64_update(kFnvOffset,{data,size});
+}
+
+uint64_t fnv1a64_update(uint64_t hash, std::span<uint8_t const> bytes) noexcept
+{
+    for(auto byte:bytes) hash=(hash^byte)*kFnvPrime;
+    return hash;
+}
+
 ContainerLayout plan_container(FileKind kind, std::span<ChunkDescriptor const> chunks,
     uint64_t maximum_bytes, uint32_t flags) noexcept
 {
