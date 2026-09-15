@@ -5,6 +5,8 @@ enum class EncodeError : std::uint32_t {none,unsupported_format,invalid_dimensio
 enum class AlphaPolicy : std::uint32_t {preserve,flatten_white};
 struct EncodeOptions {
     std::uint64_t maximumOutputBytes=40ull*1024*1024;
+    // PNG callers may explicitly admit up to 16M pixels (a 4096-square atlas).
+    // Existing defaults and other encodings retain the 8M pixel budget.
     std::uint64_t maximumPixels=8ull*1024*1024;
     std::uint32_t maximumDimension=8192,jpegQuality=95;
     AlphaPolicy alphaPolicy=AlphaPolicy::preserve;
