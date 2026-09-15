@@ -82,6 +82,9 @@ Digest PayloadDigest(std::string_view text){auto hash=arken::digest::v1::sha256(
 using namespace detail;
 std::string InputPacket(const Operation& op,const Quote& q,const std::optional<NonceClaim>& claim,const Event& event){return Json{{"version",1},{"operation",Put(op)},{"quote",Put(q)},{"claim",Put(claim)},{"event",Put(event)}}.dump();}
 std::string DecisionPacket(const Decision& d){return Json{{"version",1},{"error",unsigned(d.error)},{"action",unsigned(d.action)},{"changed",d.changed},{"operation",Put(d.operation)},{"claim",Put(d.nonceClaim)}}.dump();}
+std::optional<Operation> ReadOperationRecord(std::string_view text) noexcept {try{auto value=Get<Operation>(Parse(text));J::require(ValidOperationRecord(value),"invalid payment record");return value;}catch(...){return std::nullopt;}}
+std::string WriteOperationRecord(const Operation& value) noexcept {try{J::require(ValidOperationRecord(value),"invalid payment record");return Put(value).dump();}catch(...){return {};}}
+std::optional<Event> ReadEventRecord(std::string_view text) noexcept {try{return Get<Event>(Parse(text));}catch(...){return std::nullopt;}}
 std::string AdvancePacket(std::string_view text) noexcept {
   try {
     const auto j=Parse(text);
