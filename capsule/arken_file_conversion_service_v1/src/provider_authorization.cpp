@@ -19,19 +19,6 @@ void Text(const detail::Json& j,std::size_t maximum){
     if(s.empty()||s.size()>maximum||std::any_of(s.begin(),s.end(),[](unsigned char c){return c<32||c>126;}))throw std::invalid_argument("provider text bounds");
 }
 }
-std::optional<CdpEndpoint> CdpEndpointFor(CdpOperation operation) noexcept {
-    try{switch(operation){
-        case CdpOperation::supported:return CdpEndpoint{"GET","https://api.cdp.coinbase.com/platform/v2/x402/supported"};
-        case CdpOperation::verify:return CdpEndpoint{"POST","https://api.cdp.coinbase.com/platform/v2/x402/verify"};
-        case CdpOperation::settle:return CdpEndpoint{"POST","https://api.cdp.coinbase.com/platform/v2/x402/settle"};
-        default:return std::nullopt;
-    }}catch(...){return std::nullopt;}
-}
-std::optional<CdpOperation> CdpOperationFor(std::string_view method,std::string_view url) noexcept {
-    for(auto operation:{CdpOperation::supported,CdpOperation::verify,CdpOperation::settle}){
-        const auto endpoint=CdpEndpointFor(operation);if(endpoint&&endpoint->method==method&&endpoint->url==url)return operation;
-    }return std::nullopt;
-}
 std::optional<CdpRequestAuthorization> PrepareCdpAuthorization(std::string_view id,CdpOperation operation,std::uint64_t now,std::string_view nonce) noexcept {
     try{
         // Match pinned CDP SDK a1195adcfa5a93627bd3cb79831b188cc13073a1:
