@@ -1,4 +1,4 @@
-import {x402Packet} from './runtime.js';
+import {x402Packet,cdpProviderPacket} from './runtime.js';
 import {paymentLedger} from './payment_ledger.js';
 import {readBoundedBody} from './bounded_body.js';
 import {createCdpTransport} from './cdp_authorization.js';
@@ -13,7 +13,7 @@ class FacilitatorResponseError extends Error {
 // C++ chooses the request's profile and authentication; no fallback or rewrite.
 export async function sendFacilitator(request,{fetcher=(url,options)=>fetch(url,options),cdpCredential}={}) {
   request=packet({kind:'transport',request}).request;
-  if(request.authentication==='cdp')return createCdpTransport(cdpCredential,{fetcher})(request);
+  if(request.authentication==='cdp')return createCdpTransport(cdpCredential,{fetcher,providerPacket:cdpProviderPacket})(request);
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
   try {
     // Workers supports manual/follow, not Fetch's error mode. Returning the 3xx
