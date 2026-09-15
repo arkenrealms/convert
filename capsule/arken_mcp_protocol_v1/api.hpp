@@ -47,6 +47,8 @@ private:
 };
 
 [[nodiscard]] Json parseRequestJson(std::string_view);
+// Explicit private-envelope budget; public MCP remains maximumRequestBytes.
+[[nodiscard]] Json parseBoundedJson(std::string_view, std::size_t maximumBytes);
 [[nodiscard]] Json failure(const Json &id, int code, std::string_view message);
 [[nodiscard]] Json reply(const Json &id, Json result, bool initialize = false);
 [[nodiscard]] Json toolReply(const Json &id, const Json &result, bool error);
