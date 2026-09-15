@@ -119,8 +119,17 @@ struct ContainerLayout
 };
 ContainerLayout plan_container(FileKind kind, std::span<ChunkDescriptor const> chunks,
     uint64_t maximum_bytes, uint32_t flags = 0u) noexcept;
-uint64_t fnv1a64_update(uint64_t hash, std::span<uint8_t const> bytes) noexcept;
-uint64_t fnv1a64(uint8_t const* data, size_t size);
+// Kept header-owned so bounded browser kernels can reuse the same hash without
+// compiling the container reader/writer into their source graph.
+inline uint64_t fnv1a64_update(uint64_t hash, std::span<uint8_t const> bytes) noexcept
+{
+    for(auto byte:bytes) hash=(hash^byte)*1099511628211ull;
+    return hash;
+}
+inline uint64_t fnv1a64(uint8_t const* data, size_t size)
+{
+    return fnv1a64_update(14695981039346656037ull,{data,size});
+}
 std::string fourcc_to_string(uint32_t value);
 char const* status_name(Status status);
 
