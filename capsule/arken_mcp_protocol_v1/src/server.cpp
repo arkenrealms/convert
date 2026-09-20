@@ -132,7 +132,7 @@ RequestPlan Server::plan(std::string_view text) const {
     return result;
   };
   try {
-    const auto request = parseBoundedJson(text, description_.requestMaximumBytes);
+    auto request = parseBoundedJson(text, description_.requestMaximumBytes);
     if (!request.is_object() || !request.contains("jsonrpc") ||
         request.at("jsonrpc") != "2.0")
       return fail(-32600, "Invalid request");
@@ -160,7 +160,7 @@ RequestPlan Server::plan(std::string_view text) const {
                          {"body", ""}};
       return result;
     }
-    const auto params = request.value("params", Json::object());
+    auto params = request.contains("params") ? std::move(request.at("params")) : Json::object();
     if (!params.is_object())
       return fail(-32602, "Parameters must be an object");
     const auto respond = [&](Json value, bool initialize = false) {
@@ -202,8 +202,8 @@ RequestPlan Server::plan(std::string_view text) const {
     plan.id = id;
     plan.commandName = name;
     plan.commandId = commandId;
-    plan.arguments = params.value("arguments", Json::object());
-    plan.metadata = params.value("_meta", Json::object());
+    plan.arguments = params.contains("arguments") ? std::move(params.at("arguments")) : Json::object();
+    plan.metadata = params.contains("_meta") ? std::move(params.at("_meta")) : Json::object();
     J::require(plan.arguments.is_object() && plan.metadata.is_object(),
                "command arguments and metadata must be objects");
     plan.isCommand = true;
