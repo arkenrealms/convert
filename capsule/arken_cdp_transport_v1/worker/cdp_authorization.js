@@ -43,3 +43,32 @@ export function createCdpTransport(credential,{providerPacket,fetcher=(url,optio
     finally {clearTimeout(timer);}
   };
 }
+// Platform binding identity and I/O only; C++ selects probes/cache policy.
+export function createProviderReadiness({packet,providerPacket,configuration,bindings,fetcher=(url,options)=>fetch(url,options),clock}){
+ const entries=new WeakMap();
+ const entry=env=>{const observed=bindings(env);let value=entries.get(env);
+  if(!value){value={bindings:observed,generation:1,cached:null};entries.set(env,value);}
+  if(observed.length!==value.bindings.length||observed.some((x,i)=>x!==value.bindings[i])){value.bindings=observed;value.generation++;value.cached=null;}
+  return value;};
+ const input=(env,value)=>({configuration:configuration(env,String(value.generation)),cached:value.cached,anonymous:null,supported:null,rpc:null,now:String(clock())});
+ return async env=>{
+  const value=entry(env),captured=input(env,value),initial=packet(captured);
+  const send=createCdpTransport(captured.configuration,{providerPacket,fetcher,clock:()=>String(clock())});
+  let result=initial,probes=0;
+  for(;result.kind==='probe'&&probes<3;++probes){let response;
+   try{
+    if(result.request.authentication==='cdp')response=await send(result.request);
+    else{const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),10000);
+     try{const r=await fetcher(result.request.url,{method:result.request.method,body:result.request.body||undefined,headers:{'content-type':'application/json'},redirect:'manual',signal:abort.signal});
+      response={status:r.status,body:new TextDecoder('utf-8',{fatal:true}).decode(await readBoundedBody(r.body,262144,'provider_response_limit'))};
+     }finally{clearTimeout(timer);}}
+   }catch(error){console.warn('Provider readiness transport unavailable',{code:'provider_transport_unavailable'});response={status:0,body:''};}
+   captured[result.slot]=response;captured.now=String(clock());result=packet(captured);
+  }
+  const current=entry(env),fresh=packet(input(env,current));
+  if(fresh.fingerprint!==initial.fingerprint)return {ready:false,code:'provider_context_changed',probes};
+  if(result.ready)current.cached=result.record;
+  const accepted=result.ready?packet(input(env,current)):result;
+  return {ready:accepted.ready===true,code:accepted.code,probes,reused:result.reused===true};
+ };
+}
