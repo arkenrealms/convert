@@ -10,7 +10,7 @@ Json parseRequestJson(std::string_view text) {
   return parseBoundedJson(text, maximumRequestBytes);
 }
 Json parseBoundedJson(std::string_view text, std::size_t maximumBytes) {
-  J::require(maximumBytes > 0 && maximumBytes <= 65536 && text.size() <= maximumBytes, "MCP packet byte limit");
+  J::require(maximumBytes > 0 && maximumBytes <= maximumConfiguredRequestBytes && text.size() <= maximumBytes, "MCP packet byte limit");
   std::vector<std::set<std::string>> keys;
   return Json::parse(
       text.begin(), text.end(),
@@ -59,6 +59,9 @@ Server::Server(ServerDescription description)
     : description_(std::move(description)) {
   J::require(!description_.name.empty() && !description_.version.empty(),
              "MCP server identity required");
+  J::require(description_.requestMaximumBytes > 0 &&
+                 description_.requestMaximumBytes <= maximumConfiguredRequestBytes,
+             "MCP server request budget invalid");
   J::require(description_.catalog.size() <= 2u * 1024u * 1024u,
              "catalog byte budget");
   const auto catalog = Json::parse(description_.catalog);
@@ -129,7 +132,7 @@ RequestPlan Server::plan(std::string_view text) const {
     return result;
   };
   try {
-    const auto request = parseRequestJson(text);
+    const auto request = parseBoundedJson(text, description_.requestMaximumBytes);
     if (!request.is_object() || !request.contains("jsonrpc") ||
         request.at("jsonrpc") != "2.0")
       return fail(-32600, "Invalid request");

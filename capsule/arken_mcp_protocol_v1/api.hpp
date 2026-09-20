@@ -10,6 +10,7 @@ namespace arken::mcp::v1 {
 using Json = ::arken::schema::cpp::v1::tool_json::Json;
 inline constexpr std::string_view protocolVersion = "2025-11-25";
 inline constexpr std::size_t maximumRequestBytes = 16384;
+inline constexpr std::size_t maximumConfiguredRequestBytes = 2u * 1024u * 1024u;
 
 struct ToolPresentation {
   std::uint32_t commandId = 0;
@@ -22,6 +23,9 @@ struct ServerDescription {
   std::string name, version, instructions;
   std::string_view catalog;
   std::vector<ToolPresentation> presentations;
+  // Trusted owner policy, never read from request metadata. Existing services
+  // keep their 16 KiB envelope unless explicitly qualified for a larger one.
+  std::size_t requestMaximumBytes = maximumRequestBytes;
 };
 struct RequestPlan {
   bool isCommand = false;
@@ -47,7 +51,7 @@ private:
 };
 
 [[nodiscard]] Json parseRequestJson(std::string_view);
-// Explicit private-envelope budget; public MCP remains maximumRequestBytes.
+// Explicit owner-selected budget; parseRequestJson retains its 16 KiB default.
 [[nodiscard]] Json parseBoundedJson(std::string_view, std::size_t maximumBytes);
 [[nodiscard]] Json failure(const Json &id, int code, std::string_view message);
 [[nodiscard]] Json reply(const Json &id, Json result, bool initialize = false);
