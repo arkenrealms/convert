@@ -6,6 +6,7 @@
 #include "arken_file_conversion_service_v1/public_admission.hpp"
 #include "arken_file_conversion_service_v1/provider_signing.hpp"
 #include "arken_file_conversion_service_v1/production_startup.hpp"
+#include "arken_file_conversion_service_v1/endpoint.hpp"
 #include <cstdint>
 #include <string>
 #define EXPORT __attribute__((used,visibility("default")))
@@ -22,6 +23,7 @@ extern "C" EXPORT void arken_mcp_plan() noexcept {output=arken::file_conversion:
 extern "C" EXPORT void arken_mcp_sandbox_plan() noexcept {output=arken::file_conversion::service::v1::PlanRequest(input,arken::file_conversion::service::v1::ServerMode::sandbox);}
 extern "C" EXPORT void arken_mcp_production_plan() noexcept {output=arken::file_conversion::service::v1::PlanRequest(input,arken::file_conversion::service::v1::ServerMode::production);}
 extern "C" EXPORT void arken_server_surface() noexcept {output=arken::file_conversion::service::v1::SurfacePacket(input);}
+extern "C" EXPORT void arken_conversion_endpoint() noexcept {output=arken::file_conversion::service::v1::EndpointPacket(input);}
 extern "C" EXPORT void arken_production_startup() noexcept {output=arken::file_conversion::service::v1::ProductionStartupPacket(input);}
 extern "C" EXPORT void arken_production_qualification() noexcept {output=arken::file_conversion::service::v1::ProductionQualificationPacket(input);}
 extern "C" EXPORT void arken_paid_conversion_packet() noexcept {output=arken::file_conversion::service::v1::payment::PaidConversionPacket(input);}

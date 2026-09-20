@@ -1,4 +1,4 @@
-import {planRequest,convertImage,serverSurface} from './runtime.js';
+import {planRequest,convertImage,serverSurface,endpointPacket} from './runtime.js';
 import {readBoundedBody} from './bounded_body.js';
 import {accessPlan,fileOwner,reservePublicUpload} from './public_admission.js';
 const jsonHeaders={'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'};
@@ -86,8 +86,11 @@ const describe=ready=>{const result=serverSurface(JSON.stringify({profileId,read
 const surface=describe(false);return {
   async fetch(request,env) {
     const url=new URL(request.url);
+    const endpoint=endpointPacket(JSON.stringify({configuration:{origin:env.MCP_PUBLIC_ORIGIN??null,path:env.MCP_ENDPOINT_PATH??'/mcp',priorArtifactOrigin:env.MCP_PRIOR_ARTIFACT_ORIGIN??null},
+      request:{method:request.method,path:url.pathname,origin:url.origin,hasOrigin:request.headers.has('origin'),originHeader:request.headers.get('origin')||'',contentType:request.headers.get('content-type')||'',accept:request.headers.get('accept')||'',version:request.headers.get('mcp-protocol-version')||''}}));
+    if(!endpoint.allowed)return problem(endpoint.code,endpoint.status);
     if(url.pathname==='/health'){const admission=payment?.startup?.status(env),view=describe(admission?.ready===true);
-      return new Response(JSON.stringify({service:'megaconvert-mcp',displayName:'Arken Convert',version:'r4372',mode:view.mode,publicDiscovery:view.publicAccess,charging:view.charging,testnetPayments:view.testnetPayments,...(admission?{admissionReady:admission.ready,admissionCode:admission.code}:{}),releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}),{headers:jsonHeaders});}
+      return new Response(JSON.stringify({service:'megaconvert-mcp',displayName:'Arken Convert',version:'r4502',mode:view.mode,publicDiscovery:view.publicAccess,charging:view.charging,testnetPayments:view.testnetPayments,...(admission?{admissionReady:admission.ready,admissionCode:admission.code}:{}),releaseId:env.RELEASE_ID||'unpublished',deploymentId:env.VERSION_METADATA?.id||'unpublished'}),{headers:jsonHeaders});}
     const secretValid=typeof env.ACCESS_TOKEN==='string'&&env.ACCESS_TOKEN.length>=32;
     if(!secretValid&&!surface.publicAccess)return problem('server_not_configured',503);
     const origin=request.headers.get('origin');
@@ -136,13 +139,8 @@ const surface=describe(false);return {
           return stored?new Response(null,{status:204}):problem('upload_already_committed',409);
         } finally {bodyInFlight=false;}
       }
-      if(url.pathname!=='/mcp')return problem('not_found',404);
-      if(request.method!=='POST')return problem('method_not_allowed',405);
-      if(!(request.headers.get('content-type')||'').split(';')[0].trim().match(/^application\/json$/i))return problem('json_required',415);
+      if(endpoint.kind!=='mcp')return problem('not_found',404);
       const version=request.headers.get('mcp-protocol-version');
-      if(version&&version!=='2025-11-25')return problem('protocol_version_unsupported');
-      const accept=request.headers.get('accept')||'';
-      if(!accept.includes('application/json')||!accept.includes('text/event-stream'))return problem('accept_header_required',406);
       if(bodyInFlight)return problem('busy',429);bodyInFlight=true;
       try {
         const bytes=await readBoundedBody(request.body,16384);

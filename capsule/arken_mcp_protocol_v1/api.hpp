@@ -65,5 +65,6 @@ struct HttpAdmission {
 };
 // Stateless JSON-response profile. GET receives 405 (no SSE stream). Version
 // absence is checked after parsing: only initialize may omit its header.
-[[nodiscard]] HttpAdmission admitHttp(const HttpRequest &);
+// The host selects one endpoint path; this is not a client-supplied alias.
+[[nodiscard]] HttpAdmission admitHttp(const HttpRequest &,std::string_view endpointPath="/mcp");
 } // namespace arken::mcp::v1
