@@ -88,7 +88,7 @@ Json Fixture(bool mainnet=false){
   auto callback=Wire({{"kind","callback"},{"operation",decision["operation"]},{"phase","verify"},{"response",goodVerify.dump()},{"status",200},{"now","101"}});
   const auto verified=ledger.transition(callback["command"].get<std::string>());Check(verified["operation"]["stage"]==unsigned(P::Stage::authorized),"verified callback");
   const auto resume=Wire({{"kind","control"},{"operation",verified["operation"]},{"event","resume"},{"now","101"},{"release","0x05"+std::string(62,'0')}});
-  decision=ledger.transition(resume["command"].get<std::string>());Check(decision["action"]==unsigned(P::Action::convert),"resume compute");
+  decision=ledger.transition(resume["command"].get<std::string>());Check(decision["action"]==unsigned(P::Action::execute),"resume compute");
   auto op=P::detail::ReadOperation(decision["operation"]);P::Event output;output.kind=P::EventKind::outputCommitted;output.expectedRevision=op.revision;output.now=101;
   output.output=P::Output{.digest=op.quote.input,.release=op.quote.release,.bytes=76,.width=1,.height=1};
   const std::string outputCommand=Json{{"version",1},{"quote",P::detail::WriteQuote(op.quote)},{"event",P::detail::WriteEvent(output)}}.dump();

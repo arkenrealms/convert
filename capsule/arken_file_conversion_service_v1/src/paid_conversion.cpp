@@ -87,14 +87,14 @@ Json Next(const Json& j){
     {"output",OutputJson(ReceiptOutput(j.at("receipt"),op))},{"now",j.at("now")}}));
   const auto action=J::readScalar<std::uint8_t>(d.at("action"));const bool admitted=J::readScalar<bool>(d.at("changed"));
   if(admitted&&((op.stage==Stage::verifying&&action==unsigned(Action::verify))||(op.stage==Stage::settling&&action==unsigned(Action::settle))))return {{"kind","facilitate"}};
-  if(admitted&&op.stage==Stage::computing&&action==unsigned(Action::convert))return {{"kind","convert"},{"inputDigest",Hex(op.quote.input)},{"command",inspectCommand()}};
+  if(admitted&&op.stage==Stage::computing&&action==unsigned(Action::execute))return {{"kind","convert"},{"inputDigest",Hex(op.quote.input)},{"command",inspectCommand()}};
   if(!admitted&&op.stage==Stage::settling)return {{"kind","reconcile"}};
   if(!admitted&&action==unsigned(Action::none)&&(op.stage==Stage::verifying||op.stage==Stage::computing))return {{"kind","recover"},{"command",inspectCommand()}};
   return Reply("operation_pending");
 }
 Json Fail(const Json& j){detail::Fields(j,{"kind","operation","now"});const auto op=detail::ReadOperation(j.at("operation"));
   J::require(ValidOperationRecord(op)&&op.stage==Stage::computing,"failure outside conversion");
-  Event e;e.kind=EventKind::failBeforeSettlement;e.expectedRevision=op.revision;e.now=J::readScalar<std::uint64_t>(j.at("now"));e.failure=Failure::conversionRejected;
+  Event e;e.kind=EventKind::failBeforeSettlement;e.expectedRevision=op.revision;e.now=J::readScalar<std::uint64_t>(j.at("now"));e.failure=Failure::executionRejected;
   return {{"command",Json{{"version",1},{"quote",detail::WriteQuote(op.quote)},{"event",detail::WriteEvent(e)}}.dump()}};
 }
 }

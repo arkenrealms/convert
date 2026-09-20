@@ -36,7 +36,7 @@ template<> Operation Get<Operation>(const Json& j){Fields(j,{"quote","revision",
 Json Put(const Event& e){return {{"kind",unsigned(e.kind)},{"expectedRevision",J::writeScalar(e.expectedRevision)},{"now",J::writeScalar(e.now)},
   {"authorization",Put(e.authorization)},{"output",Put(e.output)},{"transfer",Put(e.transfer)},{"verifiedPayer",Put(e.verifiedPayer)},{"executingRelease",Put(e.executingRelease)},{"failure",unsigned(e.failure)}};}
 template<> Event Get<Event>(const Json& j){Fields(j,{"kind","expectedRevision","now","authorization","output","transfer","verifiedPayer","executingRelease","failure"});
-  return {Enum(j.at("kind"),EventKind::retryConversion),J::readScalar<std::uint64_t>(j.at("expectedRevision")),J::readScalar<std::uint64_t>(j.at("now")),Optional<Authorization>(j.at("authorization")),Optional<Output>(j.at("output")),Optional<Transfer>(j.at("transfer")),Bytes<20>(j.at("verifiedPayer")),Bytes<32>(j.at("executingRelease")),Enum(j.at("failure"),Failure::settlementRejected)};}
+  return {Enum(j.at("kind"),EventKind::retryExecution),J::readScalar<std::uint64_t>(j.at("expectedRevision")),J::readScalar<std::uint64_t>(j.at("now")),Optional<Authorization>(j.at("authorization")),Optional<Output>(j.at("output")),Optional<Transfer>(j.at("transfer")),Bytes<20>(j.at("verifiedPayer")),Bytes<32>(j.at("executingRelease")),Enum(j.at("failure"),Failure::settlementRejected)};}
 Json Parse(std::string_view text,std::size_t maximumBytes){
   J::require(maximumBytes<=1048576&&text.size()<=maximumBytes,"packet byte limit");std::vector<std::set<std::string>> keys;
   return Json::parse(text.begin(),text.end(),[&](int depth,Json::parse_event_t event,Json& value){
@@ -136,14 +136,14 @@ std::string StorageDispatchPacket(std::string_view text) noexcept {
     Event inspect;inspect.kind=EventKind::inspect;inspect.expectedRevision=input.operation.revision;
     J::require(Advance(input.operation,input.quote,claim,inspect).error==Error::none,"invalid dispatch state");
     const auto action=Enum(decision.at("action"),Action::failure);
-    const bool stage=(action==Action::verify&&requested.stage==Stage::verifying)||(action==Action::convert&&requested.stage==Stage::computing)||(action==Action::settle&&requested.stage==Stage::settling);
+    const bool stage=(action==Action::verify&&requested.stage==Stage::verifying)||(action==Action::execute&&requested.stage==Stage::computing)||(action==Action::settle&&requested.stage==Stage::settling);
     J::require(stage&&J::readScalar<std::uint8_t>(decision.at("error"))==0&&J::readScalar<bool>(decision.at("changed")),"effect not admitted");
     const auto key="dispatch/"+Put(requested.quote.operation).get<std::string>()+"/"+std::to_string(requested.revision);
     const auto value=Json{{"version",1},{"action",unsigned(action)},{"revision",J::writeScalar(requested.revision)}}.dump();
     if(requested!=input.operation)return Json{{"key",key},{"claimed",false}}.dump();
     if(!outer.at("dispatch").is_null()){J::require(J::readScalar<std::string>(outer.at("dispatch"))==value,"dispatch marker mismatch");return Json{{"key",key},{"claimed",false}}.dump();}
     Json result={{"key",key},{"value",value},{"claimed",true}};
-    if(action==Action::verify||action==Action::convert){
+    if(action==Action::verify||action==Action::execute){
       result["attemptKey"]=Keys(input).at("attemptKey");
       result["attemptValue"]=Json{{"version",1},{"action",unsigned(action)},{"revision",J::writeScalar(requested.revision)},
         {"deadline",J::writeScalar(AttemptDeadline(requested,input.event.now))}}.dump();
@@ -161,7 +161,7 @@ std::string StorageRecoveryPacket(std::string_view text) noexcept {
     if(!outer.at("claim").is_null()){const auto value=Parse(J::readScalar<std::string>(outer.at("claim")));Fields(value,{"version","claim"});Version(value);claim=Get<NonceClaim>(value.at("claim"));}
     Attempt attempt;attempt.dispatched=!outer.at("dispatch").is_null();
     const auto stage=input.operation.stage;
-    const auto action=stage==Stage::verifying?Action::verify:stage==Stage::computing?Action::convert:Action::settle;
+    const auto action=stage==Stage::verifying?Action::verify:stage==Stage::computing?Action::execute:Action::settle;
     if(attempt.dispatched){const auto marker=Parse(J::readScalar<std::string>(outer.at("dispatch")));Fields(marker,{"version","action","revision"});Version(marker);
       J::require((stage==Stage::verifying||stage==Stage::computing||stage==Stage::settling)&&Enum(marker.at("action"),Action::failure)==action
         &&J::readScalar<std::uint64_t>(marker.at("revision"))==input.operation.revision,"recovery marker changed");}
