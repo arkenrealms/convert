@@ -273,10 +273,11 @@ bool accepts(std::string_view text, std::string_view type) {
   return false;
 }
 } // namespace
-HttpAdmission admitHttp(const HttpRequest &request) {
+HttpAdmission admitHttp(const HttpRequest &request,std::string_view endpointPath) {
+  if(endpointPath!="/"&&endpointPath!="/mcp")return {503,"endpoint_configuration_invalid"};
   if (request.hasOrigin && request.originHeader != request.origin)
     return {403, "origin_denied"};
-  if (request.path != "/mcp")
+  if (request.path != endpointPath)
     return {404, "not_found"};
   if (request.method != "POST")
     return {405, "method_not_allowed"};
