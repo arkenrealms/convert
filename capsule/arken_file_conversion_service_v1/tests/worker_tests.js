@@ -19,7 +19,7 @@ export const protocol={async test(){
   check(init.result.serverInfo.name==='Arken Convert','initialize');
   const listed=await (await worker.fetch(request(rpc('tools/list')),e)).json();
   check(listed.result.tools.length===2,'generated tool count');
-  const upload=listed.result.tools.find(t=>t.name==='conversion.v1.prepare_upload');
+  const upload=listed.result.tools.find(t=>t.name==='prepare_upload');
   check(upload.inputSchema.properties.input_format.enum.includes('dds'),'generated input enum');
   check(!upload.inputSchema.properties.output_format.enum.includes('dds'),'unimplemented output advertised');
   const exact=await worker.fetch(request('{"jsonrpc":"2.0","id":9007199254740993,"method":"ping"}'),e);
@@ -41,7 +41,7 @@ export const protocol={async test(){
     {source_bytes:22,input_format:'png',output_format:'png',jpeg_quality:90},
     {source_bytes:22,input_format:'png',output_format:'png',jpeg_quality:95},
     {source_bytes:22,input_format:'png',output_format:'png',surprise:1}]) {
-    const result=await (await worker.fetch(request(call('conversion.v1.prepare_upload',args)),e)).json();
+    const result=await (await worker.fetch(request(call('prepare_upload',args)),e)).json();
     check(result.error?.code===-32602,'invalid options reached storage');
   }
   check(e.FILES.values.size===0,'rejected input mutated storage');
@@ -50,10 +50,10 @@ export const protocol={async test(){
 export const admission={async test(){
   const e=env();
   check((await worker.fetch(request(rpc('ping')),{})).status===503,'missing credential must fail closed');
-  const noStorage=await (await worker.fetch(request(call('conversion.v1.prepare_upload',{
+  const noStorage=await (await worker.fetch(request(call('prepare_upload',{
     source_bytes:tga.length,input_format:'tga',output_format:'png'})),{ACCESS_TOKEN:token})).json();
   check(noStorage.result.isError===true,'missing storage must fail closed');
-  const prepared=await (await worker.fetch(request(call('conversion.v1.prepare_upload',{
+  const prepared=await (await worker.fetch(request(call('prepare_upload',{
     source_bytes:tga.length,input_format:'tga',output_format:'png'})),e)).json();
   const lease=prepared.result.structuredContent;
   let begin,release;
@@ -68,7 +68,7 @@ export const admission={async test(){
   check((await worker.fetch(request(rpc('ping')),e)).status===200,'admission not released');
   const tooLarge=await worker.fetch(request(' '.repeat(16385)),e);
   check(tooLarge.status===413,'MCP byte limit');
-  const again=await (await worker.fetch(request(call('conversion.v1.prepare_upload',{
+  const again=await (await worker.fetch(request(call('prepare_upload',{
     source_bytes:tga.length,input_format:'tga',output_format:'png'})),e)).json();
   const input=again.result.structuredContent.upload_url;
   check((await worker.fetch(new Request(input,{method:'PUT',headers,body:new Uint8Array(23)}),e)).status===413,'upload byte limit');
@@ -77,16 +77,16 @@ export const admission={async test(){
 }};
 export const conversion={async test(){
   const e=env();
-  const prepared=await (await worker.fetch(request(call('conversion.v1.prepare_upload',{
+  const prepared=await (await worker.fetch(request(call('prepare_upload',{
     source_bytes:tga.length,input_format:'tga',output_format:'png'})),e)).json();
   const lease=prepared.result.structuredContent;
   check(lease.file_id.length===64&&lease.upload_url.endsWith('/input'),'upload capability');
   const put=()=>worker.fetch(new Request(lease.upload_url,{method:'PUT',headers:{authorization:`Bearer ${token}`},body:tga}),e);
   check((await put()).status===204,'upload');check((await put()).status===409,'immutable upload');
-  const converted=await (await worker.fetch(request(call('conversion.v1.convert_image',{file_id:lease.file_id})),e)).json();
+  const converted=await (await worker.fetch(request(call('convert_image',{file_id:lease.file_id})),e)).json();
   const receipt=converted.result.structuredContent;
   check(receipt.width===1&&receipt.height===1&&receipt.media_type==='image/png','C++ output metadata');
-  const repeated=await (await worker.fetch(request(call('conversion.v1.convert_image',{file_id:lease.file_id})),e)).json();
+  const repeated=await (await worker.fetch(request(call('convert_image',{file_id:lease.file_id})),e)).json();
   check(JSON.stringify(repeated.result.structuredContent)===JSON.stringify(receipt),'repeat changed receipt');
   const download=await worker.fetch(new Request(receipt.download_url),e);
   check(download.status===200,'signed download');
@@ -95,7 +95,7 @@ export const conversion={async test(){
   const changed=new URL(receipt.download_url);changed.searchParams.set('token','0'.repeat(64));
   check((await worker.fetch(new Request(changed),e)).status===403,'forged download');
   const ownerChanged={ACCESS_TOKEN:'different-owner-token-at-least-32-characters',FILES:e.FILES};
-  const foreign=await (await worker.fetch(request(call('conversion.v1.convert_image',{file_id:lease.file_id}),{'authorization':`Bearer ${ownerChanged.ACCESS_TOKEN}`}),ownerChanged)).json();
+  const foreign=await (await worker.fetch(request(call('convert_image',{file_id:lease.file_id}),{'authorization':`Bearer ${ownerChanged.ACCESS_TOKEN}`}),ownerChanged)).json();
   check(foreign.result.isError===true,'cross-owner file access');
   const recordKey=[...e.FILES.values.keys()].find(k=>k.endsWith('/request'));
   const record=await (await e.FILES.get(recordKey)).json();record.expiresAt=1;await e.FILES.put(recordKey,JSON.stringify(record));
@@ -105,16 +105,16 @@ export const largeImage={async test(){
   const e=env(),bytes=new Uint8Array(18+1024*1024*4);
   bytes[2]=2;bytes[13]=4;bytes[15]=4;bytes[16]=32;bytes[17]=40;
   for(let i=18;i<bytes.length;i+=4){bytes[i]=30;bytes[i+1]=20;bytes[i+2]=10;bytes[i+3]=255;}
-  const prepared=await (await worker.fetch(request(call('conversion.v1.prepare_upload',{
+  const prepared=await (await worker.fetch(request(call('prepare_upload',{
     source_bytes:bytes.length,input_format:'tga',output_format:'png'})),e)).json();
   const lease=prepared.result.structuredContent;
   check((await worker.fetch(new Request(lease.upload_url,{method:'PUT',headers,body:bytes}),e)).status===204,'large upload');
-  const result=await (await worker.fetch(request(call('conversion.v1.convert_image',{file_id:lease.file_id})),e)).json();
+  const result=await (await worker.fetch(request(call('convert_image',{file_id:lease.file_id})),e)).json();
   check(result.result.structuredContent.width===1024&&result.result.structuredContent.height===1024,'large C++ conversion');
 }};
 export const fragmentedUpload={async test(){
   const e=env();
-  const prepared=await (await worker.fetch(request(call('conversion.v1.prepare_upload',{
+  const prepared=await (await worker.fetch(request(call('prepare_upload',{
     source_bytes:tga.length,input_format:'tga',output_format:'png'})),e)).json();
   let index=0;const reused=new Uint8Array(1);
   const body=new ReadableStream({pull(controller){if(index===tga.length){controller.close();return;}reused[0]=tga[index++];controller.enqueue(reused);}},{highWaterMark:0});
@@ -122,7 +122,7 @@ export const fragmentedUpload={async test(){
   const stored=[...e.FILES.values.entries()].find(([key])=>key.endsWith('/input'))[1].bytes;
   check(stored.length===tga.length&&stored.every((byte,i)=>byte===tga[i]),'upload retained mutable stream chunks');
   const capacity=8388608,chunk=new Uint8Array(1024).fill(37);let chunks=0;
-  const large=await (await worker.fetch(request(call('conversion.v1.prepare_upload',{source_bytes:capacity,input_format:'png',output_format:'png'})),e)).json();
+  const large=await (await worker.fetch(request(call('prepare_upload',{source_bytes:capacity,input_format:'png',output_format:'png'})),e)).json();
   const stream=new ReadableStream({pull(controller){if(chunks===8192){controller.close();return;}chunks++;controller.enqueue(chunk);}},{highWaterMark:0});
   check((await worker.fetch(new Request(large.result.structuredContent.upload_url,{method:'PUT',headers,body:stream}),e)).status===204,'maximum fragmented upload');
   const item=[...e.FILES.values.entries()].find(([key])=>key.includes(large.result.structuredContent.file_id)&&key.endsWith('/input'))[1];

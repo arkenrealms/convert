@@ -10,12 +10,14 @@ namespace mcp = arken::mcp::v1;
 using Json = J::Json;
 namespace {
 mcp::Server makeServer(ServerMode mode) {
-  return mcp::Server({"Arken Convert",
-                      "r4423",
+  mcp::ServerDescription description{"Arken Convert",
+                      "r4553",
                       std::string(Surface(mode).instructions),
                       S::commandCatalog,
                       {{1, false, false, false, {}},
-                       {2, false, false, mode != ServerMode::preview, {}}}});
+                       {2, false, false, mode != ServerMode::preview, {}}}};
+  description.toolNameStyle=mcp::ToolNameStyle::familyLocal;
+  return mcp::Server(std::move(description));
 }
 const mcp::Server &server(ServerMode mode) {
   switch (mode) {

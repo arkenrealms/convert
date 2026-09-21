@@ -53,8 +53,7 @@ DecodeResult DecodeBlp(Bytes b,const DecodeOptions& o){
     auto& jpeg=result.image.embeddedJpeg;jpeg.reserve(std::size_t(shared)+size);
     jpeg.insert(jpeg.end(),b.begin()+160,b.begin()+160+shared);jpeg.insert(jpeg.end(),b.begin()+offset,b.begin()+offset+size);
     // JPEG-in-BLP can contain a nonstandard fourth component carrying alpha.
-    // Browser CMYK conversion would silently corrupt that data: keep that
-    // variant fail-closed until a component-preserving decoder is available.
+    // Browser CMYK conversion would silently corrupt that data: reject it.
     if(jpeg.size()<4||U8(jpeg,0)!=255||U8(jpeg,1)!=216)return Failure(DecodeError::invalid_layout,160);
     bool frameFound=false;
     for(std::size_t p=2;p+4<=jpeg.size();){
@@ -76,18 +75,6 @@ DecodeResult DecodeBlp(Bytes b,const DecodeOptions& o){
         p+=length;
     }
     if(!frameFound)return Failure(DecodeError::unsupported_content);
-    // Ordinary three-component BLP1 JPEGs are decoded by the capsule's
-    // pinned memory-only JPEG owner. This keeps Paint's local RGBA contract
-    // identical to standalone JPEG import and never invokes browser or remote
-    // image services.
-    auto decoded=DecodeRaster(Format::jpeg,jpeg,o);
-    if(!decoded)return decoded;
-    if(decoded.image.width!=result.image.width
-        || decoded.image.height!=result.image.height)
-    {
-        return Failure(DecodeError::invalid_dimensions,160);
-    }
-    decoded.image.mipCount=1;
-    return decoded;
+    result.issue.code=DecodeError::embedded_jpeg;return result;
 }
 }
