@@ -25,6 +25,18 @@ inline std::vector<std::byte> Encode(arken::image::v1::Format format,unsigned wi
     else if(format==arken::image::v1::Format::jpeg)result=stbi_write_jpg_to_func(append,&output,w,h,4,pixels.data(),95);
     if(!result)throw std::runtime_error("Raster fixture encoding failed");return output;
 }
+inline std::vector<std::byte> Gif2x1(){
+    // GIF89a, two opaque palette entries, one non-interlaced frame. The
+    // packed LZW stream emits indices 0 and 1 and an explicit end code.
+    return {
+        std::byte{'G'},std::byte{'I'},std::byte{'F'},std::byte{'8'},std::byte{'9'},std::byte{'a'},
+        std::byte{2},std::byte{0},std::byte{1},std::byte{0},std::byte{0x80},std::byte{0},std::byte{0},
+        std::byte{0},std::byte{0},std::byte{0},std::byte{255},std::byte{0},std::byte{0},
+        std::byte{0x2c},std::byte{0},std::byte{0},std::byte{0},std::byte{0},std::byte{2},std::byte{0},
+        std::byte{1},std::byte{0},std::byte{0},std::byte{2},std::byte{2},std::byte{0x44},std::byte{0x0a},
+        std::byte{0},std::byte{0x3b}
+    };
+}
 inline std::vector<std::byte> WithOrientation(std::vector<std::byte> bytes,unsigned orientation){
     const unsigned char header[]={255,225,0,34,'E','x','i','f',0,0,'I','I',42,0,8,0,0,0,1,0,18,1,3,0,1,0,0,0,static_cast<unsigned char>(orientation),0,0,0,0,0,0,0};
     bytes.insert(bytes.begin()+2,reinterpret_cast<const std::byte*>(header),reinterpret_cast<const std::byte*>(header)+sizeof header);return bytes;

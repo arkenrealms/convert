@@ -21,7 +21,7 @@ Json QuotePacket(const Json& j){
   const auto profile=PaymentProfileById(J::readScalar<std::string>(j.at("profileId")));J::require(profile.has_value(),"unknown payment profile");
   auto args=j.at("arguments");args.erase("codec");
   const auto admission=detail::Parse(arken::file_conversion::service::v1::PlanRequest(Json{{"jsonrpc","2.0"},{"id",1},{"method","tools/call"},
-    {"params",{{"name","prepare_upload"},{"arguments",args}}}}.dump()));
+    {"params",{{"name","conversion.v1.prepare_upload"},{"arguments",args}}}}.dump()));
   J::require(admission.at("kind")=="command"&&admission.at("commandId")==1,"invalid upload options");
   const auto upload=J::read<S::upload_request>(args);
   Quote q;q.operation=Bytes<32>(j.at("fileId"));q.tenant=Bytes<32>(j.at("owner"));q.input=Bytes<32>(j.at("inputDigest"));

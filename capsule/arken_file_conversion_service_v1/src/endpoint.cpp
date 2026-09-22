@@ -11,7 +11,7 @@ Json decide(const Json& p){
  const auto canonical=c.at("origin").is_null()?std::string{}:c.at("origin").get<std::string>();
  const auto prior=c.at("priorArtifactOrigin").is_null()?std::string{}:c.at("priorArtifactOrigin").get<std::string>();
  const auto endpoint=c.at("path").get<std::string>();
- if((!canonical.empty()&&!origin(canonical))||(!prior.empty()&&(!origin(prior)||canonical.empty()||prior==canonical))||(endpoint!="/"&&endpoint!="/mcp"&&endpoint!=M::familyEndpointPath))return deny(503,"endpoint_configuration_invalid");
+ if((!canonical.empty()&&!origin(canonical))||(!prior.empty()&&(!origin(prior)||canonical.empty()||prior==canonical))||(endpoint!="/"&&endpoint!="/mcp"))return deny(503,"endpoint_configuration_invalid");
  const auto host=r.at("origin").get<std::string>(),path=r.at("path").get<std::string>();
  if(r.at("hasOrigin").get<bool>()&&r.at("originHeader")!=host)return deny(403,"origin_denied");
  const bool file=path.starts_with("/files/"),retained=file&&!prior.empty()&&host==prior;
