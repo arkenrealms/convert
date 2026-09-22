@@ -8,4 +8,7 @@ namespace arken::file_conversion::service::v1 {
 // JSON-RPC numeric IDs that JavaScript Number cannot represent exactly.
 [[nodiscard]] std::string PlanRequest(std::string_view json,ServerMode mode=ServerMode::preview) noexcept;
 [[nodiscard]] std::string Catalog();
+// Native admission against the immutable upload options, before any payment or
+// result lookup. Pair tools share the generic file/quote identity, not a new job.
+[[nodiscard]] std::string ConversionTargetPacket(std::string_view json) noexcept;
 }
