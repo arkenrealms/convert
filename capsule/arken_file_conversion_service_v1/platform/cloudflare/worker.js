@@ -1,4 +1,4 @@
-import {planRequest,convertImage,serverSurface,endpointPacket} from './runtime.js';
+import {planRequest,convertImage,serverSurface,endpointPacket,conversionTargetPacket} from './runtime.js';
 import {readBoundedBody} from './bounded_body.js';
 import {accessPlan,fileOwner,reservePublicUpload} from './public_admission.js';
 const jsonHeaders={'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'};
@@ -50,6 +50,8 @@ async function command(plan,env,url,owner,payment,surface,publicRequest=false) {
   const id=plan.arguments.file_id,found=await fileRecord(env,owner,id,prefix);
   if(!found)return toolReply(plan,{code:'file_unavailable'},true);
   if(publicRequest&&found.record.publicFile!==true)return toolReply(plan,{code:'file_unavailable'},true);
+  const target=conversionTargetPacket(JSON.stringify({commandId:plan.commandId,arguments:found.record.args}));
+  if(!target.allowed)return toolReply(plan,{code:target.code},true);
   if(payment)return toolResult(plan,await payment.convert(plan,env,{found,url,owner,id,
     execute:(inputDigest,codec)=>convertAndStore(env,url,owner,id,found,surface,inputDigest,codec)}));
   const previous=await env.FILES.get(found.key+'/result');

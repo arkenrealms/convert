@@ -13,13 +13,12 @@ void* raster_allocate(std::size_t size){return size<=maximum_allocation?std::mal
 void* raster_reallocate(void* pointer,std::size_t size){return size<=maximum_allocation?std::realloc(pointer,size):nullptr;}
 }
 #define STBI_NO_STDIO
-#define STBI_NO_HDR
-#define STBI_NO_PSD
-#define STBI_NO_TGA
-#define STBI_NO_PIC
-#define STBI_NO_PNM
+#define STBI_ONLY_PNG
+#define STBI_ONLY_JPEG
+#define STBI_ONLY_BMP
 #define STBI_NO_SIMD
 #define STBI_NO_LINEAR
+#define STBI_NO_HDR
 #define STBI_NO_THREAD_LOCALS
 #define STBI_NO_FAILURE_STRINGS
 #define STBI_MAX_DIMENSIONS 8192
@@ -63,16 +62,6 @@ DecodeError png_profile(Bytes bytes){
         at+=std::size_t(count)+12;
     }
     return DecodeError::truncated;
-}
-DecodeError gif_profile(Bytes bytes){
-    if(bytes.size()<13)return DecodeError::truncated;
-    const bool version87=!std::memcmp(bytes.data(),"GIF87a",6);
-    const bool version89=!std::memcmp(bytes.data(),"GIF89a",6);
-    if(!version87&&!version89)return DecodeError::wrong_magic;
-    const auto width=U16(bytes,6),height=U16(bytes,8);
-    if(!width||!height)return DecodeError::invalid_dimensions;
-    if(bytes.back()!=std::byte{0x3b})return DecodeError::truncated;
-    return DecodeError::none;
 }
 DecodeError jpeg_profile(Bytes bytes,unsigned& orientation){
     if(bytes.size()<4||U8(bytes,0)!=255||U8(bytes,1)!=216)return DecodeError::wrong_magic;
@@ -129,9 +118,8 @@ DecodeResult DecodeRaster(Format format,Bytes bytes,const DecodeOptions& options
     if(bytes.size()>static_cast<std::size_t>(std::numeric_limits<int>::max()))return Failure(DecodeError::input_too_large);
     unsigned orientation=1;DecodeError profile=DecodeError::none;
     if(format==Format::png)profile=png_profile(bytes);
-    else if(format==Format::gif)profile=gif_profile(bytes);
     else if(format==Format::jpeg)profile=jpeg_profile(bytes,orientation);
-    else if(format!=Format::bmp || bytes.size()<54||U8(bytes,0)!='B'||U8(bytes,1)!='M')profile=DecodeError::wrong_magic;
+    else if(bytes.size()<54||U8(bytes,0)!='B'||U8(bytes,1)!='M')profile=DecodeError::wrong_magic;
     if(profile!=DecodeError::none)return Failure(profile);
     int width=0,height=0,components=0;auto data=reinterpret_cast<const unsigned char*>(bytes.data());
     if(!stbi_info_from_memory(data,static_cast<int>(bytes.size()),&width,&height,&components))return Failure(DecodeError::invalid_layout);

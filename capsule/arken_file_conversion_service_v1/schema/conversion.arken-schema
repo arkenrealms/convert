@@ -57,3 +57,9 @@ model conversion_error @type_id(5) {
 }
 command prepare_upload @command_id(1) { request upload_request; response upload_result; errors conversion_error; idempotency none; streaming unary; targets cpp; }
 command convert_image @command_id(2) { request file_target; response conversion_result; errors conversion_error; idempotency idempotent; streaming unary; targets cpp; }
+command png_to_jpeg @command_id(3) { request file_target; response conversion_result; errors conversion_error; idempotency idempotent; streaming unary; targets cpp; }
+command jpeg_to_png @command_id(4) { request file_target; response conversion_result; errors conversion_error; idempotency idempotent; streaming unary; targets cpp; }
+command bmp_to_png @command_id(5) { request file_target; response conversion_result; errors conversion_error; idempotency idempotent; streaming unary; targets cpp; }
+command bmp_to_jpeg @command_id(6) { request file_target; response conversion_result; errors conversion_error; idempotency idempotent; streaming unary; targets cpp; }
+command tga_to_png @command_id(7) { request file_target; response conversion_result; errors conversion_error; idempotency idempotent; streaming unary; targets cpp; }
+command dds_to_png @command_id(8) { request file_target; response conversion_result; errors conversion_error; idempotency idempotent; streaming unary; targets cpp; }
