@@ -4,7 +4,7 @@
 namespace image=arken::image::v1;
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 int main(int argc,char** argv){
-    if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-raster-codec-tests-r4562\n";return 0;}
+    if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-raster-codec-tests-r4566\n";return 0;}
     try{
         const auto pixels=raster_fixture::Pixels(32,16,true);auto encoded=image::EncodePng(32,16,pixels);
         require(bool(encoded),"production PNG encode failed");
