@@ -48,6 +48,7 @@ export const publicHttp={async test(_controller,bindings){
   check((await app.fetch(new Request(result.result.structuredContent.download_url),env)).status===200,'public paid output unavailable');
   const repeat=await (await invoke('convert_image',target)).json();check(JSON.stringify(repeat.result)===JSON.stringify(result.result)&&settles===1,'public repeat charged again');
   const namedRepeat=await (await invoke('tga_to_png',target)).json();check(JSON.stringify(namedRepeat.result)===JSON.stringify(result.result)&&verifies===1&&settles===1,'named repeat charged again');
+  console.log('Named conversion identity: passed; shared quote and receipt, one settlement, mismatches rejected before payment.');
   const migrated={...env,MCP_PUBLIC_ORIGIN:'https://convert.mcp.arken.gg',MCP_ENDPOINT_PATH:'/v1',MCP_PRIOR_ARTIFACT_ORIGIN:'https://converter.example'};
   const versionedRequest=(method,params)=>new Request(migrated.MCP_PUBLIC_ORIGIN+'/v1',{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
   check((await app.fetch(versionedRequest('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'root endpoint fixture',version:'1'}}),migrated)).status===200,'Canonical versioned initialization failed');
