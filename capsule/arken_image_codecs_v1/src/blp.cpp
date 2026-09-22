@@ -68,9 +68,15 @@ DecodeResult DecodeBlp(Bytes b,const DecodeOptions& o){
         const std::size_t length=(unsigned(U8(jpeg,p))<<8)|U8(jpeg,p+1);
         if(length<2||!Range(jpeg,p,length))return Failure(DecodeError::truncated,p);
         if(marker==0xc0||marker==0xc1||marker==0xc2){
-            if(length<8||U8(jpeg,p+7)!=3||alpha!=0)return Failure(DecodeError::unsupported_content,p);
+            if(length<8)return Failure(DecodeError::truncated,p);
+            const auto component_count=U8(jpeg,p+7);
             const unsigned h=(unsigned(U8(jpeg,p+3))<<8)|U8(jpeg,p+4),w=(unsigned(U8(jpeg,p+5))<<8)|U8(jpeg,p+6);
             if(w!=result.image.width||h!=result.image.height)return Failure(DecodeError::invalid_dimensions,p);
+            if(component_count==4u){
+                if(alpha!=0u&&alpha!=8u)return Failure(DecodeError::unsupported_alpha_depth,p+7);
+                return DecodeBlpJpegWithAlpha(jpeg,o,result.image.width,result.image.height,alpha);
+            }
+            if(component_count!=3u||alpha!=0u)return Failure(DecodeError::unsupported_content,p);
             frameFound=true;break;
         }
         p+=length;
