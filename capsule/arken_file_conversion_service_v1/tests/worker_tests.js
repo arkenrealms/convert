@@ -18,7 +18,7 @@ export const protocol={async test(){
   const init=await (await worker.fetch(request(rpc('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'test',version:'1'}})),e)).json();
   check(init.result.serverInfo.name==='Arken Convert','initialize');
   const listed=await (await worker.fetch(request(rpc('tools/list')),e)).json();
-  check(listed.result.tools.length===2,'generated tool count');
+  check(listed.result.tools.length===8,'generated tool count');
   const upload=listed.result.tools.find(t=>t.name==='prepare_upload');
   check(upload.inputSchema.properties.input_format.enum.includes('dds'),'generated input enum');
   check(!upload.inputSchema.properties.output_format.enum.includes('dds'),'unimplemented output advertised');
@@ -83,7 +83,9 @@ export const conversion={async test(){
   check(lease.file_id.length===64&&lease.upload_url.endsWith('/input'),'upload capability');
   const put=()=>worker.fetch(new Request(lease.upload_url,{method:'PUT',headers:{authorization:`Bearer ${token}`},body:tga}),e);
   check((await put()).status===204,'upload');check((await put()).status===409,'immutable upload');
-  const converted=await (await worker.fetch(request(call('convert_image',{file_id:lease.file_id})),e)).json();
+  const mismatch=await (await worker.fetch(request(call('png_to_jpeg',{file_id:lease.file_id})),e)).json();
+  check(mismatch.result.isError===true&&JSON.parse(mismatch.result.content[0].text).code==='conversion_format_mismatch','named format mismatch admitted');
+  const converted=await (await worker.fetch(request(call('tga_to_png',{file_id:lease.file_id})),e)).json();
   const receipt=converted.result.structuredContent;
   check(receipt.width===1&&receipt.height===1&&receipt.media_type==='image/png','C++ output metadata');
   const repeated=await (await worker.fetch(request(call('convert_image',{file_id:lease.file_id})),e)).json();

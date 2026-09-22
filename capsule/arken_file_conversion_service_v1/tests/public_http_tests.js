@@ -33,14 +33,21 @@ export const publicHttp={async test(_controller,bindings){
   const cross=await (await invoke('convert_image',{file_id:first.file_id,file_token:second.file_token})).json();
   check(cross.result.isError&&verifies===0&&settles===0,'cross-file read performed work');
   const target={file_id:first.file_id,file_token:first.file_token},challenge=await (await invoke('convert_image',target)).json();
+  const wrongPair=await (await invoke('png_to_jpeg',target)).json();
+  check(wrongPair.result.isError&&JSON.parse(wrongPair.result.content[0].text).code==='conversion_format_mismatch'&&verifies===0&&settles===0,'named mismatch reached payment');
+  const namedOffer=await (await invoke('tga_to_png',target)).json();
+  check(JSON.stringify(namedOffer.result)===JSON.stringify(challenge.result),'named entry changed payment offer identity');
   const required=challenge.result.structuredContent;
   check(required.accepts[0].network==='eip155:84532'&&!JSON.stringify(required).includes(first.file_token),'capability leaked into payment requirements');
   const now=Math.floor(Date.now()/1000),payment={x402Version:2,resource:required.resource,accepted:required.accepts[0],payload:{signature:'0x'+'00'.repeat(65),authorization:{
     from:'0x'+'21'.repeat(20),to:required.accepts[0].payTo,value:required.accepts[0].amount,validAfter:String(now-10),validBefore:String(now+50),nonce:'0x'+first.file_id}}};
-  const result=await (await app.fetch(request('tools/call',{name:'convert_image',arguments:target,_meta:{'x402/payment':payment}}),env)).json();
+  const rejectedPair=await (await app.fetch(request('tools/call',{name:'png_to_jpeg',arguments:target,_meta:{'x402/payment':payment}}),env)).json();
+  check(rejectedPair.result.isError&&verifies===0&&settles===0,'funded mismatch reached payment');
+  const result=await (await app.fetch(request('tools/call',{name:'tga_to_png',arguments:target,_meta:{'x402/payment':payment}}),env)).json();
   check(result.result._meta?.['x402/payment-response']?.success&&verifies===1&&settles===1,'public paid fixture conversion failed');
   check((await app.fetch(new Request(result.result.structuredContent.download_url),env)).status===200,'public paid output unavailable');
   const repeat=await (await invoke('convert_image',target)).json();check(JSON.stringify(repeat.result)===JSON.stringify(result.result)&&settles===1,'public repeat charged again');
+  const namedRepeat=await (await invoke('tga_to_png',target)).json();check(JSON.stringify(namedRepeat.result)===JSON.stringify(result.result)&&verifies===1&&settles===1,'named repeat charged again');
   const migrated={...env,MCP_PUBLIC_ORIGIN:'https://convert.mcp.arken.gg',MCP_ENDPOINT_PATH:'/v1',MCP_PRIOR_ARTIFACT_ORIGIN:'https://converter.example'};
   const versionedRequest=(method,params)=>new Request(migrated.MCP_PUBLIC_ORIGIN+'/v1',{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
   check((await app.fetch(versionedRequest('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'root endpoint fixture',version:'1'}}),migrated)).status===200,'Canonical versioned initialization failed');
