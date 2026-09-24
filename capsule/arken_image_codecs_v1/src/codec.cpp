@@ -15,7 +15,7 @@ DecodeResult DecodeImage(Format format,std::span<const std::byte> bytes,const De
             case Format::blp:return detail::DecodeBlp(bytes,options);
             case Format::dds:return detail::DecodeDds(bytes,options);
             case Format::tga:return detail::DecodeTga(bytes,options);
-            case Format::png:case Format::bmp:case Format::jpeg:case Format::gif:return detail::DecodeRaster(format,bytes,options);
+            case Format::png:case Format::bmp:case Format::jpeg:return detail::DecodeRaster(format,bytes,options);
         }
         return detail::Failure(DecodeError::unsupported_content);
     }catch(const std::bad_alloc&){return detail::Failure(DecodeError::allocation_failed);}

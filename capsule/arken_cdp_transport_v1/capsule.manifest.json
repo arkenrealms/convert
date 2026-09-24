@@ -1,1 +1,0 @@
-{"key":"arken_cdp_transport_v1","name":"Arken CDP Transport","version":"1.0.0","description":"Worker WebCrypto and fixed-provider HTTP piping with a required injected C++ CDP codec; no payment state or domain implementation.","public_dependencies":[],"private_dependencies":[],"test_dependencies":[],"worker_exports":["worker/cdp_authorization.js","worker/bounded_body.js"]}
