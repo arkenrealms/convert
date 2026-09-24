@@ -1,9 +1,0 @@
-{
-  "key": "arken_paid_operation_v1",
-  "name": "Arken Paid Operation",
-  "version": "1.0.0",
-  "description": "Deterministic result-typed paid execution, nonce ownership, settlement and safe recovery policy shared by Arken MCP services.",
-  "public_dependencies": [],
-  "private_dependencies": [],
-  "test_dependencies": []
-}

@@ -27,13 +27,13 @@ struct Machine {
   unsigned verifies=0,converts=0,settles=0;
   P::Event event(P::EventKind kind)const{P::Event e;e.kind=kind;e.expectedRevision=op.revision;e.now=100;return e;}
   P::Decision step(P::Event e){auto result=P::Advance(op,op.quote,claim,e);Check(result.error==P::Error::none,"valid transition rejected");Packet(op,op.quote,claim,e,result);
-    if(result.action==P::Action::verify)++verifies;if(result.action==P::Action::execute)++converts;if(result.action==P::Action::settle)++settles;
+    if(result.action==P::Action::verify)++verifies;if(result.action==P::Action::convert)++converts;if(result.action==P::Action::settle)++settles;
     op=result.operation;claim=result.nonceClaim;return result;}
   void reject(P::Event e,P::Error expected){const auto result=P::Advance(op,op.quote,claim,e);Check(result.error==expected,"wrong rejection");Packet(op,op.quote,claim,e,result);
     Check(result.operation==op&&result.nonceClaim==claim&&!result.changed&&result.action==P::Action::none,"rejection changed state");}
   void start(){auto e=event(P::EventKind::request);e.authorization=Auth();Check(step(e).action==P::Action::verify,"verification action");}
   void verified(){start();auto e=event(P::EventKind::verificationPassed);e.verifiedPayer=op.quote.scope.payer;step(e);}
-  void computing(){verified();auto e=event(P::EventKind::beginExecution);e.executingRelease=op.quote.release;Check(step(e).action==P::Action::execute,"conversion action");}
+  void computing(){verified();auto e=event(P::EventKind::beginConversion);e.executingRelease=op.quote.release;Check(step(e).action==P::Action::convert,"conversion action");}
   void output(){computing();auto e=event(P::EventKind::outputCommitted);e.output=Output();step(e);}
   void settling(){output();Check(step(event(P::EventKind::beginSettlement)).action==P::Action::settle,"settle action");}
 };
@@ -61,7 +61,7 @@ void Tests(){
   e=early.event(P::EventKind::request);e.authorization=Auth();e.authorization->nonce[0]=1;early.reject(e,P::Error::authorizationConflict);
   e=early.event(P::EventKind::retryVerification);const auto old=e.expectedRevision;early.step(e);e=early.event(P::EventKind::verificationPassed);e.expectedRevision=old;e.verifiedPayer=early.op.quote.scope.payer;early.reject(e,P::Error::staleRevision);
   for(auto now:{90u,150u,200u}){Machine expired;e=expired.event(P::EventKind::request);e.authorization=Auth();e.now=now;expired.reject(e,P::Error::expired);Check(!expired.claim,"expired proof acquired claim");}
-  Machine released;released.verified();e=released.event(P::EventKind::beginExecution);released.reject(e,P::Error::releaseMismatch);
+  Machine released;released.verified();e=released.event(P::EventKind::beginConversion);released.reject(e,P::Error::releaseMismatch);
   e.executingRelease=released.op.quote.release;e.now=151;released.reject(e,P::Error::expired);
   released.claim.reset();e.now=100;released.reject(e,P::Error::nonceClaimMissing);
   for(int field=0;field<4;++field){Machine bad;bad.computing();e=bad.event(P::EventKind::outputCommitted);e.output=Output();
@@ -76,7 +76,7 @@ void Tests(){
   Machine rejected;rejected.settling();rejected.step(rejected.event(P::EventKind::settlementRejected));rejected.reject(rejected.event(P::EventKind::beginSettlement),P::Error::invalidEvent);
   Check(rejected.step(rejected.event(P::EventKind::request)).action==P::Action::failure,"settlement failure became new purchase");
   Machine resumed;resumed.verified();e=resumed.event(P::EventKind::request);e.executingRelease=resumed.op.quote.release;
-  Check(resumed.step(e).action==P::Action::execute,"authorized request did not resume conversion");
+  Check(resumed.step(e).action==P::Action::convert,"authorized request did not resume conversion");
   Check(resumed.step(resumed.event(P::EventKind::request)).action==P::Action::wait&&resumed.converts==1,"in-flight conversion replayed");
   e=resumed.event(P::EventKind::outputCommitted);e.output=Output();resumed.step(e);
   Check(resumed.step(resumed.event(P::EventKind::request)).action==P::Action::settle,"committed output did not resume settlement");

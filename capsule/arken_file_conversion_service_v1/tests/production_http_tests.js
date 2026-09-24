@@ -50,7 +50,7 @@ export const productionHttp={async test(_controller,bindings){
   check((await health()).mode==='x402-production'&&(await health()).charging===false,'disabled production claims charging');
   await app.fetch(req('tools/list',{}),env);check(probes===0&&env.FILES.values.size===0,'static discovery did I/O');
   const uploadArgs={source_bytes:tga.length,input_format:'tga',output_format:'png'};
-  check((await call('prepare_upload',uploadArgs)).isError&&probes===0&&env.FILES.values.size===0,'disabled upload accepted');
+  check((await call('conversion.v1.prepare_upload',uploadArgs)).isError&&probes===0&&env.FILES.values.size===0,'disabled upload accepted');
   const qurl='https://production.example/_arken/production/qualify';
   const qualify=(options={})=>app.fetch(new Request(qurl,{method:'POST',headers:{authorization:'Bearer '+env.ACCESS_TOKEN},...options}),env);
   for(const options of [{headers:{}},{headers:{authorization:'Bearer wrong'}},{method:'GET'},{body:'{"ready":true}'},{headers:{authorization:'Bearer '+env.ACCESS_TOKEN,origin:'https://foreign.example'}}]){
@@ -64,7 +64,7 @@ export const productionHttp={async test(_controller,bindings){
     check(!JSON.stringify(value).includes(env.CDP_API_KEY_SECRET)&&!JSON.stringify(value).includes(env.CDP_RPC_CLIENT_KEY),'private qualification leaked secret');}
   check(probes===3&&env.PAYMENTS_ENABLED==='false'&&env.FILES.values.size===0&&settles===0&&verifies===0,'qualification widened purchase or storage authority');
   check((await health()).charging===false&&(await health()).admissionReady===false&&probes===3,'qualification affected public health');
-  check((await call('prepare_upload',uploadArgs)).isError&&probes===3&&env.FILES.values.size===0,'qualification cache admitted upload');
+  check((await call('conversion.v1.prepare_upload',uploadArgs)).isError&&probes===3&&env.FILES.values.size===0,'qualification cache admitted upload');
   const again=await qualify();check(again.status===200&&probes===3,'qualification cache missed');
   const rurl='https://production.example/_arken/production/readiness';
   const readiness=(options={})=>app.fetch(new Request(rurl,{method:'POST',headers:{authorization:'Bearer '+env.ACCESS_TOKEN},...options}),env);
@@ -80,7 +80,7 @@ export const productionHttp={async test(_controller,bindings){
   env.RELEASE_ID='d'.repeat(64);const changingQualification=qualify();await startedQualification;env.RELEASE_ID='e'.repeat(64);qualifyRelease();
   check((await changingQualification).status===503&&!startup.status(env).ready&&env.FILES.values.size===0,'late qualification accepted changed environment');env.RELEASE_ID=originalRelease;probes=0;
   env.PAYMENTS_ENABLED='true';failSupported=true;
-  check((await call('prepare_upload',uploadArgs)).isError&&probes===2&&env.FILES.values.size===0,'failed provider admitted upload');
+  check((await call('conversion.v1.prepare_upload',uploadArgs)).isError&&probes===2&&env.FILES.values.size===0,'failed provider admitted upload');
   check((await health()).admissionCode==='provider_authentication_unavailable'&&probes===2,'health lost error or retried');failSupported=false;
   const before=probes;const admissions=await Promise.all([readiness(),readiness()]);
   for(const response of admissions){const r=await response.json();check(response.status===200&&r.providerQualified&&r.admissionReady&&r.charging,'readiness did not use normal startup');}
@@ -88,22 +88,22 @@ export const productionHttp={async test(_controller,bindings){
   check((await qualify()).status===503&&probes===before+3,'disabled-only qualification accepted enabled environment');
   check((await health()).charging===true&&probes===before+3,'ready health probed again');
   const readyCalls=probes;
-  const prepared=await call('prepare_upload',uploadArgs),lease=prepared.structuredContent;
+  const prepared=await call('conversion.v1.prepare_upload',uploadArgs),lease=prepared.structuredContent;
   check(lease&&Date.parse(lease.expires_at)-Date.now()>3590000&&probes===readyCalls,'production lease or cache incorrect');
   check([...env.FILES.values.keys()].every(k=>k.startsWith('production/')),'production wrote another prefix');
   check((await app.fetch(new Request(lease.upload_url,{method:'PUT',body:tga}),env)).status===204,'production upload failed');
-  const target={file_id:lease.file_id,file_token:lease.file_token};const offer=(await call('convert_image',target)).structuredContent;
+  const target={file_id:lease.file_id,file_token:lease.file_token};const offer=(await call('conversion.v1.convert_image',target)).structuredContent;
   check(offer.accepts[0].network==='eip155:8453','production offer wrong network');
   const payment={x402Version:2,resource:offer.resource,accepted:offer.accepts[0],payload:{signature:'0x'+'00'.repeat(65),authorization:{
     from:'0x'+'34'.repeat(20),to:offer.accepts[0].payTo,value:offer.accepts[0].amount,validAfter:String(now-10),validBefore:String(now+50),nonce:'0x'+lease.file_id}}};
-  const complete=await call('convert_image',target,payment);
+  const complete=await call('conversion.v1.convert_image',target,payment);
   check(complete._meta?.['x402/payment-response']?.network==='eip155:8453'&&verifies===1&&settles===1,'production payment flow failed');
   const receipt=complete.structuredContent,download=await app.fetch(new Request(receipt.download_url),env),bytes=new Uint8Array(await download.arrayBuffer());
   check(download.status===200&&bytes[0]===137&&bytes[1]===80&&hex(await crypto.subtle.digest('SHA-256',bytes))===receipt.sha256&&receipt.sha256===f.nativePngSha256,'production PNG bytes differ from native result');
   env.PAYMENTS_ENABLED='false';failSupported=true;const disabledProbes=probes;
   check((await readiness()).status===503&&probes===disabledProbes,'disable depends on provider health');
-  check((await call('prepare_upload',uploadArgs)).isError,'disabled new purchase accepted');
-  check(JSON.stringify(await call('convert_image',target))===JSON.stringify(complete)&&settles===1,'disable stranded paid receipt');
+  check((await call('conversion.v1.prepare_upload',uploadArgs)).isError,'disabled new purchase accepted');
+  check(JSON.stringify(await call('conversion.v1.convert_image',target))===JSON.stringify(complete)&&settles===1,'disable stranded paid receipt');
   check((await app.fetch(new Request(receipt.download_url),env)).status===200,'disable stranded paid download');
   check(probes===disabledProbes&&verifies===1&&settles===1,'disable recontacted provider or resettled');failSupported=false;
   // Even deliberate identity copies in the same bucket cannot cross HMAC domains.

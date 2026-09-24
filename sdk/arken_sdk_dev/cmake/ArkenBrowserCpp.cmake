@@ -24,7 +24,7 @@ function(arken_browser_cpp_reactor target)
     if(ARG_NO_HOST_IO)
         target_sources(${target} PRIVATE
             "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src/platform/wasm/closed_reactor.cpp")
-        foreach(call environ_get environ_sizes_get clock_time_get poll_oneoff fd_close fd_seek fd_write
+        foreach(call environ_get environ_sizes_get clock_time_get fd_close fd_seek fd_write
                 fd_fdstat_get fd_fdstat_set_flags fd_prestat_get fd_prestat_dir_name fd_read path_open proc_exit)
             target_link_options(${target} PRIVATE "-Wl,--wrap=__wasi_${call}")
         endforeach()
