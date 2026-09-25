@@ -6,7 +6,9 @@ namespace arken::ao::schema::v1
 {
 namespace
 {
-constexpr std::array<AoFormatDescriptor, 18u> format_descriptors{{
+constexpr std::array<AoFormatDescriptor, 19u> format_descriptors{{
+    {aoed_format_id, "arken.ao.aoed", "AOED", {1u, 0u, 0u}, 2u,
+     {'A', 'O', 'E', 'D'}},
     {aosd_format_id, "arken.ao.aosd", "AOSD", {1u, 0u, 0u}, 2u,
      {'A', 'O', 'S', 'D'}},
     {apcb_format_id, "arken.ao.apcb", "APCB", {1u, 0u, 0u}, 2u,
@@ -45,7 +47,9 @@ constexpr std::array<AoFormatDescriptor, 18u> format_descriptors{{
      {'A', 'O', 'U', 'I'}},
 }};
 
-constexpr std::array<AoChunkTypeDescriptor, 60u> chunk_type_descriptors{{
+constexpr std::array<AoChunkTypeDescriptor, 61u> chunk_type_descriptors{{
+    {authoring_checkpoint_chunk_type_id, "arken.ao.chunk.aoed.cpkt", "CPKT",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aoed_format_id, {'C','P','K','T'}},
     {scene_project_chunk_type_id, "arken.ao.chunk.aosd.scpr", "SCPR",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aosd_format_id, {'S','C','P','R'}},
     {scene_library_chunk_type_id, "arken.ao.chunk.aosd.sclb", "SCLB",
