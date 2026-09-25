@@ -14,6 +14,13 @@ extern "C" __wasi_errno_t __wrap___wasi_environ_get(std::uint8_t**,
     std::uint8_t*) noexcept { return __WASI_ERRNO_SUCCESS; }
 extern "C" __wasi_errno_t __wrap___wasi_clock_time_get(__wasi_clockid_t,
     __wasi_timestamp_t, __wasi_timestamp_t*) noexcept { return __WASI_ERRNO_NOSYS; }
+// Standard-library wait paths may retain this import. Capability-free kernels
+// cannot sleep, observe clocks, or poll host descriptors, including on error.
+extern "C" __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t*,
+    __wasi_event_t*, __wasi_size_t, __wasi_size_t* events) noexcept {
+    *events = 0; return __WASI_ERRNO_NOSYS;
+}
+static_assert(std::is_convertible_v<decltype(&__wrap___wasi_poll_oneoff), decltype(&__wasi_poll_oneoff)>);
 extern "C" __wasi_errno_t __wrap___wasi_fd_close(__wasi_fd_t) noexcept {
     return __WASI_ERRNO_BADF;
 }

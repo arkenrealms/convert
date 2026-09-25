@@ -1,6 +1,6 @@
 {
   "key":"arken_file_conversion_service_v1","name":"Arken File Conversion Service v1","version":"1.0.0",
   "description":"Generated conversion commands and Cloudflare HTTP/artifact adapter over the portable C++ codec implementation.",
-  "public_dependencies":["arken_file_conversion_v1","arken_schema_cpp_v1"],
-  "private_dependencies":["arken_digest_v1","arken_mcp_protocol_v1"],"test_dependencies":[]
+  "public_dependencies":["arken_file_conversion_v1","arken_schema_cpp_v1","arken_paid_operation_v1"],
+  "private_dependencies":["arken_digest_v1","arken_mcp_protocol_v1","arken_x402_v1","arken_cdp_transport_v1"],"test_dependencies":[]
 }

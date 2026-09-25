@@ -4,7 +4,7 @@
 namespace image=arken::image::v1;
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 int main(int argc,char** argv){
-    if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-raster-codec-tests-r4266\n";return 0;}
+    if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-raster-codec-tests-r4566\n";return 0;}
     try{
         const auto pixels=raster_fixture::Pixels(32,16,true);auto encoded=image::EncodePng(32,16,pixels);
         require(bool(encoded),"production PNG encode failed");
@@ -22,6 +22,14 @@ int main(int argc,char** argv){
             options={};options.frameIndex=1;require(!image::DecodeImage(format,bytes,options),"Nonexistent frame accepted");
             bytes.pop_back();require(!image::DecodeImage(format,bytes),"Truncated image accepted");
         }
+        const auto gif=raster_fixture::Gif2x1();
+        const auto decodedGif=image::DecodeImage(image::Format::gif,gif);
+        require(bool(decodedGif)&&decodedGif.image.width==2&&decodedGif.image.height==1
+            &&decodedGif.image.rgba8==std::vector<std::uint8_t>{0,0,0,255,255,0,0,255},
+            "GIF first frame did not decode through the local raster owner");
+        auto truncatedGif=gif;truncatedGif.pop_back();
+        require(image::DecodeImage(image::Format::gif,truncatedGif).issue.code==image::DecodeError::truncated,
+            "Truncated GIF accepted");
         const auto alpha=image::DecodeImage(image::Format::png,raster_fixture::Encode(image::Format::png,32,16,true));
         require(bool(alpha)&&alpha.image.rgba8==raster_fixture::Pixels(32,16,true),"PNG alpha was premultiplied or discarded");
         require(bool(image::DecodeImage(image::Format::png,raster_fixture::WithChromaticities(raster_fixture::Encode(image::Format::png,32,16),true))),"sRGB PNG chromaticities rejected");
