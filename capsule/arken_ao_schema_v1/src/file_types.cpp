@@ -22,6 +22,8 @@ constexpr std::array types{
     FileTypeDescriptor{".aois", "Arken Omniverse Interactive Semantics", "Source-neutral interactive semantic records"},
     FileTypeDescriptor{".aoui", "Arken Omniverse User Interface", "Authored interface data"},
     FileTypeDescriptor{".aovf", "Arken Omniverse Voxel Field", "Explicit voxel basis, palette, and cell identities"},
+    FileTypeDescriptor{".aorp", "Arken Omniverse Rigid Pose", "Rigid clip joints, sparse tracks, keys, placement and interpolation; not render-frame transport"},
+    FileTypeDescriptor{".aorb", "Arken Omniverse Rigid Binding", "Ordered rigid vertex or point bindings to animation joints"},
 };
 static_assert([]{for(std::size_t i=0;i<types.size();++i){
     if(!types[i].extension.starts_with(".ao")||types[i].name.empty()||types[i].purpose.empty())return false;
