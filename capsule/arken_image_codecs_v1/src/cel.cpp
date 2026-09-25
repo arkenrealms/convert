@@ -97,7 +97,7 @@ DecodeResult DecodeCel(Bytes b,const DecodeOptions& o){
     if(o.palette.size()!=768){r.issue.code=o.palette.empty()?DecodeError::palette_required:DecodeError::invalid_palette;return r;}
     image.rgba8.assign(static_cast<std::size_t>(pixelCount)*4,0);
     std::size_t pixel=0;
-    for(const auto [segmentBegin,segmentEnd]:segments){
+    for(const auto& [segmentBegin,segmentEnd]:segments){
         auto cursor=segmentBegin;
         while(cursor<segmentEnd){
             const auto code=U8(b,cursor++);const auto n=code<128?code:256u-code;
