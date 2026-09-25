@@ -43,7 +43,7 @@ constexpr std::array<AoFormatDescriptor, 17u> format_descriptors{{
      {'A', 'O', 'U', 'I'}},
 }};
 
-constexpr std::array<AoChunkTypeDescriptor, 57u> chunk_type_descriptors{{
+constexpr std::array<AoChunkTypeDescriptor, 58u> chunk_type_descriptors{{
     {apcb_pmnf_chunk_type_id, "arken.ao.chunk.apcb.pmnf", "PMNF",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, apcb_format_id, {'P','M','N','F'}},
     {apcb_feat_chunk_type_id, "arken.ao.chunk.apcb.feat", "FEAT",
@@ -189,6 +189,9 @@ constexpr std::array<AoChunkTypeDescriptor, 57u> chunk_type_descriptors{{
     {parametric_recipe_chunk_type_id, "arken.ao.chunk.aopg.prcp", "PRCP",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aopg_format_id,
      {'P', 'R', 'C', 'P'}},
+    {parametric_graph_chunk_type_id, "arken.ao.chunk.aopg.pgra", "PGRA",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aopg_format_id,
+     {'P', 'G', 'R', 'A'}},
     {parametric_output_chunk_type_id, "arken.ao.chunk.aopg.pout", "POUT",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aopg_format_id,
      {'P', 'O', 'U', 'T'}},
