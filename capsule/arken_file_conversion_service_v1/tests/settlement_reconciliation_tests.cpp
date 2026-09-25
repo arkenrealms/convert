@@ -40,11 +40,11 @@ Json Fixture(bool mainnet=false){
 }
 Json Scenario(bool mainnet=false){
   const auto target=P::detail::ReadOperation(Fixture(mainnet).at("operation"));P::Operation op{.quote=target.quote};std::optional<P::NonceClaim> claim;Json commands=Json::array();
-  for(const auto kind:{P::EventKind::request,P::EventKind::verificationPassed,P::EventKind::beginConversion,P::EventKind::outputCommitted,P::EventKind::beginSettlement}){
+  for(const auto kind:{P::EventKind::request,P::EventKind::verificationPassed,P::EventKind::beginExecution,P::EventKind::outputCommitted,P::EventKind::beginSettlement}){
     P::Event e;e.kind=kind;e.expectedRevision=op.revision;e.now=100;
     if(kind==P::EventKind::request)e.authorization=target.authorization;
     if(kind==P::EventKind::verificationPassed)e.verifiedPayer=op.quote.scope.payer;
-    if(kind==P::EventKind::beginConversion)e.executingRelease=op.quote.release;
+    if(kind==P::EventKind::beginExecution)e.executingRelease=op.quote.release;
     if(kind==P::EventKind::outputCommitted)e.output=target.output;
     commands.push_back(Json{{"version",1},{"quote",P::detail::WriteQuote(op.quote)},{"event",P::detail::WriteEvent(e)}}.dump());
     const auto decision=P::Advance(op,op.quote,claim,e);Check(decision.error==P::Error::none,"reconciliation fixture transition");op=decision.operation;claim=decision.nonceClaim;
