@@ -10,6 +10,7 @@
   "public_dependencies": ["arken_identity_v1"],
   "private_dependencies": [],
   "test_dependencies": [],
+  "external_dependencies": [{"recipe":"nlohmann-json-3.12.0-tracked-v1","scope":"public","components":["nlohmann_json"],"platforms":["android","ios","linux","macos","web","windows"],"reason":"Optional arken::ao_json_v1 header contract shares bounded canonical AO JSON mechanics across format-owned model adapters."}],
   "capabilities": [
     "canonical_ao_format_identity",
     "registered_sha256_algorithm_identity",
