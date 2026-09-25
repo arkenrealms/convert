@@ -1,5 +1,4 @@
 #include "arken_file_conversion_service_v1/production_startup.hpp"
-#include "arken_file_conversion_service_v1/provider_readiness.hpp"
 #include "arken_file_conversion_service_v1/provider_signing.hpp"
 #include "arken_file_conversion_service_v1/reconciliation_configuration.hpp"
 #include "rpc_evidence.hpp"
@@ -10,6 +9,11 @@ namespace P=payment;namespace J=arken::schema::cpp::v1::tool_json;using P::detai
 Json Unavailable(std::string_view code){return {{"kind","unavailable"},{"ready",false},{"code",code}};}
 std::string Fingerprint(const Json& value){const auto digest=P::detail::PayloadDigest(value.dump());arken::schema::cpp::v1::fixed_id<32,1> id;
   for(unsigned i=0;i<32;++i)id.value[i]=std::byte(digest[i]);return J::write(id).get<std::string>();}
+Json Response(const Json& value){P::detail::Fields(value,{"status","body"});J::require(value.at("body").is_string()&&value.at("body").get_ref<const std::string&>().size()<=262144,"startup response limit");return value;}
+Json Probe(std::string_view slot,const std::string& identity,std::string_view method,std::string_view url,std::string_view authentication,std::string body=""){
+  return {{"kind","probe"},{"ready",false},{"code","provider_checks_required"},{"fingerprint",identity},{"slot",slot},
+    {"request",{{"method",method},{"url",url},{"authentication",authentication},{"body",body}}}};
+}
 Json Startup(const Json& j,bool qualification=false){
   P::detail::Fields(j,{"configuration","cached","anonymous","supported","rpc","now"});const auto& c=j.at("configuration");
   P::detail::Fields(c,{"enabled","keyId","keySecret","rpcClientKey","releaseId","downloadSecret","hasFiles","hasLedger","bindingGeneration"});
@@ -37,11 +41,24 @@ Json Startup(const Json& j,bool qualification=false){
     J::require(checked<=9007199254740000ULL&&expires==checked+300,"cache lifetime invalid");
     if(record.at("fingerprint")==identity&&checked<=now&&now<expires)return ready(record,true);
   }
-  const Json providerInput={{"configuration",{{"keyId",c.at("keyId")},{"keySecret",c.at("keySecret")},{"rpcClientKey",c.at("rpcClientKey")}}},
-    {"anonymous",j.at("anonymous")},{"supported",j.at("supported")},{"rpc",j.at("rpc")},{"now",j.at("now")}};
-  auto decision=Json::parse(ProviderReadinessPacket(providerInput.dump()));
-  if(decision.at("kind")=="probe"){decision["fingerprint"]=identity;return decision;}
-  if(decision.at("kind")!="ready")return decision;
+  const auto supportedEndpoint=P::CdpEndpointFor(P::CdpOperation::supported);
+  if(j.at("anonymous").is_null())return Probe("anonymous",identity,supportedEndpoint->method,supportedEndpoint->url,"none");
+  if(Response(j.at("anonymous")).at("status")!=401)return Unavailable("provider_authentication_not_proven");
+  if(j.at("supported").is_null())return Probe("supported",identity,supportedEndpoint->method,supportedEndpoint->url,"cdp");
+  if(Response(j.at("supported")).at("status")!=200)return Unavailable("provider_authentication_unavailable");
+  const auto caps=P::ReadProviderCapabilities(j.at("supported").at("body").get_ref<const std::string&>());
+  if(!caps||!caps->baseMainnet)return Unavailable("provider_mainnet_not_supported");
+  if(j.at("rpc").is_null()){
+    const auto call=[](unsigned id,std::string_view method,Json params){return Json{{"jsonrpc","2.0"},{"id",id},{"method",method},{"params",params}};};
+    return Probe("rpc",identity,"POST",endpoint.url,"none",Json::array({call(1,"eth_chainId",Json::array()),call(2,"eth_getBlockByNumber",Json::array({"safe",false})),
+      call(3,"eth_call",Json::array({Json{{"to",profile->assetText},{"data","0x313ce567"}},"safe"}))}).dump());
+  }
+  if(Response(j.at("rpc")).at("status")!=200)return Unavailable("production_rpc_unavailable");
+  const auto replies=P::rpc::Replies(j.at("rpc").at("body"),{1,2,3});
+  if(P::rpc::Quantity(replies.at(1))!=profile->chain)return Unavailable("production_rpc_wrong_chain");
+  const auto block=P::rpc::Header(replies.at(2));
+  if(block.number==0||block.time>now||now-block.time>1800)return Unavailable("production_rpc_header_unavailable");
+  if(P::rpc::Data(replies.at(3),32)!="0x"+std::string(63,'0')+"6")return Unavailable("production_token_decimals_invalid");
   return ready(Json{{"fingerprint",identity},{"checkedAt",std::to_string(now)},{"expiresAt",std::to_string(now+300)}},false);
 }
 }

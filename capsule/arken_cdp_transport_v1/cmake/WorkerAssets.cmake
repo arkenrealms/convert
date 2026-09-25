@@ -1,5 +1,0 @@
-function(arken_cdp_transport_stage_worker destination)
-  foreach(name cdp_authorization.js bounded_body.js)
-    file(COPY_FILE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../worker/${name}" "${destination}/${name}" ONLY_IF_DIFFERENT)
-  endforeach()
-endfunction()

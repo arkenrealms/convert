@@ -7,11 +7,6 @@ namespace arken::file_conversion::service::v1::payment {
 // are decimal text and all identifiers are fixed-width lowercase hex.
 std::string InputPacket(const Operation&,const Quote&,const std::optional<NonceClaim>&,const Event&);
 std::string DecisionPacket(const Decision&);
-// Validated public codecs for a private durable payment record. Consumers must
-// still compare the returned record with their own frozen quote and scope.
-std::optional<Operation> ReadOperationRecord(std::string_view) noexcept;
-std::string WriteOperationRecord(const Operation&) noexcept;
-std::optional<Event> ReadEventRecord(std::string_view) noexcept;
 std::string AdvancePacket(std::string_view) noexcept;
 // Storage records and commands are opaque JSON strings. C++ derives every
 // key/write and validates the durable actor scope before admitting a change.
