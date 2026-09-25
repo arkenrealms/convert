@@ -14,7 +14,6 @@ struct PaymentProfile {
     std::string_view domainName, domainVersion;
 };
 std::optional<PaymentProfile> PaymentProfileById(std::string_view) noexcept;
-std::optional<PaymentProfile> PaymentProfileByNetwork(std::string_view) noexcept;
 // Always resolve a retained operation from its own chain/token, never a new default.
 std::optional<PaymentProfile> PaymentProfileForQuote(const Quote&) noexcept;
 Address ImagePaymentRecipient() noexcept;

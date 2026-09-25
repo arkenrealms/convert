@@ -16,8 +16,6 @@
     "bounded_dds_bc1_bc2_bc3_rgb_authored_mip_decode",
     "bounded_tga_truecolor_grayscale_rle_decode",
     "bounded_png_bmp_jpeg_rgba8_decode",
-    "bounded_blp1_jpeg_component_alpha_decode",
-    "bounded_gif_first_frame_rgba8_decode",
     "bounded_deterministic_png_rgba8_encode",
     "validated_aotm_v1_sourcefree_runtime_profile",
     "bounded_png_bmp_jpeg_rgba8_encode"

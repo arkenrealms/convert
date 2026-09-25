@@ -24,7 +24,6 @@ DecodeResult DecodePcx(Bytes,const DecodeOptions&);
 DecodeResult DecodeCel(Bytes,const DecodeOptions&);
 DecodeResult DecodeDc6(Bytes,const DecodeOptions&);
 DecodeResult DecodeBlp(Bytes,const DecodeOptions&);
-DecodeResult DecodeBlpJpegWithAlpha(Bytes,const DecodeOptions&,std::uint32_t,std::uint32_t,std::uint32_t);
 DecodeResult DecodeDds(Bytes,const DecodeOptions&);
 DecodeResult DecodeTga(Bytes,const DecodeOptions&);
 DecodeResult DecodeRaster(Format,Bytes,const DecodeOptions&);

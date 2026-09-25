@@ -88,7 +88,7 @@ Json Fixture(bool mainnet=false){
   auto callback=Wire({{"kind","callback"},{"operation",decision["operation"]},{"phase","verify"},{"response",goodVerify.dump()},{"status",200},{"now","101"}});
   const auto verified=ledger.transition(callback["command"].get<std::string>());Check(verified["operation"]["stage"]==unsigned(P::Stage::authorized),"verified callback");
   const auto resume=Wire({{"kind","control"},{"operation",verified["operation"]},{"event","resume"},{"now","101"},{"release","0x05"+std::string(62,'0')}});
-  decision=ledger.transition(resume["command"].get<std::string>());Check(decision["action"]==unsigned(P::Action::execute),"resume compute");
+  decision=ledger.transition(resume["command"].get<std::string>());Check(decision["action"]==unsigned(P::Action::convert),"resume compute");
   auto op=P::detail::ReadOperation(decision["operation"]);P::Event output;output.kind=P::EventKind::outputCommitted;output.expectedRevision=op.revision;output.now=101;
   output.output=P::Output{.digest=op.quote.input,.release=op.quote.release,.bytes=76,.width=1,.height=1};
   const std::string outputCommand=Json{{"version",1},{"quote",P::detail::WriteQuote(op.quote)},{"event",P::detail::WriteEvent(output)}}.dump();
@@ -148,7 +148,7 @@ Json Fixture(bool mainnet=false){
   Check(Paid({{"kind","next"},{"decision",fulfilled},{"receipt",incorrect},{"now","151"},{"release",q["release"]}}).contains("packetError"),"receipt bytes mismatch disclosed");
   const auto waiting=Paid({{"kind","next"},{"decision",decision},{"receipt",publicReceipt},{"now","101"},{"release",q["release"]}});
   Check(waiting["kind"]=="facilitate"&&!waiting.contains("result"),"unsettled receipt exposed");
-  const Json publicRequest={{"jsonrpc","2.0"},{"id",1},{"method","tools/call"},{"params",{{"name","convert_image"},{"arguments",{{"file_id",q["operation"]}}},{"_meta",{{"x402/payment",payment}}}}}};
+  const Json publicRequest={{"jsonrpc","2.0"},{"id",1},{"method","tools/call"},{"params",{{"name","conversion.v1.convert_image"},{"arguments",{{"file_id",q["operation"]}}},{"_meta",{{"x402/payment",payment}}}}}};
   Check(Json::parse(arken::file_conversion::service::v1::PlanRequest(publicRequest.dump(),arken::file_conversion::service::v1::ServerMode::sandbox))["payment"]==payment.dump(),"payment metadata not retained");
   Check(Json::parse(arken::file_conversion::service::v1::PlanRequest(publicRequest.dump()))["kind"]=="response","preview accepted paid metadata");
   return {{"quote",q},{"payment",payment.dump()},{"challenge",challenge},{"verifiedResponse",goodVerify.dump()},{"settledResponse",goodSettle.dump()},
