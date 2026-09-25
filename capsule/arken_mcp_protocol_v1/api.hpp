@@ -10,6 +10,14 @@ namespace arken::mcp::v1 {
 using Json = ::arken::schema::cpp::v1::tool_json::Json;
 inline constexpr std::string_view protocolVersion = "2025-11-25";
 inline constexpr std::size_t maximumRequestBytes = 16384;
+inline constexpr std::size_t maximumConfiguredRequestBytes = 2u * 1024u * 1024u;
+inline constexpr std::string_view familyEndpointPath = "/v1";
+enum class ToolNameStyle { qualified, familyLocal };
+// Presentation only. Canonical generated command identity remains unchanged.
+[[nodiscard]] std::string shortToolName(std::string_view qualifiedName);
+// Native clients retain canonical requests/receipts; project only the outgoing
+// protocol envelope. This does not accept two public spellings on the server.
+[[nodiscard]] Json familyRequest(const Json& canonicalRequest);
 
 struct ToolPresentation {
   std::uint32_t commandId = 0;
@@ -22,6 +30,10 @@ struct ServerDescription {
   std::string name, version, instructions;
   std::string_view catalog;
   std::vector<ToolPresentation> presentations;
+  // Trusted owner policy, never read from request metadata. Existing services
+  // keep their 16 KiB envelope unless explicitly qualified for a larger one.
+  std::size_t requestMaximumBytes = maximumRequestBytes;
+  ToolNameStyle toolNameStyle{ToolNameStyle::qualified};
 };
 struct RequestPlan {
   bool isCommand = false;
@@ -40,6 +52,9 @@ public:
   explicit Server(ServerDescription);
   [[nodiscard]] RequestPlan plan(std::string_view) const;
   [[nodiscard]] std::uint32_t resolve(std::string_view) const noexcept;
+  // Owner composition/invocation, never a fallback for public wire admission.
+  [[nodiscard]] std::uint32_t resolveCanonical(std::string_view) const noexcept;
+  [[nodiscard]] std::string_view canonicalCommandName(std::uint32_t) const noexcept;
 
 private:
   ServerDescription description_;
@@ -47,6 +62,8 @@ private:
 };
 
 [[nodiscard]] Json parseRequestJson(std::string_view);
+// Explicit owner-selected budget; parseRequestJson retains its 16 KiB default.
+[[nodiscard]] Json parseBoundedJson(std::string_view, std::size_t maximumBytes);
 [[nodiscard]] Json failure(const Json &id, int code, std::string_view message);
 [[nodiscard]] Json reply(const Json &id, Json result, bool initialize = false);
 [[nodiscard]] Json toolReply(const Json &id, const Json &result, bool error);
@@ -63,5 +80,6 @@ struct HttpAdmission {
 };
 // Stateless JSON-response profile. GET receives 405 (no SSE stream). Version
 // absence is checked after parsing: only initialize may omit its header.
-[[nodiscard]] HttpAdmission admitHttp(const HttpRequest &);
+// The host selects one endpoint path; this is not a client-supplied alias.
+[[nodiscard]] HttpAdmission admitHttp(const HttpRequest &,std::string_view endpointPath="/mcp");
 } // namespace arken::mcp::v1

@@ -6,8 +6,29 @@
 
 namespace arken::mcp::v1 {
 namespace J = ::arken::schema::cpp::v1::tool_json;
+std::string shortToolName(std::string_view name) {
+  const auto first=name.find('.');
+  const auto second=first==name.npos?name.npos:name.find('.',first+1);
+  J::require(first!=name.npos&&first>0&&second!=name.npos&&second>first+2&&second+1<name.size()
+      &&name.find('.',second+1)==name.npos,"qualified command name required");
+  const auto version=name.substr(first+1,second-first-1),local=name.substr(second+1);
+  J::require(version.front()=='v'&&version[1]>='1'&&version[1]<='9'
+      &&std::all_of(version.begin()+1,version.end(),[](char c){return c>='0'&&c<='9';}),"command version required");
+  const auto identifier=[](std::string_view s){return !s.empty()&&s.size()<=128&&std::all_of(s.begin(),s.end(),[](char c){return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-';});};
+  J::require(identifier(name.substr(0,first))&&identifier(local),"invalid public tool name");
+  return std::string(local);
+}
 Json parseRequestJson(std::string_view text) {
-  J::require(text.size() <= maximumRequestBytes, "MCP request byte limit");
+  return parseBoundedJson(text, maximumRequestBytes);
+}
+Json familyRequest(const Json& canonicalRequest) {
+  auto wire=canonicalRequest;
+  if(wire.value("method",std::string{})=="tools/call")
+    wire.at("params").at("name")=shortToolName(wire.at("params").at("name").get<std::string>());
+  return wire;
+}
+Json parseBoundedJson(std::string_view text, std::size_t maximumBytes) {
+  J::require(maximumBytes > 0 && maximumBytes <= maximumConfiguredRequestBytes && text.size() <= maximumBytes, "MCP packet byte limit");
   std::vector<std::set<std::string>> keys;
   return Json::parse(
       text.begin(), text.end(),
@@ -56,6 +77,10 @@ Server::Server(ServerDescription description)
     : description_(std::move(description)) {
   J::require(!description_.name.empty() && !description_.version.empty(),
              "MCP server identity required");
+  J::require(description_.toolNameStyle==ToolNameStyle::qualified || description_.toolNameStyle==ToolNameStyle::familyLocal,"invalid tool name presentation policy");
+  J::require(description_.requestMaximumBytes > 0 &&
+                 description_.requestMaximumBytes <= maximumConfiguredRequestBytes,
+             "MCP server request budget invalid");
   J::require(description_.catalog.size() <= 2u * 1024u * 1024u,
              "catalog byte budget");
   const auto catalog = Json::parse(description_.catalog);
@@ -71,7 +96,7 @@ Server::Server(ServerDescription description)
   tools_ = Json::array();
   J::require(commands_.is_array() && commands_.size() <= 4096,
              "catalog command budget");
-  std::set<std::string> names;
+  std::set<std::string> names, publicNames;
   std::set<std::uint32_t> ids, presentations;
   for (const auto &presentation : description_.presentations)
     J::require(presentations.insert(presentation.commandId).second,
@@ -98,7 +123,9 @@ Server::Server(ServerDescription description)
                "unknown idempotency");
     J::require(!presentation->readOnly || idempotency == "safe",
                "read-only presentation requires safe command");
-    tools_.push_back({{"name", name},
+    const auto publicName=description_.toolNameStyle==ToolNameStyle::familyLocal?shortToolName(name):name;
+    J::require(publicNames.insert(publicName).second,"duplicate public tool name");
+    tools_.push_back({{"name", publicName},
                       {"description", presentation->description.empty()
                                           ? command.at("description")
                                           : Json(presentation->description)},
@@ -113,10 +140,22 @@ Server::Server(ServerDescription description)
   J::require(ids == presentations, "foreign tool presentation");
 }
 std::uint32_t Server::resolve(std::string_view name) const noexcept {
+  for(std::size_t i=0;i<tools_.size();++i)
+    if(tools_[i].at("name").get_ref<const std::string&>()==name)
+      return commands_[i].at("commandId").get<std::uint32_t>();
+  return 0;
+}
+std::uint32_t Server::resolveCanonical(std::string_view name) const noexcept {
   for (const auto &command : commands_)
     if (command.at("name").get_ref<const std::string &>() == name)
       return command.at("commandId").get<std::uint32_t>();
   return 0;
+}
+std::string_view Server::canonicalCommandName(std::uint32_t id) const noexcept {
+  for(const auto& command:commands_)
+    if(command.at("commandId").get<std::uint32_t>()==id)
+      return command.at("name").get_ref<const std::string&>();
+  return {};
 }
 RequestPlan Server::plan(std::string_view text) const {
   Json id = nullptr;
@@ -126,7 +165,7 @@ RequestPlan Server::plan(std::string_view text) const {
     return result;
   };
   try {
-    const auto request = parseRequestJson(text);
+    auto request = parseBoundedJson(text, description_.requestMaximumBytes);
     if (!request.is_object() || !request.contains("jsonrpc") ||
         request.at("jsonrpc") != "2.0")
       return fail(-32600, "Invalid request");
@@ -154,7 +193,7 @@ RequestPlan Server::plan(std::string_view text) const {
                          {"body", ""}};
       return result;
     }
-    const auto params = request.value("params", Json::object());
+    auto params = request.contains("params") ? std::move(request.at("params")) : Json::object();
     if (!params.is_object())
       return fail(-32602, "Parameters must be an object");
     const auto respond = [&](Json value, bool initialize = false) {
@@ -194,10 +233,10 @@ RequestPlan Server::plan(std::string_view text) const {
       return fail(-32602, "Unknown tool");
     RequestPlan plan;
     plan.id = id;
-    plan.commandName = name;
+    plan.commandName = canonicalCommandName(commandId);
     plan.commandId = commandId;
-    plan.arguments = params.value("arguments", Json::object());
-    plan.metadata = params.value("_meta", Json::object());
+    plan.arguments = params.contains("arguments") ? std::move(params.at("arguments")) : Json::object();
+    plan.metadata = params.contains("_meta") ? std::move(params.at("_meta")) : Json::object();
     J::require(plan.arguments.is_object() && plan.metadata.is_object(),
                "command arguments and metadata must be objects");
     plan.isCommand = true;
@@ -270,10 +309,11 @@ bool accepts(std::string_view text, std::string_view type) {
   return false;
 }
 } // namespace
-HttpAdmission admitHttp(const HttpRequest &request) {
+HttpAdmission admitHttp(const HttpRequest &request,std::string_view endpointPath) {
+  if(endpointPath!="/"&&endpointPath!="/mcp"&&endpointPath!=familyEndpointPath)return {503,"endpoint_configuration_invalid"};
   if (request.hasOrigin && request.originHeader != request.origin)
     return {403, "origin_denied"};
-  if (request.path != "/mcp")
+  if (request.path != endpointPath)
     return {404, "not_found"};
   if (request.method != "POST")
     return {405, "method_not_allowed"};

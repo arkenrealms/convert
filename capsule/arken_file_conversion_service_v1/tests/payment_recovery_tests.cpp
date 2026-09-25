@@ -25,7 +25,7 @@ unsigned PaymentRecoveryTests(){
   check(P::AttemptDeadline(large,large.quote.expiresAt-2)==large.quote.expiresAt,"deadline overflow");
   op.stage=P::Stage::computing;P::NonceClaim claim{op.quote.scope,op.authorization->nonce,op.quote.operation,op.authorization->payload};
   check(P::AttemptDeadline(op,100)==130,"compute budget");
-  e.now=130;r=P::Recover(op,claim,e,{true,130});check(r.decision.action==P::Action::convert&&r.decision.changed,"compute recovery not admitted");
+  e.now=130;r=P::Recover(op,claim,e,{true,130});check(r.decision.action==P::Action::execute&&r.decision.changed,"compute recovery not admitted");
   auto stale=e;stale.kind=P::EventKind::outputCommitted;stale.output=P::Output{.release=op.quote.release,.bytes=70,.width=1,.height=1};
   check(P::Advance(r.decision.operation,op.quote,claim,stale).error==P::Error::staleRevision,"late compute callback accepted");
   r=P::Recover(op,{},e,{});check(r.decision.error==P::Error::nonceClaimMissing,"recovery bypassed nonce");
