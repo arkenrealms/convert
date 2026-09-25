@@ -1,4 +1,4 @@
-import {productionStartupPacket,productionQualificationPacket} from './runtime.js';
+import {productionStartupPacket,productionQualificationPacket,cdpProviderPacket} from './runtime.js';
 import {createCdpTransport} from './cdp_authorization.js';
 import {readBoundedBody} from './bounded_body.js';
 const clock=()=>String(Math.floor(Date.now()/1000));
@@ -15,7 +15,7 @@ export function createProductionStartup({fetcher=(url,options)=>fetch(url,option
     rpcClientKey:env.CDP_RPC_CLIENT_KEY??null,releaseId:env.RELEASE_ID??null,downloadSecret:env.ACCESS_TOKEN??null,
     hasFiles:Boolean(env.FILES),hasLedger:Boolean(env.PAYMENT_LEDGER),bindingGeneration:String(value.generation)},cached:value.cached,anonymous:null,supported:null,rpc:null,now:readClock()};}
   async function run(captured,decide){
-    const sendCdp=createCdpTransport({keyId:captured.configuration.keyId,keySecret:captured.configuration.keySecret},{fetcher});
+    const sendCdp=createCdpTransport({keyId:captured.configuration.keyId,keySecret:captured.configuration.keySecret},{fetcher,providerPacket:cdpProviderPacket});
     for(let remaining=4;remaining>0;remaining--){captured.now=readClock();const next=decide(captured);
       if(next.kind!=='probe')return next;
       let response;

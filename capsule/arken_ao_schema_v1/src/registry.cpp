@@ -6,7 +6,9 @@ namespace arken::ao::schema::v1
 {
 namespace
 {
-constexpr std::array<AoFormatDescriptor, 16u> format_descriptors{{
+constexpr std::array<AoFormatDescriptor, 17u> format_descriptors{{
+    {apcb_format_id, "arken.ao.apcb", "APCB", {1u, 0u, 0u}, 2u,
+     {'A', 'P', 'C', 'B'}},
     {aocb_format_id, "arken.ao.aocb", "AOCB", {1u, 0u, 0u}, 2u,
      {'A', 'O', 'C', 'B'}},
     {aoab_format_id, "arken.ao.aoab", "AOAB", {2u, 0u, 0u}, 2u,
@@ -41,7 +43,11 @@ constexpr std::array<AoFormatDescriptor, 16u> format_descriptors{{
      {'A', 'O', 'U', 'I'}},
 }};
 
-constexpr std::array<AoChunkTypeDescriptor, 55u> chunk_type_descriptors{{
+constexpr std::array<AoChunkTypeDescriptor, 57u> chunk_type_descriptors{{
+    {apcb_pmnf_chunk_type_id, "arken.ao.chunk.apcb.pmnf", "PMNF",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, apcb_format_id, {'P','M','N','F'}},
+    {apcb_feat_chunk_type_id, "arken.ao.chunk.apcb.feat", "FEAT",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, apcb_format_id, {'F','E','A','T'}},
     {aocb_cmnf_chunk_type_id, "arken.ao.chunk.aocb.cmnf", "CMNF",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aocb_format_id, {'C','M','N','F'}},
     {aocb_midx_chunk_type_id, "arken.ao.chunk.aocb.midx", "MIDX",

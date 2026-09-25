@@ -13,6 +13,7 @@ constexpr PaymentProfile profiles[]={
 };
 }
 std::optional<PaymentProfile> PaymentProfileById(std::string_view id) noexcept {for(const auto& p:profiles)if(p.id==id)return p;return std::nullopt;}
+std::optional<PaymentProfile> PaymentProfileByNetwork(std::string_view network) noexcept {for(const auto& p:profiles)if(p.network==network)return p;return std::nullopt;}
 std::optional<PaymentProfile> PaymentProfileForQuote(const Quote& q) noexcept {for(const auto& p:profiles)if(q.scope.chain==p.chain&&q.scope.asset==p.asset)return p;return std::nullopt;}
 Address ImagePaymentRecipient() noexcept {return AddressBytes("554933cd7c5275ff3692bf97e0bc90b69c85d3dc");}
 }

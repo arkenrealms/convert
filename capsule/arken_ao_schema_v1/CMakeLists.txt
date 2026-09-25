@@ -22,6 +22,8 @@ if(BUILD_TESTING OR ARKEN_AO_SCHEMA_V1_BUILD_TESTS OR OASIS_NATIVE_BUILD_HOST_TE
         target_compile_options(arken-ao-schema-v1-tests PRIVATE -UNDEBUG)
     endif()
     add_test(NAME ArkenAoSchemaV1.Registry COMMAND arken-ao-schema-v1-tests)
+    add_test(NAME ArkenAoSchemaV1.RegistryVersion COMMAND arken-ao-schema-v1-tests --version --invalid)
+    set_tests_properties(ArkenAoSchemaV1.RegistryVersion PROPERTIES TIMEOUT 5 PASS_REGULAR_EXPRESSION "arken-ao-schema-v1-tests-r4572")
 endif()
 
 if(EMSCRIPTEN AND COMMAND arken_register_browser_live_source_contribution)
