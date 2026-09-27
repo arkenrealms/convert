@@ -22,6 +22,8 @@ int main(int argc,char** argv){
     const auto decoded=image::DecodeImage(image::Format::png,encoded.bytes,decode);
     if(!decoded)throw std::runtime_error(std::string(image::ErrorMessage(decoded.issue.code)));
     check(decoded.image.width==side&&decoded.image.height==side&&decoded.image.rgba8==rgba,"full-size RGBA roundtrip changed pixels or orientation");
+    decode.maximumPixels=32*1024*1024+1;check(image::DecodeImage(image::Format::png,encoded.bytes,decode).issue.code==image::DecodeError::resource_limit,"map decode hard budget widened");
+    decode.maximumPixels=32*1024*1024;check(image::DecodeImage(image::Format::jpeg,encoded.bytes,decode).issue.code==image::DecodeError::resource_limit,"map budget leaked into other formats");
     check(!image::EncodeImage(image::Format::png,side,side+1,rgba,options),"pixel budget exceeded");
     options.maximumPixels++;check(image::EncodeImage(image::Format::png,side,side,rgba,options).error==image::EncodeError::invalid_options,"unsupported budget accepted");
     options.maximumPixels--;options.maximumOutputBytes=1;
