@@ -9,7 +9,7 @@ struct DecodeOptions {
     std::uint32_t celWidth=0, celFrameHeaderBytes=0;
     std::span<const std::byte> palette;
     std::uint64_t maximumSourceBytes=32ull*1024*1024;
-    // PNG can explicitly opt into 16M pixels; the default and all other
+    // Offline map import can explicitly opt PNG into 32M pixels; the default and all other
     // formats remain bounded at 8M pixels.
     std::uint64_t maximumPixels=8ull*1024*1024;
     std::uint32_t maximumDimension=8192;
