@@ -32,7 +32,7 @@ function(_arken_extpkg_patch_set_identity out_var recipe_json recipe_path recipe
         _arken_extpkg_validate_object_keys(
             "${_patch}"
             "${recipe_id}:patches[${_index}]"
-            "path;sha256;strip;replacementPath;expectedSourceSha256"
+            "path;sha256;strip"
         )
         _arken_extpkg_json_required_string(
             _relative
@@ -96,31 +96,6 @@ function(_arken_extpkg_patch_set_identity out_var recipe_json recipe_path recipe
         endif()
         list(APPEND _patch_paths "${_relative}")
         string(APPEND _identity_input "${_relative}:${_expected_sha}:p${_strip}\n")
-        _arken_extpkg_json_type(_replacement_type "${_patch}" replacementPath)
-        if(NOT _replacement_type STREQUAL "")
-            _arken_extpkg_json_type(_strip_type "${_patch}" strip)
-            if(NOT _strip_type STREQUAL "")
-                _arken_extpkg_error("arken.external_packages.patch.replacement_invalid" "patch" "${recipe_id}"
-                    "Exact replacements do not use unified-diff strip counts.")
-            endif()
-            _arken_extpkg_json_required_string(_replacement "${_patch}" "${recipe_id}" replacementPath)
-            _arken_extpkg_json_required_string(_preimage "${_patch}" "${recipe_id}" expectedSourceSha256)
-            string(LENGTH "${_preimage}" _preimage_length)
-            if(IS_ABSOLUTE "${_replacement}" OR _replacement STREQUAL ""
-                    OR _replacement MATCHES "(^|/)[.][.]?(/|$)|[|;\n\r\\\\:]"
-                    OR NOT _preimage MATCHES "^[0-9a-f]+$" OR NOT _preimage_length EQUAL 64)
-                _arken_extpkg_error("arken.external_packages.patch.replacement_invalid" "patch" "${recipe_id}"
-                    "Exact replacement requires a contained path and complete source SHA-256.")
-            endif()
-            file(SHA256 "${CMAKE_CURRENT_FUNCTION_LIST_FILE}" _implementation_sha)
-            string(APPEND _identity_input "replace:${_replacement}:${_preimage}:${_implementation_sha}\n")
-        else()
-            _arken_extpkg_json_type(_preimage_type "${_patch}" expectedSourceSha256)
-            if(NOT _preimage_type STREQUAL "")
-                _arken_extpkg_error("arken.external_packages.patch.replacement_invalid" "patch" "${recipe_id}"
-                    "A replacement source identity requires replacementPath.")
-            endif()
-        endif()
     endforeach()
     string(SHA256 _identity "${_identity_input}")
     set(${out_var} "${_identity}" PARENT_SCOPE)
@@ -150,21 +125,6 @@ function(_arken_extpkg_apply_patches
             "A non-empty patch set requires a materialized source tree."
         )
     endif()
-    string(JSON _patch_count LENGTH "${recipe_json}" patches)
-    math(EXPR _last "${_patch_count}-1")
-    set(_replacements_only TRUE)
-    foreach(_index RANGE 0 ${_last})
-        _arken_extpkg_json_type(_replacement_type "${recipe_json}" patches ${_index} replacementPath)
-        if(_replacement_type STREQUAL "")
-            set(_replacements_only FALSE)
-        endif()
-    endforeach()
-    if(_replacements_only)
-        # CMake is already the native publication owner. Exact byte replacements
-        # need no platform-specific text-patch executable or fuzzy matching.
-        set(_patch_tool "${CMAKE_COMMAND}")
-        file(SHA256 "${_patch_tool}" _patch_tool_sha)
-    else()
     _arken_extpkg_json_required_string(
         _patch_tool_target
         "${recipe_json}"
@@ -191,7 +151,6 @@ function(_arken_extpkg_apply_patches
             "${recipe_id}"
             "Patch tool must be an identity-recorded imported executable."
         )
-    endif()
     endif()
 
     set(_patched_root "${package_build_root}/patched-source")
@@ -263,36 +222,6 @@ function(_arken_extpkg_apply_patches
             strip
         )
         set(_absolute "${_recipe_directory}/${_relative}")
-        _arken_extpkg_json_type(_replacement_type "${_patch}" replacementPath)
-        if(NOT _replacement_type STREQUAL "")
-            string(JSON _replacement GET "${_patch}" replacementPath)
-            string(JSON _preimage GET "${_patch}" expectedSourceSha256)
-            set(_destination "${_temporary}/${_replacement}")
-            file(REAL_PATH "${_temporary}" _physical_root)
-            file(REAL_PATH "${_destination}" _physical_destination)
-            cmake_path(IS_PREFIX _physical_root "${_physical_destination}" NORMALIZE _inside)
-            if(NOT _inside OR NOT EXISTS "${_destination}" OR IS_DIRECTORY "${_destination}"
-                    OR IS_SYMLINK "${_destination}")
-                file(REMOVE_RECURSE "${_temporary}")
-                _arken_extpkg_error("arken.external_packages.patch.replacement_path_invalid" "patch" "${recipe_id}"
-                    "Replacement must name an existing regular contained source file: ${_replacement}")
-            endif()
-            file(SHA256 "${_destination}" _observed_preimage)
-            if(NOT _observed_preimage STREQUAL _preimage)
-                file(REMOVE_RECURSE "${_temporary}")
-                _arken_extpkg_error("arken.external_packages.patch.replacement_preimage_mismatch" "patch" "${recipe_id}"
-                    "Replacement source identity changed: ${_replacement}")
-            endif()
-            file(COPY_FILE "${_absolute}" "${_destination}")
-            string(JSON _replacement_sha GET "${_patch}" sha256)
-            file(SHA256 "${_destination}" _observed_replacement)
-            if(NOT _observed_replacement STREQUAL _replacement_sha)
-                file(REMOVE_RECURSE "${_temporary}")
-                _arken_extpkg_error("arken.external_packages.patch.replacement_output_mismatch" "patch" "${recipe_id}"
-                    "Replacement output differs from its declared identity: ${_replacement}")
-            endif()
-            continue()
-        endif()
         execute_process(
             COMMAND
                 "${_patch_tool}"
