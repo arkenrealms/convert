@@ -182,6 +182,19 @@ bool constant_time_equal(Sha256Digest left, Sha256Digest right) noexcept
     return difference == 0u;
 }
 
+std::optional<Sha256Digest> parse_sha256(std::string_view text) noexcept
+{
+    if(text.size()!=sha256_canonical_text_size || !text.starts_with("sha256:"))return std::nullopt;
+    const auto digit=[](char c)->int{return c>='0'&&c<='9'?c-'0':c>='a'&&c<='f'?c-'a'+10:-1;};
+    Sha256Digest value;
+    for(std::size_t i=0;i<value.bytes.size();++i){
+        const auto high=digit(text[7+i*2]),low=digit(text[8+i*2]);
+        if(high<0||low<0)return std::nullopt;
+        value.bytes[i]=static_cast<std::uint8_t>((high<<4)|low);
+    }
+    return value;
+}
+
 bool format_sha256(Sha256Digest const& digest, std::span<char> output) noexcept
 {
     if(output.size() < sha256_canonical_text_size)
