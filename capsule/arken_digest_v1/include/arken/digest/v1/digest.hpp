@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string_view>
 
 namespace arken::digest::v1
 {
@@ -77,4 +78,6 @@ class Sha256Hasher final
 [[nodiscard]] bool format_sha256(
     Sha256Digest const& digest,
     std::span<char> output) noexcept;
+// Exact canonical spelling only: sha256: followed by 64 lowercase hex digits.
+[[nodiscard]] std::optional<Sha256Digest> parse_sha256(std::string_view text) noexcept;
 }
