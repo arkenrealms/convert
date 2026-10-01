@@ -8,6 +8,17 @@
 #include <stb_image_write.h>
 
 namespace raster_fixture {
+inline std::vector<std::byte> Png16(){
+    std::vector<std::byte> out;for(unsigned v:{137,80,78,71,13,10,26,10})out.push_back(std::byte(v));
+    const auto be=[](auto& bytes,std::uint32_t v){for(int shift=24;shift>=0;shift-=8)bytes.push_back(std::byte((v>>shift)&255));};
+    const auto chunk=[&](std::string_view name,const std::vector<std::byte>& data){be(out,data.size());const auto start=out.size();for(char c:name)out.push_back(std::byte(c));out.insert(out.end(),data.begin(),data.end());std::uint32_t crc=0xffffffff;
+        for(std::size_t i=start;i<out.size();++i){crc^=std::to_integer<std::uint8_t>(out[i]);for(unsigned bit=0;bit<8;++bit)crc=(crc>>1)^(0xedb88320u&(0u-(crc&1u)));}be(out,~crc);};
+    std::vector<std::byte> header;be(header,1);be(header,1);for(unsigned v:{16,6,0,0,0})header.push_back(std::byte(v));chunk("IHDR",header);
+    // One scanline: RGBA 0000 / 8080 / ffff / 0101, no filter, stored DEFLATE.
+    std::vector<std::byte> raw;for(unsigned v:{0,0,0,128,128,255,255,1,1})raw.push_back(std::byte(v));
+    std::vector<std::byte> compressed;for(unsigned v:{0x78,0x01,0x01,9,0,0xf6,0xff})compressed.push_back(std::byte(v));compressed.insert(compressed.end(),raw.begin(),raw.end());
+    std::uint32_t a=1,b=0;for(auto v:raw){a=(a+std::to_integer<unsigned>(v))%65521;b=(b+a)%65521;}be(compressed,(b<<16)|a);chunk("IDAT",compressed);chunk("IEND",{});return out;
+}
 inline std::vector<std::uint8_t> Pixels(unsigned width=320,unsigned height=192,bool alpha=false){
     std::vector<std::uint8_t> bytes(std::size_t(width)*height*4);
     for(unsigned y=0;y<height;++y)for(unsigned x=0;x<width;++x){
