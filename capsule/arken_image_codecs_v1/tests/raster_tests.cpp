@@ -6,6 +6,11 @@ void require(bool value,const char* message){if(!value)throw std::runtime_error(
 int main(int argc,char** argv){
     if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-raster-codec-tests-r4566\n";return 0;}
     try{
+        const auto highPrecision=raster_fixture::Png16();
+        require(image::DecodeImage(image::Format::png,highPrecision).issue.code==image::DecodeError::unsupported_content,"PNG16 silently lost precision");
+        image::DecodeOptions derivative;derivative.allowPng16BitRenderingDerivative=true;
+        const auto reduced=image::DecodeImage(image::Format::png,highPrecision,derivative);
+        require(reduced&&reduced.image.sourceBitsPerChannel==16&&reduced.image.rgba8==std::vector<std::uint8_t>{0,128,255,1},"Explicit PNG16 rendering conversion changed channel meaning");
         const auto pixels=raster_fixture::Pixels(32,16,true);auto encoded=image::EncodePng(32,16,pixels);
         require(bool(encoded),"production PNG encode failed");
         require(image::DecodeImage(image::Format::png,encoded.bytes).image.rgba8==pixels,"production PNG exact RGBA roundtrip");
