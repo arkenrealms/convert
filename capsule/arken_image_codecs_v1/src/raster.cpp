@@ -38,7 +38,7 @@ std::uint32_t crc32(Bytes bytes){
     for(auto byte:bytes){value^=std::to_integer<std::uint8_t>(byte);for(unsigned bit=0;bit<8;++bit)value=(value>>1)^(0xedb88320u&(0u-(value&1u)));}
     return ~value;
 }
-DecodeError png_profile(Bytes bytes){
+DecodeError png_profile(Bytes bytes,bool allow16){
     constexpr unsigned char signature[]={137,80,78,71,13,10,26,10};
     if(bytes.size()<8||std::memcmp(bytes.data(),signature,8))return DecodeError::wrong_magic;
     bool header=false,data=false;
@@ -48,7 +48,7 @@ DecodeError png_profile(Bytes bytes){
         if(!Range(bytes,at+12,count))return DecodeError::truncated;
         if(crc32(bytes.subspan(at+4,std::size_t(count)+4))!=be32(bytes,at+8+count))return DecodeError::invalid_layout;
         if(!header){if(kind!=0x49484452u||count!=13)return DecodeError::invalid_layout;header=true;
-            if(U8(bytes,at+16)==16)return DecodeError::unsupported_content;
+            if(U8(bytes,at+16)==16&&!allow16)return DecodeError::unsupported_content;
         }else if(kind==0x49484452u)return DecodeError::invalid_layout;
         if(kind==0x69434350u||kind==0x63494350u||kind==0x6163544cu)return DecodeError::unsupported_content; // ICC, CICP, APNG require distinct semantics.
         if(kind==0x67414d41u&&(count!=4||be32(bytes,at+8)!=45455))return DecodeError::unsupported_content;
@@ -128,7 +128,7 @@ DecodeResult DecodeRaster(Format format,Bytes bytes,const DecodeOptions& options
     if(options.frameIndex||options.directionIndex||options.mipIndex)return Failure(DecodeError::selection_out_of_range);
     if(bytes.size()>static_cast<std::size_t>(std::numeric_limits<int>::max()))return Failure(DecodeError::input_too_large);
     unsigned orientation=1;DecodeError profile=DecodeError::none;
-    if(format==Format::png)profile=png_profile(bytes);
+    if(format==Format::png)profile=png_profile(bytes,options.allowPng16BitRenderingDerivative);
     else if(format==Format::gif)profile=gif_profile(bytes);
     else if(format==Format::jpeg)profile=jpeg_profile(bytes,orientation);
     else if(format!=Format::bmp || bytes.size()<54||U8(bytes,0)!='B'||U8(bytes,1)!='M')profile=DecodeError::wrong_magic;
@@ -151,6 +151,16 @@ DecodeResult DecodeRaster(Format format,Bytes bytes,const DecodeOptions& options
         if(row*static_cast<unsigned>(height)>size-offset)return Failure(DecodeError::truncated);
     }
     const auto expected_width=width,expected_height=height;
+    if(format==Format::png&&U8(bytes,24)==16){
+        if(std::uint64_t(width)*height*8>maximum_allocation)return Failure(DecodeError::resource_limit);
+        std::unique_ptr<stbi_us,decltype(&stbi_image_free)> pixels(stbi_load_16_from_memory(data,static_cast<int>(bytes.size()),&width,&height,&components,4),stbi_image_free);
+        if(!pixels)return Failure(DecodeError::invalid_layout);
+        if(width!=expected_width||height!=expected_height)return Failure(DecodeError::invalid_dimensions);
+        DecodeResult result;result.image.width=width;result.image.height=height;result.image.sourceBitsPerChannel=16;
+        result.image.rgba8.resize(std::size_t(width)*height*4);
+        for(std::size_t i=0;i<result.image.rgba8.size();++i)result.image.rgba8[i]=static_cast<std::uint8_t>((std::uint32_t(pixels.get()[i])+128)/257);
+        return result;
+    }
     std::unique_ptr<unsigned char,decltype(&stbi_image_free)> pixels(stbi_load_from_memory(data,static_cast<int>(bytes.size()),&width,&height,&components,4),stbi_image_free);
     if(!pixels)return Failure(DecodeError::invalid_layout);
     if(width!=expected_width||height!=expected_height)return Failure(DecodeError::invalid_dimensions);

@@ -310,7 +310,11 @@ bool accepts(std::string_view text, std::string_view type) {
 }
 } // namespace
 HttpAdmission admitHttp(const HttpRequest &request,std::string_view endpointPath) {
-  if(endpointPath!="/"&&endpointPath!="/mcp"&&endpointPath!=familyEndpointPath)return {503,"endpoint_configuration_invalid"};
+  // Endpoint selection belongs to the composing product, not this protocol
+  // capsule. Admit one exact normalized path, including capsule-scoped routes.
+  if(endpointPath.empty()||endpointPath.front()!='/'||endpointPath.size()>2048||
+     endpointPath.find("//")!=endpointPath.npos||endpointPath.find("..")!=endpointPath.npos||
+     !std::all_of(endpointPath.begin(),endpointPath.end(),[](unsigned char c){return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='/'||c=='-'||c=='_';}))return {503,"endpoint_configuration_invalid"};
   if (request.hasOrigin && request.originHeader != request.origin)
     return {403, "origin_denied"};
   if (request.path != endpointPath)
