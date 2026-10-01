@@ -13,15 +13,11 @@ struct DecodeOptions {
     // formats remain bounded at 8M pixels.
     std::uint64_t maximumPixels=8ull*1024*1024;
     std::uint32_t maximumDimension=8192;
-    // Explicit presentation conversion only. The importer must preserve the
-    // encoded original; default callers never silently lose 16-bit precision.
-    bool allowPng16BitRenderingDerivative=false;
 };
 struct Image {
     std::uint32_t width=0, height=0, frameCount=1, directionCount=1, mipCount=1;
     std::int32_t offsetX=0, offsetY=0;
     std::vector<std::uint8_t> rgba8;
-    std::uint8_t sourceBitsPerChannel=8;
     // BLP1's independently framed JPEG is a platform codec payload, never a
     // replacement document model. Consumers must handle this disposition explicitly.
     std::vector<std::byte> embeddedJpeg;

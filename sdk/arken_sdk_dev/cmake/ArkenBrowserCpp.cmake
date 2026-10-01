@@ -34,6 +34,24 @@ function(arken_browser_cpp_reactor target)
         -Wl,--export=free "-Wl,--max-memory=${ARG_MAX_MEMORY_BYTES}" -Wl,-z,stack-size=1048576)
 endfunction()
 
+# Native-compiled browser test entry shared by concrete capsule conformance
+# consumers. Domain fixtures and acceptance stay in the consuming capsule.
+function(arken_browser_cpp_conformance target)
+    cmake_parse_arguments(ARG "" "MAX_MEMORY_BYTES" "" ${ARGN})
+    if(ARG_UNPARSED_ARGUMENTS OR ARG_KEYWORDS_MISSING_VALUES)
+        message(FATAL_ERROR "${target}: unknown or incomplete conformance arguments")
+    endif()
+    target_sources(${target} PRIVATE
+        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src/platform/wasm/tests/conformance_entry.cpp")
+    target_compile_definitions(${target} PRIVATE main=arken_browser_cpp_conformance_main)
+    target_compile_options(${target} PRIVATE -fexceptions)
+    set(profile)
+    if(DEFINED ARG_MAX_MEMORY_BYTES)
+        list(APPEND profile MAX_MEMORY_BYTES "${ARG_MAX_MEMORY_BYTES}")
+    endif()
+    arken_browser_cpp_reactor(${target} ${profile})
+endfunction()
+
 # Consumers exercise the SDK-owned denial contract without compiling private
 # platform sources through a product-specific path.
 function(arken_browser_cpp_closed_profile_probe target)
