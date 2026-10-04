@@ -30,6 +30,9 @@ if(BUILD_TESTING OR ARKEN_DIGEST_V1_BUILD_TESTS OR OASIS_NATIVE_BUILD_HOST_TESTS
         target_compile_options(arken-digest-v1-tests PRIVATE -UNDEBUG)
     endif()
     add_test(NAME ArkenDigestV1.Core COMMAND arken-digest-v1-tests)
+    add_test(NAME ArkenDigestV1.Version COMMAND arken-digest-v1-tests --version --invalid)
+    set_tests_properties(ArkenDigestV1.Version PROPERTIES
+        TIMEOUT 5 PASS_REGULAR_EXPRESSION "arken-digest-v1-tests-r5249")
     find_program(ARKEN_DIGEST_V1_NODE_EXECUTABLE NAMES node)
     if(ARKEN_DIGEST_V1_NODE_EXECUTABLE)
         add_test(
