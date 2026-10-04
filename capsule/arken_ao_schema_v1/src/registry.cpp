@@ -47,7 +47,7 @@ constexpr std::array<AoFormatDescriptor, 19u> format_descriptors{{
      {'A', 'O', 'U', 'I'}},
 }};
 
-constexpr std::array<AoChunkTypeDescriptor, 64u> chunk_type_descriptors{{
+constexpr std::array<AoChunkTypeDescriptor, 65u> chunk_type_descriptors{{
     {authoring_checkpoint_chunk_type_id, "arken.ao.chunk.aoed.cpkt", "CPKT",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aoed_format_id, {'C','P','K','T'}},
     {scene_project_chunk_type_id, "arken.ao.chunk.aosd.scpr", "SCPR",
@@ -155,6 +155,9 @@ constexpr std::array<AoChunkTypeDescriptor, 64u> chunk_type_descriptors{{
     {aoef_eout_chunk_type_id, "arken.ao.chunk.aoef.eout", "EOUT",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aoef_format_id,
      {'E', 'O', 'U', 'T'}},
+    {aoef_elit_chunk_type_id, "arken.ao.chunk.aoef.elit", "ELIT",
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aoef_format_id,
+     {'E', 'L', 'I', 'T'}},
     {aopb_caps_v2_chunk_type_id, "arken.ao.chunk.aopb.caps", "CAPS",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aopb_format_id,
      {'C', 'A', 'P', 'S'}},
