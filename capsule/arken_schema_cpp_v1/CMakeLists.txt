@@ -91,9 +91,10 @@ endif()
 if(BUILD_TESTING AND TARGET arken-schema-cpp-v1-codegen)
     add_test(NAME ArkenSchemaCppV1.CodegenVersion COMMAND arken-schema-cpp-v1-codegen --version --invalid)
     set_tests_properties(ArkenSchemaCppV1.CodegenVersion PROPERTIES TIMEOUT 5
-        PASS_REGULAR_EXPRESSION "^arken-schema-cpp-v1-codegen r4428")
+        PASS_REGULAR_EXPRESSION "^arken-schema-cpp-v1-codegen r4773")
     add_test(NAME ArkenSchemaCppV1.LargeCommandCatalog COMMAND "${CMAKE_COMMAND}"
         "-DTOOL=$<TARGET_FILE:arken-schema-cpp-v1-codegen>" "-DCXX=${CMAKE_CXX_COMPILER}"
+        "-DRUNTIME=$<TARGET_FILE:arken_schema_cpp_v1_runtime>" "-DCORE=$<TARGET_FILE:arken_schema_core_v1>"
         "-DROOT=${CMAKE_CURRENT_SOURCE_DIR}/../.." "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/large-catalog-proof"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/large_command_catalog.cmake")
 endif()
