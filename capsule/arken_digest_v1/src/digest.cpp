@@ -4,7 +4,6 @@
 #include <bit>
 #include <cstring>
 #include <limits>
-#include <utility>
 
 namespace arken::digest::v1
 {
@@ -31,48 +30,6 @@ constexpr std::array<std::uint32_t, 64u> round_constants{{
         | (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[2])) << 8u)
         | static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[3]));
 }
-
-template<std::size_t Round>
-void compress_round(std::array<std::uint32_t, 16u>& words,
-                    std::array<std::uint32_t, 8u>& working) noexcept
-{
-    constexpr auto slot = Round & 15u;
-    if constexpr(Round >= 16u)
-    {
-        auto const first_word = words[(Round + 1u) & 15u];
-        auto const second_word = words[(Round + 14u) & 15u];
-        auto const first = std::rotr(first_word, 7) ^ std::rotr(first_word, 18)
-            ^ (first_word >> 3u);
-        auto const second = std::rotr(second_word, 17) ^ std::rotr(second_word, 19)
-            ^ (second_word >> 10u);
-        words[slot] += first + words[(Round + 9u) & 15u] + second;
-    }
-    // Rotate logical a..h through constant physical slots. The two writes become
-    // next-round e and a; after 64 rounds the physical order is a..h again.
-    auto const a = working[(64u - Round) & 7u];
-    auto const b = working[(65u - Round) & 7u];
-    auto const c = working[(66u - Round) & 7u];
-    auto& d = working[(67u - Round) & 7u];
-    auto const e = working[(68u - Round) & 7u];
-    auto const f = working[(69u - Round) & 7u];
-    auto const g = working[(70u - Round) & 7u];
-    auto& h = working[(71u - Round) & 7u];
-    auto const sum_one = std::rotr(e, 6) ^ std::rotr(e, 11) ^ std::rotr(e, 25);
-    auto const choose = (e & f) ^ (~e & g);
-    auto const temporary_one = h + sum_one + choose + round_constants[Round] + words[slot];
-    auto const sum_zero = std::rotr(a, 2) ^ std::rotr(a, 13) ^ std::rotr(a, 22);
-    auto const majority = (a & b) ^ (a & c) ^ (b & c);
-    d += temporary_one;
-    h = temporary_one + sum_zero + majority;
-}
-
-template<std::size_t... Rounds>
-void compress_rounds(std::array<std::uint32_t, 16u>& words,
-                     std::array<std::uint32_t, 8u>& working,
-                     std::index_sequence<Rounds...>) noexcept
-{
-    (compress_round<Rounds>(words, working), ...);
-}
 }
 
 Sha256Hasher::Sha256Hasher() noexcept
@@ -87,10 +44,50 @@ void Sha256Hasher::compress(std::byte const* block) noexcept
     for(std::size_t index = 0u; index < words.size(); ++index)
         words[index] = load_be32(block + index * 4u);
 
-    auto working = state_;
-    compress_rounds(words, working, std::make_index_sequence<64u>{});
-    for(std::size_t index = 0u; index < state_.size(); ++index)
-        state_[index] += working[index];
+    auto a = state_[0u];
+    auto b = state_[1u];
+    auto c = state_[2u];
+    auto d = state_[3u];
+    auto e = state_[4u];
+    auto f = state_[5u];
+    auto g = state_[6u];
+    auto h = state_[7u];
+    for(std::size_t index = 0u; index < round_constants.size(); ++index)
+    {
+        auto const slot = index & 15u;
+        if(index >= words.size())
+        {
+            auto const first_word = words[(index + 1u) & 15u];
+            auto const second_word = words[(index + 14u) & 15u];
+            auto const first = std::rotr(first_word, 7) ^ std::rotr(first_word, 18)
+                ^ (first_word >> 3u);
+            auto const second = std::rotr(second_word, 17) ^ std::rotr(second_word, 19)
+                ^ (second_word >> 10u);
+            words[slot] += first + words[(index + 9u) & 15u] + second;
+        }
+        auto const sum_one = std::rotr(e, 6) ^ std::rotr(e, 11) ^ std::rotr(e, 25);
+        auto const choose = (e & f) ^ (~e & g);
+        auto const temporary_one = h + sum_one + choose + round_constants[index] + words[slot];
+        auto const sum_zero = std::rotr(a, 2) ^ std::rotr(a, 13) ^ std::rotr(a, 22);
+        auto const majority = (a & b) ^ (a & c) ^ (b & c);
+        auto const temporary_two = sum_zero + majority;
+        h = g;
+        g = f;
+        f = e;
+        e = d + temporary_one;
+        d = c;
+        c = b;
+        b = a;
+        a = temporary_one + temporary_two;
+    }
+    state_[0u] += a;
+    state_[1u] += b;
+    state_[2u] += c;
+    state_[3u] += d;
+    state_[4u] += e;
+    state_[5u] += f;
+    state_[6u] += g;
+    state_[7u] += h;
 }
 
 bool Sha256Hasher::update(std::span<std::byte const> bytes) noexcept
