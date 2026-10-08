@@ -9,7 +9,6 @@ include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageSource.cmake"
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackagePatch.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageAdapters.cmake")
 include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageRuntime.cmake")
-include("${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageNotices.cmake")
 
 function(_arken_extpkg_default_cache_root out_var)
     if(DEFINED ARKEN_EXTERNAL_PACKAGE_CACHE_ROOT
@@ -899,7 +898,6 @@ function(_arken_extpkg_resolve_recipe
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_CACHE_ROOT_${_recipe_ident}" "${_effective_cache_root}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_INSTANCE_${_recipe_ident}" "${_instance_id}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_SOURCE_IDENTITY_${_recipe_ident}" "${_materialized_source_identity}")
-    set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_SOURCE_ROOT_${_recipe_ident}" "${_materialized_source_root}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_SOURCE_RECEIPT_${_recipe_ident}" "${_source_receipt}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_PATCH_RECEIPT_${_recipe_ident}" "${_patch_receipt}")
     set_property(GLOBAL PROPERTY "ARKEN_EXTPKG_RECIPE_RECEIPT_ROOT_${_recipe_ident}" "${_receipt_root}")
