@@ -98,9 +98,12 @@ Server::Server(ServerDescription description)
              "catalog command budget");
   std::set<std::string> names, publicNames;
   std::set<std::uint32_t> ids, presentations;
-  for (const auto &presentation : description_.presentations)
+  for (const auto &presentation : description_.presentations) {
     J::require(presentations.insert(presentation.commandId).second,
                "duplicate tool presentation");
+    J::require(presentation.requestMaximumBytes<=description_.requestMaximumBytes,
+               "tool budget exceeds trusted server envelope");
+  }
   for (const auto &command : commands_) {
     const auto name = command.at("name").get<std::string>();
     const auto id = J::readScalar<std::uint32_t>(command.at("commandId"));
@@ -136,6 +139,8 @@ Server::Server(ServerDescription description)
                         {"destructiveHint", presentation->destructive},
                         {"idempotentHint", idempotency != "none"},
                         {"openWorldHint", presentation->openWorld}}}});
+    if(presentation->requestMaximumBytes)
+      tools_.back()["_meta"]={{"arken/requestMaximumBytes",presentation->requestMaximumBytes}};
   }
   J::require(ids == presentations, "foreign tool presentation");
 }
@@ -231,6 +236,9 @@ RequestPlan Server::plan(std::string_view text) const {
     const auto commandId = resolve(name);
     if (!commandId)
       return fail(-32602, "Unknown tool");
+    const auto presentation=std::ranges::find(description_.presentations,commandId,&ToolPresentation::commandId);
+    const auto limit=presentation->requestMaximumBytes?presentation->requestMaximumBytes:description_.requestMaximumBytes;
+    if(text.size()>limit)return fail(-32602,"Tool request byte limit exceeded");
     RequestPlan plan;
     plan.id = id;
     plan.commandName = canonicalCommandName(commandId);
