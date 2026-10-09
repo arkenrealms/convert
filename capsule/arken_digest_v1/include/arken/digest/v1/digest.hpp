@@ -70,6 +70,9 @@ class Sha256Hasher final
 
 [[nodiscard]] std::optional<Sha256Digest> sha256(
     std::span<std::byte const> bytes) noexcept;
+// RFC 2104 construction over the same native SHA-256 authority.
+[[nodiscard]] std::optional<Sha256Digest> hmac_sha256(
+    std::span<std::byte const> key, std::span<std::byte const> message) noexcept;
 [[nodiscard]] std::optional<Sha256ContentAddress> sha256_address(
     std::span<std::byte const> bytes) noexcept;
 [[nodiscard]] bool constant_time_equal(
