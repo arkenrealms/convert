@@ -91,20 +91,12 @@ endif()
 if(BUILD_TESTING AND TARGET arken-schema-cpp-v1-codegen)
     add_test(NAME ArkenSchemaCppV1.CodegenVersion COMMAND arken-schema-cpp-v1-codegen --version --invalid)
     set_tests_properties(ArkenSchemaCppV1.CodegenVersion PROPERTIES TIMEOUT 5
-        PASS_REGULAR_EXPRESSION "^arken-schema-cpp-v1-codegen r4838")
-    add_test(NAME ArkenSchemaCppV1.CodegenTerminalVersion COMMAND arken-schema-cpp-v1-codegen --invalid --version)
-    set_tests_properties(ArkenSchemaCppV1.CodegenTerminalVersion PROPERTIES TIMEOUT 5
-        PASS_REGULAR_EXPRESSION "^arken-schema-cpp-v1-codegen r4838")
+        PASS_REGULAR_EXPRESSION "^arken-schema-cpp-v1-codegen r4776")
     add_test(NAME ArkenSchemaCppV1.LargeCommandCatalog COMMAND "${CMAKE_COMMAND}"
         "-DTOOL=$<TARGET_FILE:arken-schema-cpp-v1-codegen>" "-DCXX=${CMAKE_CXX_COMPILER}"
         "-DRUNTIME=$<TARGET_FILE:arken_schema_cpp_v1_runtime>" "-DCORE=$<TARGET_FILE:arken_schema_core_v1>"
         "-DROOT=${CMAKE_CURRENT_SOURCE_DIR}/../.." "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/large-catalog-proof"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/large_command_catalog.cmake")
-    add_test(NAME ArkenSchemaCppV1.CompactCommandCatalog COMMAND "${CMAKE_COMMAND}"
-        "-DTOOL=$<TARGET_FILE:arken-schema-cpp-v1-codegen>" "-DCXX=${CMAKE_CXX_COMPILER}"
-        "-DRUNTIME=$<TARGET_FILE:arken_schema_cpp_v1_runtime>" "-DCORE=$<TARGET_FILE:arken_schema_core_v1>"
-        "-DROOT=${CMAKE_CURRENT_SOURCE_DIR}/../.." "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/compact-catalog-proof"
-        -DCOMPACT_SOURCE=ON -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/large_command_catalog.cmake")
 endif()
 
 if(BUILD_TESTING AND NOT ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)

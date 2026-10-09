@@ -103,35 +103,6 @@ template <std::size_t N, std::uint32_t Id> struct Codec<fixed_id<N, Id>> {
     return out;
   }
 };
-template <std::uint32_t Id> struct Codec<strong_value<std::vector<std::byte>, Id>> {
-  using Value = strong_value<std::vector<std::byte>, Id>;
-  static Value read(const Json &value) {
-    require(value.is_string(), "bytes require lowercase hex text");
-    const auto &text = value.get_ref<const std::string &>();
-    require(text.size() % 2 == 0, "bytes require paired hex digits");
-    auto hex = [](char c) -> unsigned {
-      if (c >= '0' && c <= '9') return c - '0';
-      if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-      throw std::invalid_argument("bytes must be lowercase hex");
-    };
-    Value result;
-    result.value.reserve(text.size() / 2);
-    for (std::size_t i = 0; i < text.size(); i += 2)
-      result.value.push_back(static_cast<std::byte>(hex(text[i]) * 16 + hex(text[i + 1])));
-    return result;
-  }
-  static Json write(const Value &value) {
-    require(value.value.size() <= std::numeric_limits<std::size_t>::max() / 2,
-            "encoded byte length overflow");
-    constexpr char digits[] = "0123456789abcdef";
-    std::string out(value.value.size() * 2, '0');
-    for (std::size_t i = 0; i < value.value.size(); ++i) {
-      const auto byte = std::to_integer<unsigned>(value.value[i]);
-      out[2 * i] = digits[byte / 16]; out[2 * i + 1] = digits[byte % 16];
-    }
-    return out;
-  }
-};
 template <class T> Json write(const T &value) { return Codec<T>::write(value); }
 template <class T> T read(const Json &value) { return Codec<T>::read(value); }
 } // namespace arken::schema::cpp::v1::tool_json
