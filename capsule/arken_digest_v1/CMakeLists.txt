@@ -4,6 +4,7 @@ endif()
 
 add_library(arken_digest_v1 STATIC
     src/digest.cpp
+    src/hmac.cpp
 )
 add_library(arken::digest_v1 ALIAS arken_digest_v1)
 target_compile_features(arken_digest_v1 PUBLIC cxx_std_20)
