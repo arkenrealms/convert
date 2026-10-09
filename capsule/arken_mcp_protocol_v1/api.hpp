@@ -25,6 +25,8 @@ struct ToolPresentation {
   bool destructive = false;
   bool openWorld = false;
   std::string description;
+  // Trusted optional full-envelope restriction; zero inherits the server.
+  std::size_t requestMaximumBytes = 0;
 };
 struct ServerDescription {
   std::string name, version, instructions;
