@@ -38,7 +38,7 @@ std::uint32_t crc32(Bytes bytes){
     for(auto byte:bytes){value^=std::to_integer<std::uint8_t>(byte);for(unsigned bit=0;bit<8;++bit)value=(value>>1)^(0xedb88320u&(0u-(value&1u)));}
     return ~value;
 }
-DecodeError png_profile(Bytes bytes,bool allow16){
+DecodeError png_profile(Bytes bytes,bool allow16,bool scalarData=false){
     constexpr unsigned char signature[]={137,80,78,71,13,10,26,10};
     if(bytes.size()<8||std::memcmp(bytes.data(),signature,8))return DecodeError::wrong_magic;
     bool header=false,data=false;
@@ -50,13 +50,15 @@ DecodeError png_profile(Bytes bytes,bool allow16){
         if(!header){if(kind!=0x49484452u||count!=13)return DecodeError::invalid_layout;header=true;
             if(U8(bytes,at+16)==16&&!allow16)return DecodeError::unsupported_content;
         }else if(kind==0x49484452u)return DecodeError::invalid_layout;
-        if(kind==0x69434350u||kind==0x63494350u||kind==0x6163544cu)return DecodeError::unsupported_content; // ICC, CICP, APNG require distinct semantics.
-        if(kind==0x67414d41u&&(count!=4||be32(bytes,at+8)!=45455))return DecodeError::unsupported_content;
+        if(kind==0x6163544cu||(!scalarData&&(kind==0x69434350u||kind==0x63494350u)))return DecodeError::unsupported_content;
+        // Scalar import explicitly consumes stored data values, not displayed
+        // colour. ICC/gamma/chromaticity metadata must not remap heights.
+        if(kind==0x67414d41u&&(count!=4||(!scalarData&&be32(bytes,at+8)!=45455)))return DecodeError::unsupported_content;
         if(kind==0x73524742u&&(count!=1||U8(bytes,at+8)>3))return DecodeError::invalid_layout;
         if(kind==0x6348524du){
             constexpr std::uint32_t srgb[]={31270,32900,64000,33000,30000,60000,15000,6000};
             if(count!=32)return DecodeError::invalid_layout;
-            for(unsigned i=0;i<8;++i)if(be32(bytes,at+8+i*4)!=srgb[i])return DecodeError::unsupported_content;
+            if(!scalarData)for(unsigned i=0;i<8;++i)if(be32(bytes,at+8+i*4)!=srgb[i])return DecodeError::unsupported_content;
         }
         if(kind==0x49444154u)data=true;
         if(kind==0x49454e44u)return count==0&&data&&at+12==bytes.size()?DecodeError::none:DecodeError::invalid_layout;
@@ -123,6 +125,32 @@ void orient(Image& image,unsigned orientation){
     }
     image.rgba8=std::move(output);image.width=out_w;image.height=out_h;
 }
+}
+bool InflateScalarStrip(Bytes bytes,std::span<std::byte> output){
+    if(bytes.size()<6||bytes.size()>std::size_t(std::numeric_limits<int>::max())
+       ||output.size()>std::size_t(std::numeric_limits<int>::max()))return false;
+    const auto decoded=stbi_zlib_decode_buffer(reinterpret_cast<char*>(output.data()),int(output.size()),
+        reinterpret_cast<const char*>(bytes.data()),int(bytes.size()));
+    if(decoded!=int(output.size()))return false;
+    // stb's PNG inflater does not check the zlib Adler trailer. Scalar source
+    // admission does: damaged terrain must not become a plausible height field.
+    std::uint32_t a=1,b=0;
+    for(auto value:output){a=(a+std::to_integer<std::uint8_t>(value))%65521;b=(b+a)%65521;}
+    return ((b<<16)|a)==be32(bytes,bytes.size()-4);
+}
+ScalarDecodeResult DecodeScalarPng16(Bytes bytes,const DecodeOptions& options){
+    const auto fail=[](DecodeError e){ScalarDecodeResult r;r.issue={e,0};return r;};
+    const auto profile=png_profile(bytes,true,true);if(profile!=DecodeError::none)return fail(profile);
+    if(bytes.size()<33||U8(bytes,24)!=16||U8(bytes,25)!=0)return fail(DecodeError::unsupported_content);
+    const auto w=be32(bytes,16),h=be32(bytes,20);
+    if(!Dimensions(w,h,options))return fail(DecodeError::invalid_dimensions);
+    int width=0,height=0,components=0;
+    std::unique_ptr<stbi_us,decltype(&stbi_image_free)> pixels(stbi_load_16_from_memory(
+        reinterpret_cast<const unsigned char*>(bytes.data()),int(bytes.size()),&width,&height,&components,1),stbi_image_free);
+    if(!pixels)return fail(DecodeError::invalid_layout);
+    if(width!=int(w)||height!=int(h)||components!=1)return fail(DecodeError::invalid_dimensions);
+    ScalarDecodeResult result;result.width=w;result.height=h;
+    result.samples.assign(pixels.get(),pixels.get()+std::size_t(w)*h);return result;
 }
 DecodeResult DecodeRaster(Format format,Bytes bytes,const DecodeOptions& options){
     if(options.frameIndex||options.directionIndex||options.mipIndex)return Failure(DecodeError::selection_out_of_range);
