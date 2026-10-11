@@ -86,7 +86,7 @@ Server::Server(ServerDescription description)
              "MCP server catalog budget invalid");
   J::require(description_.catalog.size() <= description_.catalogMaximumBytes,
              "catalog byte budget");
-  auto catalog = Json::parse(description_.catalog);
+  const auto catalog = Json::parse(description_.catalog);
   J::require(catalog.at("schema") == "arken.schema.command-catalog.v1" &&
                  catalog.at("jsonProfile") == "arken.schema.tool-json.v1",
              "generated catalog required");
@@ -95,10 +95,9 @@ Server::Server(ServerDescription description)
                       .get_ref<const std::string &>()
                       .empty(),
              "catalog fingerprint required");
-  auto &catalogCommands = catalog.at("commands");
-  commands_ = Json::array();
+  commands_ = catalog.at("commands");
   tools_ = Json::array();
-  J::require(catalogCommands.is_array() && catalogCommands.size() <= 4096,
+  J::require(commands_.is_array() && commands_.size() <= 4096,
              "catalog command budget");
   std::set<std::string> names, publicNames;
   std::set<std::uint32_t> ids, presentations;
@@ -108,7 +107,7 @@ Server::Server(ServerDescription description)
     J::require(presentation.requestMaximumBytes<=description_.requestMaximumBytes,
                "tool budget exceeds trusted server envelope");
   }
-  for (auto &command : catalogCommands) {
+  for (const auto &command : commands_) {
     const auto name = command.at("name").get<std::string>();
     const auto id = J::readScalar<std::uint32_t>(command.at("commandId"));
     J::require(!name.empty() && id != 0 && names.insert(name).second &&
@@ -132,21 +131,17 @@ Server::Server(ServerDescription description)
                "read-only presentation requires safe command");
     const auto publicName=description_.toolNameStyle==ToolNameStyle::familyLocal?shortToolName(name):name;
     J::require(publicNames.insert(publicName).second,"duplicate public tool name");
-    Json tool{{"name", publicName},
+    tools_.push_back({{"name", publicName},
                       {"description", presentation->description.empty()
-                                          ? std::move(command.at("description"))
+                                          ? command.at("description")
                                           : Json(presentation->description)},
+                      {"inputSchema", command.at("inputSchema")},
+                      {"outputSchema", command.at("outputSchema")},
                       {"annotations",
                        {{"readOnlyHint", presentation->readOnly},
                         {"destructiveHint", presentation->destructive},
                         {"idempotentHint", idempotency != "none"},
-                        {"openWorldHint", presentation->openWorld}}}};
-    tool["inputSchema"] = std::move(command.at("inputSchema"));
-    tool["outputSchema"] = std::move(command.at("outputSchema"));
-    tools_.push_back(std::move(tool));
-    // Dispatch only needs identity. Retaining the original schemas here would
-    // duplicate the immutable tools projection and amplify Wasm startup heap.
-    commands_.push_back({{"commandId",id},{"name",name}});
+                        {"openWorldHint", presentation->openWorld}}}});
     if(presentation->requestMaximumBytes)
       tools_.back()["_meta"]={{"arken/requestMaximumBytes",presentation->requestMaximumBytes}};
   }
