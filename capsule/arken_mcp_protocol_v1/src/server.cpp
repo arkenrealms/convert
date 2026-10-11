@@ -81,7 +81,10 @@ Server::Server(ServerDescription description)
   J::require(description_.requestMaximumBytes > 0 &&
                  description_.requestMaximumBytes <= maximumConfiguredRequestBytes,
              "MCP server request budget invalid");
-  J::require(description_.catalog.size() <= 2u * 1024u * 1024u,
+  J::require(description_.catalogMaximumBytes > 0 &&
+                 description_.catalogMaximumBytes <= maximumConfiguredCatalogBytes,
+             "MCP server catalog budget invalid");
+  J::require(description_.catalog.size() <= description_.catalogMaximumBytes,
              "catalog byte budget");
   const auto catalog = Json::parse(description_.catalog);
   J::require(catalog.at("schema") == "arken.schema.command-catalog.v1" &&

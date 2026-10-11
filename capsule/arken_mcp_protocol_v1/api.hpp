@@ -11,6 +11,8 @@ using Json = ::arken::schema::cpp::v1::tool_json::Json;
 inline constexpr std::string_view protocolVersion = "2025-11-25";
 inline constexpr std::size_t maximumRequestBytes = 16384;
 inline constexpr std::size_t maximumConfiguredRequestBytes = 2u * 1024u * 1024u;
+inline constexpr std::size_t defaultCatalogMaximumBytes = 2u * 1024u * 1024u;
+inline constexpr std::size_t maximumConfiguredCatalogBytes = 4u * 1024u * 1024u;
 inline constexpr std::string_view familyEndpointPath = "/v1";
 enum class ToolNameStyle { qualified, familyLocal };
 // Presentation only. Canonical generated command identity remains unchanged.
@@ -36,6 +38,8 @@ struct ServerDescription {
   // keep their 16 KiB envelope unless explicitly qualified for a larger one.
   std::size_t requestMaximumBytes = maximumRequestBytes;
   ToolNameStyle toolNameStyle{ToolNameStyle::qualified};
+  // Trusted static schema admission, independent of caller request budgets.
+  std::size_t catalogMaximumBytes = defaultCatalogMaximumBytes;
 };
 struct RequestPlan {
   bool isCommand = false;
