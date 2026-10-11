@@ -61,11 +61,6 @@ public:
   // Owner composition/invocation, never a fallback for public wire admission.
   [[nodiscard]] std::uint32_t resolveCanonical(std::string_view) const noexcept;
   [[nodiscard]] std::string_view canonicalCommandName(std::uint32_t) const noexcept;
-  // Private, closed completion metadata. No execution, arguments, caller IDs,
-  // credentials or arbitrary names. serviceId is supplied by the native owner.
-  // Non-object envelopes or invalid owner/status inputs produce null.
-  [[nodiscard]] Json callSummary(const Json& request, std::string_view serviceId,
-                                 int httpStatus) const;
 
 private:
   ServerDescription description_;
