@@ -1,4 +1,5 @@
 #include "arken_image_codecs_v1/test_support/raster_fixtures.hpp"
+#include "arken_image_codecs_v1/test_support/scalar_fixtures.hpp"
 #include <iostream>
 #include <string>
 namespace image=arken::image::v1;
@@ -6,6 +7,19 @@ void require(bool value,const char* message){if(!value)throw std::runtime_error(
 int main(int argc,char** argv){
     if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-raster-codec-tests-r4566\n";return 0;}
     try{
+        const auto scalarPng=image::DecodeScalar16(image::ScalarFormat::png16,raster_fixture::Png16(true));
+    require(scalarPng&&scalarPng.samples==std::vector<std::uint16_t>{0,32896,65535,257},"Scalar PNG lost low bits");
+    const auto dataChromaticities=image::DecodeScalar16(image::ScalarFormat::png16,raster_fixture::WithChromaticities(raster_fixture::Png16(true),false));
+    require(dataChromaticities&&dataChromaticities.samples==scalarPng.samples,"Scalar values remapped by colour metadata");
+        require(!image::DecodeScalar16(image::ScalarFormat::png16,raster_fixture::Png16()),"Scalar import admitted RGBA");
+        for(bool little:{false,true})for(bool predicted:{false,true}){
+            auto bytes=scalar_fixture::Tiff16(little,predicted);
+            const auto decoded=image::DecodeScalar16(image::ScalarFormat::tiff16,bytes);
+            require(decoded&&decoded.width==3&&decoded.height==2&&decoded.samples==std::vector<std::uint16_t>{1,257,65535,32768,10,65534},"TIFF scalar endian/predictor mismatch");
+            image::DecodeOptions limit;limit.maximumPixels=5;
+            require(!image::DecodeScalar16(image::ScalarFormat::tiff16,bytes,limit),"Scalar import ignored pixel bound");
+            bytes.pop_back();require(!image::DecodeScalar16(image::ScalarFormat::tiff16,bytes),"Scalar TIFF truncation accepted");
+        }
         const auto highPrecision=raster_fixture::Png16();
         require(image::DecodeImage(image::Format::png,highPrecision).issue.code==image::DecodeError::unsupported_content,"PNG16 silently lost precision");
         image::DecodeOptions derivative;derivative.allowPng16BitRenderingDerivative=true;
