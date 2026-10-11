@@ -1,4 +1,4 @@
-import worker from './worker.js';
+import worker,{createWorker} from './worker.js';
 import {Bucket} from './r2_bucket_fixture.js';
 import {readBoundedBody} from './bounded_body.js';
 export {payments} from './payment_worker_tests.js';
@@ -15,6 +15,22 @@ const call=(name,args,id=1)=>rpc('tools/call',{name,arguments:args},id);
 const tga=new Uint8Array([0,0,2,0,0,0,0,0,0,0,0,0,1,0,1,0,32,40,30,20,10,255]);
 export const protocol={async test(){
   const e=env();
+  // Observe through the factory's owned emitter seam, never by patching
+  // console, runtime, payment or storage authorities. This protects privacy
+  // and response neutrality; domain classification is tested natively.
+  const summaries=[],observed=createWorker(null,{emitCallSummary:value=>summaries.push(value)});
+  const failing=createWorker(null,{emitCallSummary:()=>{throw Error('private test diagnostic');}});
+  const privateCall=call('convert_image',{unexpected:'PRIVATE_INPUT'});
+  privateCall.id='PRIVATE_INPUT';privateCall.params._meta={private:'PRIVATE_INPUT'};
+  const baseline=await worker.fetch(request(privateCall),e),logged=await observed.fetch(request(privateCall),e),unlogged=await failing.fetch(request(privateCall),e);
+  const body=await baseline.text();
+  check(await logged.text()===body&&await unlogged.text()===body&&logged.status===baseline.status&&unlogged.status===baseline.status,'logging changed public response');
+  check(JSON.stringify([...logged.headers])===JSON.stringify([...baseline.headers])&&e.FILES.values.size===0,'logging changed headers or storage');
+  check(summaries.length===1&&Object.keys(summaries[0]).length===5&&summaries[0].tool==='conversion.v1.convert_image'&&summaries[0].httpStatus===baseline.status&&!JSON.stringify(summaries).includes('PRIVATE_INPUT'),'private native summary projection');
+  await observed.fetch(request(call('PRIVATE_INPUT',{})),e);
+  check(summaries.length===2&&summaries[1].tool==='unknown','unknown name was logged');
+  await observed.fetch(request('{'),e);
+  check(summaries.length===2,'malformed body generated a summary');
   const init=await (await worker.fetch(request(rpc('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'test',version:'1'}})),e)).json();
   check(init.result.serverInfo.name==='Arken Convert','initialize');
   const listed=await (await worker.fetch(request(rpc('tools/list')),e)).json();

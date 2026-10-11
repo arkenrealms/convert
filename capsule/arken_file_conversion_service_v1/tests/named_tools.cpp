@@ -16,6 +16,30 @@ void NamedToolsTest() {
       {"params",{{"name",name},{"arguments",args},{"_meta",metadata}}}}.dump();
   };
   const Json target={{"file_id",std::string(64,'1')},{"file_token",std::string(64,'2')}};
+  // Private telemetry is a disclosure boundary: hostile values must never
+  // become log labels, and classification must not alter public admission.
+  const std::string privateMarker="PRIVATE_SOURCE_TOKEN_PAYMENT";
+  const Json privateArgs={{"source",privateMarker}};
+  const auto known=call("convert_image",privateArgs,{{"x402/payment",privateMarker}});
+  const auto before=Service::PlanRequest(known,Service::ServerMode::production);
+  const Json expected={{"schema","arken.mcp.call.v1"},{"service","convert"},
+    {"method","tools/call"},{"tool","conversion.v1.convert_image"},{"httpStatus",400}};
+  Require(Json::parse(Service::CallSummary(known,400))==expected,"call_summary_closed_projection");
+  Require(Service::PlanRequest(known,Service::ServerMode::production)==before,"call_summary_changed_admission");
+  for(const auto& name:{privateMarker,std::string("conversion.v1.convert_image"),std::string(8000,'x')}) {
+    const auto summary=Json::parse(Service::CallSummary(call(name.c_str(),privateArgs),200));
+    Require(summary.at("tool")=="unknown"&&summary.size()==5
+      &&summary.dump().find(privateMarker)==std::string::npos,"call_summary_unknown_name_leak");
+  }
+  for(const auto& malformed:{std::string("{"),std::string("[]"),std::string("false"),std::string(16385,' ')})
+    Require(Service::CallSummary(malformed,200)=="null","call_summary_invalid_envelope");
+  for(const auto status:{0,99,600,999})Require(Service::CallSummary(known,status)=="null","call_summary_invalid_status");
+  for(const auto* method:{"initialize","ping","tools/list","notifications/initialized","notifications/cancelled"}) {
+    const auto summary=Json::parse(Service::CallSummary(Json{{"method",method},{"id",privateMarker}}.dump(),202));
+    Require(summary.size()==5&&summary.at("method")==method&&summary.at("tool")==""
+      &&summary.at("httpStatus")==202,"call_summary_retained_prior_tool");
+  }
+  Require(Json::parse(Service::CallSummary(Json{{"method",privateMarker}}.dump(),400)).at("method")=="unknown","call_summary_method_leak");
   const auto corpus=SmokeCases();
   for(const auto mode:{Service::ServerMode::preview,Service::ServerMode::sandbox,Service::ServerMode::production}) {
     const auto list=Json::parse(Json::parse(Service::PlanRequest(
