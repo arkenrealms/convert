@@ -6,6 +6,7 @@ arken_resolve_external_packages(ROOT_MANIFEST "${CMAKE_CURRENT_LIST_DIR}/lib.man
 get_target_property(workerd arken::external_workerd_v1 IMPORTED_LOCATION)
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/workerd-path.txt" CONTENT "${workerd}\n" @ONLY)
 set(CONVERSION_WASM "" CACHE FILEPATH "Exact qualified conversion service module")
+set(CONVERSION_OBSERVED_PACKAGE "" CACHE PATH "Optional immutable observed production package for unchanged protocol dependencies")
 set(CONVERSION_PAYMENT_PACKETS "" CACHE FILEPATH "Native arken-conversion-payment-tests --write-fixtures payment-packets.json output")
 set(CONVERSION_PAYMENT_ACTORS "" CACHE FILEPATH "Native payment-actor-fixtures.json output")
 set(CONVERSION_X402_FIXTURES "" CACHE FILEPATH "Native x402-fixtures.json output")
@@ -25,6 +26,7 @@ if(CONVERSION_WASM)
         "-DWASM=${CONVERSION_WASM}" "-DWORKERD=${workerd}"
         "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/worker-proof"
         "-DPAYMENT_PACKETS=${CONVERSION_PAYMENT_PACKETS}"
+        "-DOBSERVED_PACKAGE=${CONVERSION_OBSERVED_PACKAGE}"
         -P "${CMAKE_CURRENT_LIST_DIR}/../run_workerd.cmake")
     set_tests_properties(FileConversionWorker.Protocol PROPERTIES TIMEOUT 30)
     if(CONVERSION_PAYMENT_ACTORS)
