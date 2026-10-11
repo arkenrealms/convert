@@ -4,6 +4,7 @@
 namespace arken::ao::schema::v1 {
 namespace {
 constexpr std::array types{
+    FileTypeDescriptor{".aoschema", "Arken Schema Source", "Native schema IDL source; decoded by the schema compiler, not an AO binary container"},
     FileTypeDescriptor{".aocb", "Arken Omniverse Creation Bundle", "Complete creation and declared client/server content"},
     FileTypeDescriptor{".aodb", "Arken Omniverse Data Bundle", "Canonical world and simulation data"},
     FileTypeDescriptor{".aopb", "Arken Omniverse Plugin Bundle", "Installable gameplay, systems, or content delta"},
