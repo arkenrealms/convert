@@ -34,17 +34,6 @@ struct DecodeResult {
 [[nodiscard]] DecodeResult DecodeImage(Format format,std::span<const std::byte> bytes,
     const DecodeOptions& options={}) noexcept;
 [[nodiscard]] std::string_view ErrorMessage(DecodeError error) noexcept;
-// Height/data import, never a luminance or rendering conversion. Samples retain
-// all unsigned 16-bit values in file row order; no gamma or range normalization.
-enum class ScalarFormat {png16, tiff16};
-struct ScalarDecodeResult {
-    DecodeIssue issue;
-    std::uint32_t width=0,height=0;
-    std::vector<std::uint16_t> samples;
-    explicit operator bool() const noexcept {return issue.code==DecodeError::none;}
-};
-[[nodiscard]] ScalarDecodeResult DecodeScalar16(ScalarFormat,std::span<const std::byte>,
-    const DecodeOptions& options={}) noexcept;
 struct PngEncodeResult {
     std::vector<std::byte> bytes;
     std::string_view error;

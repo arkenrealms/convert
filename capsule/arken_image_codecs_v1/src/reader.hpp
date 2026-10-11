@@ -28,7 +28,4 @@ DecodeResult DecodeBlpJpegWithAlpha(Bytes,const DecodeOptions&,std::uint32_t,std
 DecodeResult DecodeDds(Bytes,const DecodeOptions&);
 DecodeResult DecodeTga(Bytes,const DecodeOptions&);
 DecodeResult DecodeRaster(Format,Bytes,const DecodeOptions&);
-ScalarDecodeResult DecodeScalarPng16(Bytes,const DecodeOptions&);
-ScalarDecodeResult DecodeScalarTiff16(Bytes,const DecodeOptions&);
-bool InflateScalarStrip(Bytes,std::span<std::byte>);
 }
