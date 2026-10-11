@@ -1,4 +1,4 @@
-import {readBoundedText} from './bounded_body.js';
+import {readBoundedBody} from './bounded_body.js';
 export const apiVersion='arken.cdp.transport.worker.v1';
 const invoke=(providerPacket,value)=>{if(typeof providerPacket!=='function')throw Error('cdp_provider_unavailable');const result=providerPacket(JSON.stringify(value));if(result.packetError)throw Error(result.packetError);return result;};
 const clock=()=>String(Math.floor(Date.now()/1000));
@@ -37,7 +37,8 @@ export function createCdpTransport(credential,{providerPacket,fetcher=(url,optio
     try {
       const response=await fetcher(signed.url,{method:signed.method,headers:{'content-type':'application/json',Authorization:signed.authorization},
         body:submitted.body??undefined,redirect:'manual',signal:controller.signal});
-      return {status:response.status,body:await readBoundedText(response.body,plan.responseLimit,'cdp_response_limit')};
+      const bytes=await readBoundedBody(response.body,plan.responseLimit,'cdp_response_limit');
+      return {status:response.status,body:new TextDecoder('utf-8',{fatal:true}).decode(bytes)};
     } catch {throw Error('cdp_transport_unavailable');}
     finally {clearTimeout(timer);}
   };
@@ -59,7 +60,7 @@ export function createProviderReadiness({packet,providerPacket,configuration,bin
     if(result.request.authentication==='cdp')response=await send(result.request);
     else{const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),10000);
      try{const r=await fetcher(result.request.url,{method:result.request.method,body:result.request.body||undefined,headers:{'content-type':'application/json'},redirect:'manual',signal:abort.signal});
-      response={status:r.status,body:await readBoundedText(r.body,262144,'provider_response_limit')};
+      response={status:r.status,body:new TextDecoder('utf-8',{fatal:true}).decode(await readBoundedBody(r.body,262144,'provider_response_limit'))};
      }finally{clearTimeout(timer);}}
    }catch(error){console.warn('Provider readiness transport unavailable',{code:'provider_transport_unavailable'});response={status:0,body:''};}
    captured[result.slot]=response;captured.now=String(clock());result=packet(captured);
