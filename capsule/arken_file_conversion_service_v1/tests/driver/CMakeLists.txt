@@ -7,6 +7,8 @@ get_target_property(workerd arken::external_workerd_v1 IMPORTED_LOCATION)
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/workerd-path.txt" CONTENT "${workerd}\n" @ONLY)
 set(CONVERSION_WASM "" CACHE FILEPATH "Exact qualified conversion service module")
 set(CONVERSION_OBSERVED_PACKAGE "" CACHE PATH "Optional immutable observed production package for unchanged protocol dependencies")
+set(CONVERSION_STAGED_STATE "" CACHE PATH "Optional complete frozen Cloudflare stage for production qualification")
+set(CONVERSION_STAGE_PLAN_SHA256 "" CACHE STRING "Exact frozen-plan digest for CONVERSION_STAGED_STATE")
 set(CONVERSION_PAYMENT_PACKETS "" CACHE FILEPATH "Native arken-conversion-payment-tests --write-fixtures payment-packets.json output")
 set(CONVERSION_PAYMENT_ACTORS "" CACHE FILEPATH "Native payment-actor-fixtures.json output")
 set(CONVERSION_X402_FIXTURES "" CACHE FILEPATH "Native x402-fixtures.json output")
@@ -56,6 +58,8 @@ if(CONVERSION_WASM)
             "-DPUBLIC_ADMISSION_FIXTURES=${CONVERSION_PUBLIC_ADMISSION_FIXTURES}"
             "-DPROVIDER_FIXTURES=${CONVERSION_PROVIDER_FIXTURES}"
             "-DSTARTUP_FIXTURES=${CONVERSION_STARTUP_FIXTURES}"
+            "-DSTAGED_STATE=${CONVERSION_STAGED_STATE}"
+            "-DSTAGE_PLAN_SHA256=${CONVERSION_STAGE_PLAN_SHA256}"
             -P "${CMAKE_CURRENT_LIST_DIR}/../run_payment_actors.cmake")
         set_tests_properties(FileConversionWorker.DurablePayments PROPERTIES TIMEOUT 60)
     endif()
