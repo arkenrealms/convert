@@ -68,15 +68,6 @@ const mcp::Server &server(ServerMode mode) {
   throw std::invalid_argument("Unknown conversion mode");
 }
 } // namespace
-std::string CallSummary(std::string_view text, int httpStatus) noexcept {
-  try {
-    return server(ServerMode::production)
-        .callSummary(mcp::parseRequestJson(text), "convert", httpStatus).dump();
-  } catch (...) {
-    // Never expose parser diagnostics or fail a completed product response.
-    return "null";
-  }
-}
 std::string Catalog() {
   auto catalog=Json::parse(S::commandCatalog);
   const auto descriptions=presentations(ServerMode::production);

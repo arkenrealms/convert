@@ -1,4 +1,4 @@
-import {planRequest,convertImage,serverSurface,endpointPacket,conversionTargetPacket,callSummary} from './runtime.js';
+import {planRequest,convertImage,serverSurface,endpointPacket,conversionTargetPacket} from './runtime.js';
 import {readBoundedBody} from './bounded_body.js';
 import {accessPlan,fileOwner,reservePublicUpload} from './public_admission.js';
 const jsonHeaders={'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'};
@@ -83,7 +83,7 @@ async function convertAndStore(env,url,owner,id,found,surface,inputDigest,codec=
   }
   await env.FILES.put(found.key+'/result',JSON.stringify(receipt));return receipt;
 }
-export function createWorker(payment=null,{emitCallSummary=summary=>console.log(summary)}={}){let bodyInFlight=false;const profileId=payment?.profileId??null;
+export function createWorker(payment=null){let bodyInFlight=false;const profileId=payment?.profileId??null;
 const describe=ready=>{const result=serverSurface(JSON.stringify({profileId,ready}));if(result.packetError)throw Error(result.packetError);return result;};
 const surface=describe(false);return {
   async fetch(request,env) {
@@ -119,7 +119,6 @@ const surface=describe(false);return {
       publicRequest=access.mode==='public';
       if(!publicRequest)owner=await digest(new TextEncoder().encode(env.ACCESS_TOKEN));
     }
-    let complete=response=>response;
     try {
       if(file) {
         if(!env.FILES)return problem('storage_not_configured',503);
@@ -150,21 +149,16 @@ const surface=describe(false);return {
         let text;
         try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}
         catch(error){console.warn('invalid UTF-8 MCP request');return problem('invalid_utf8',400);}
-        complete=response=>{
-          try {const summary=callSummary(text,response.status);if(summary)emitCallSummary(summary);}
-          catch {try {console.warn('MCP call summary unavailable');}catch {return response;}}
-          return response;
-        };
         const plan=(payment?.planRequest||planRequest)(text);
-        if(!version&&!plan.initialize)return complete(problem('protocol_version_required',400));
-        if(plan.kind==='response')return complete(new Response(plan.status===202?null:plan.body,{status:plan.status,headers:jsonHeaders}));
-        if(!secretValid)return complete(toolReply(plan,{code:'server_not_configured'},true));
-        if(publicRequest){const access=accessPlan(context,plan.commandId===1?'upload':'file',plan.arguments.file_id??null,plan.arguments.file_token??null);if(access.mode==='denied')return complete(problem(access.code,401));owner=access.owner;}
-        return complete(await command(plan,env,url,owner,payment,surface,publicRequest));
+        if(!version&&!plan.initialize)return problem('protocol_version_required',400);
+        if(plan.kind==='response')return new Response(plan.status===202?null:plan.body,{status:plan.status,headers:jsonHeaders});
+        if(!secretValid)return toolReply(plan,{code:'server_not_configured'},true);
+        if(publicRequest){const access=accessPlan(context,plan.commandId===1?'upload':'file',plan.arguments.file_id??null,plan.arguments.file_token??null);if(access.mode==='denied')return problem(access.code,401);owner=access.owner;}
+        return await command(plan,env,url,owner,payment,surface,publicRequest);
       } finally {bodyInFlight=false;}
     } catch(error) {
       console.error('conversion request failed',{code:error.message==='body_limit'?'body_limit':'request_failed'});
-      return complete(problem(error.message==='body_limit'?'body_limit':'request_failed',error.message==='body_limit'?413:500));
+      return problem(error.message==='body_limit'?'body_limit':'request_failed',error.message==='body_limit'?413:500);
     }
   }
 };}
