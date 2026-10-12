@@ -12,6 +12,21 @@ Json lastResult=Json::object();
 void Check(bool ok,const char* text){++checks;C::Require(ok,text);}
 Json Run(const Json& input){const auto result=Json::parse(S::ProductionStartupPacket(input.dump()));lastResult=result;vectors.push_back({{"input",input.dump()},{"expected",result}});return result;}
 Json Reply(unsigned id,const Json& result){return {{"jsonrpc","2.0"},{"id",id},{"result",result}};}
+// A real ancillary chunk, not forbidden trailing bytes: retain the same pixels
+// while exercising the exact admitted encoded-input limit.
+std::vector<std::byte> MaximumPng(std::vector<std::byte> png){
+  const auto limit=arken::file_conversion::v1::maximumSourceBytes;
+  Check(png.size()>12&&png.size()+20<limit,"maximum PNG fixture bounds");
+  std::vector<std::byte> chunk;
+  const auto append=[&](std::uint32_t value){for(int shift=24;shift>=0;shift-=8)chunk.push_back(std::byte((value>>shift)&255));};
+  append(limit-png.size()-12);append(0x74455874); // tEXt
+  for(char c:std::string_view("Profile"))chunk.push_back(std::byte(c));
+  chunk.push_back(std::byte{0});chunk.resize(limit-png.size()-4,std::byte{' '});
+  std::uint32_t crc=0xffffffff;
+  for(std::size_t i=4;i<chunk.size();++i){crc^=std::to_integer<std::uint8_t>(chunk[i]);for(unsigned bit=0;bit<8;++bit)crc=(crc>>1)^(0xedb88320u&(0u-(crc&1u)));}
+  append(~crc);png.insert(png.end()-12,chunk.begin(),chunk.end());
+  Check(png.size()==limit,"maximum PNG fixture size");return png;
+}
 void Tests(const C::fs::path& providerFile,const C::fs::path& output){
   const auto provider=Json::parse(C::Read(providerFile)).at("signingCases")[0].at("prepare");
   const Json configuration={{"enabled","true"},{"keyId",provider["keyId"]},{"keySecret",provider["keySecret"]},{"rpcClientKey","fixture_rpc_client_key"},
@@ -87,10 +102,17 @@ void Tests(const C::fs::path& providerFile,const C::fs::path& output){
   const Json jpegFixture={{"sha256",largeJpegHash},{"codec",{{"input",static_cast<unsigned>(F::image::Format::png)},{"output",static_cast<unsigned>(F::image::Format::jpeg)},{"quality",95},{"alpha",0}}}};
   C::PrivateDirectory(output);C::Write(output/"startup-fixtures.json",Json{{"vectors",vectors},{"qualificationVectors",qualificationVectors},{"surfaces",surfaces},{"configuration",configuration},{"anonymous",input["anonymous"]},{"supported",input["supported"]},{"rpc",input["rpc"]},{"nativePngSha256",pngSha},{"largeJpeg",jpegFixture}}.dump(2)+"\n");
   C::Write(output/"jpeg-input.png",std::string_view(reinterpret_cast<const char*>(largeSource.bytes.data()),largeSource.bytes.size()));
+  const auto maximum=MaximumPng(largeSource.bytes);
+  const auto maximumJpeg=F::ConvertImage(maximum,{.output=F::image::Format::jpeg});
+  Check(bool(maximumJpeg)&&maximumJpeg.bytes==largeJpeg.bytes,"maximum source PNG changed native output");
+  const std::string_view maximumBytes(reinterpret_cast<const char*>(maximum.data()),maximum.size());
+  C::Write(output/"maximum-input.png",maximumBytes);
+  C::Write(output/"resource-fixture.json",Json{{"schema","arken.convert.resource-fixture.v1"},{"inputBytes",maximum.size()},
+    {"inputSha256",C::Hash(maximumBytes)},{"width",1024},{"height",1024},{"outputSha256",largeJpegHash}}.dump(2)+"\n");
   std::cout<<checks<<" startup checks passed; "<<vectors.size()<<" native vectors\n";
 }
 }
-int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-startup-tests r4370\n";return 0;}
+int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-startup-tests r5730\n";return 0;}
   try{C::Require(argc==4&&std::string_view(argv[1])=="--write-fixtures","invalid_arguments");Tests(argv[2],argv[3]);return 0;}
   catch(const std::exception& error){const std::string message=error.what();
     std::cerr<<Json{{"code",message.size()<160&&message.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ /_")==std::string::npos?message:"startup_test_failed"},{"checkIndex",checks},{"vectorCount",vectors.size()},{"lastKind",lastResult.value("kind","")},{"lastCode",lastResult.value("code","")}}.dump()<<'\n';return 1;}}

@@ -12,7 +12,7 @@ export class JournalLedger extends SubjectLedger {
   await this.ctx.storage.put('fixture-instance',current);await this.ctx.storage.sync();return {previous,current};
  }
 }
-export async function proveConversionJournalHttp(env){
+export async function proveConversionJournalHttp(env,retainWorker){
  let checks=0,actorCalls=0,now=150,fixtureStorageWrites=1;
  const check=(ok,label)=>{++checks;if(!ok)throw Error(label);};
  const equal=(a,b,label)=>check(JSON.stringify(a)===JSON.stringify(b),label);
@@ -32,6 +32,7 @@ export async function proveConversionJournalHttp(env){
  const testEnv={...env,CONVERT_REPORT_CONTROL:seed.admission.reportConfiguration,
   PAYMENT_LEDGER:{idFromString:value=>originalNamespace.idFromString(value),get:value=>{++actorCalls;return originalNamespace.get(value);}}};
  const worker=createReportSubject(()=>now);
+ retainWorker?.(worker);
  const path=seed.admission.request.path,origin=seed.admission.request.origin;
  const request=({headers={},body=JSON.stringify({...seed.body,actorId}),method='POST',route=path}={})=>new Request(origin+route,{method,
   headers:{'content-type':'application/json',authorization:seed.admission.request.authorization,...headers},...(method==='POST'?{body}:{})});
