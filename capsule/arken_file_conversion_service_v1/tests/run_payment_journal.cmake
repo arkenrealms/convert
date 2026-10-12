@@ -1,0 +1,72 @@
+cmake_minimum_required(VERSION 3.25)
+foreach(required REPORT_MODULE PAYMENT_TESTS WORKERD FROZEN_PACKAGE OUTPUT)
+  if(NOT DEFINED ${required})
+    message(FATAL_ERROR "Supply exact ${required}")
+  endif()
+endforeach()
+if(EXISTS "${OUTPUT}")
+  message(FATAL_ERROR "Payment journal proof requires a new evidence directory")
+endif()
+file(MAKE_DIRECTORY "${OUTPUT}")
+execute_process(COMMAND "${PAYMENT_TESTS}" --version --invalid RESULT_VARIABLE status OUTPUT_VARIABLE version TIMEOUT 5)
+if(NOT status EQUAL 0 OR NOT version MATCHES "^arken-conversion-payment-tests r5725")
+  message(FATAL_ERROR "Incorrect native payment journal owner")
+endif()
+execute_process(COMMAND "${PAYMENT_TESTS}" --write-fixtures "${OUTPUT}" RESULT_VARIABLE status OUTPUT_VARIABLE native ERROR_VARIABLE error TIMEOUT 15)
+file(WRITE "${OUTPUT}/native.log" "${native}${error}")
+if(NOT status EQUAL 0)
+  message(FATAL_ERROR "Native payment journal proof failed: ${error}")
+endif()
+# Preserve the accepted paid module and its actual platform transport. Report
+# qualification must not quietly substitute a freshly rebuilt paid engine.
+foreach(pair
+    "conversion.wasm|567512707e9f220282f820afbfaad85f4ea1d911264b381bd238b5df260648dc"
+    "runtime.js|e7afdc8ce8e7b25d45108a4960dae0a7c5bed72c7511963211d21941ef2cb42f")
+  string(REPLACE "|" ";" fields "${pair}")
+  list(GET fields 0 name)
+  list(GET fields 1 expected)
+  file(SHA256 "${FROZEN_PACKAGE}/${name}" observed)
+  if(NOT observed STREQUAL expected)
+    message(FATAL_ERROR "Frozen Convert dependency changed: ${name}")
+  endif()
+  file(COPY_FILE "${FROZEN_PACKAGE}/${name}" "${OUTPUT}/${name}")
+endforeach()
+file(SIZE "${REPORT_MODULE}" bytes)
+if(bytes GREATER 8388608)
+  message(FATAL_ERROR "Convert report exceeds deployment module cap")
+endif()
+file(COPY_FILE "${REPORT_MODULE}" "${OUTPUT}/conversion-journal-report.wasm")
+file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/payment_journal_worker.js" "${OUTPUT}/tests.js")
+file(WRITE "${OUTPUT}/config.capnp" [=[
+using Workerd = import "/workerd/workerd.capnp";
+const config:Workerd.Config=(services=[(name="tests",worker=(compatibilityDate="2026-09-11",modules=[
+ (name="tests.js",esModule=embed "tests.js"),
+ (name="payment-journal-fixtures.json",text=embed "payment-journal-fixtures.json"),
+ (name="conversion-journal-report.wasm",wasm=embed "conversion-journal-report.wasm"),
+ (name="runtime.js",esModule=embed "runtime.js"),
+ (name="conversion.wasm",wasm=embed "conversion.wasm")]
+)),(name="internet",network=(allow=[]))]);
+]=])
+execute_process(COMMAND "${WORKERD}" --version RESULT_VARIABLE status OUTPUT_VARIABLE version TIMEOUT 5)
+if(NOT status EQUAL 0 OR NOT version MATCHES "workerd 2026-09-11")
+  message(FATAL_ERROR "Incorrect pinned Workerd runtime")
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/run_workerd_process.cmake")
+run_conversion_workerd("${OUTPUT}/config.capnp" 35 status report error metrics)
+file(WRITE "${OUTPUT}/workerd.log" "${report}${error}")
+if(NOT status EQUAL 0)
+  message(FATAL_ERROR "Convert report companion proof failed: ${report}${error}")
+endif()
+string(STRIP "${report}" report)
+string(JSON passed GET "${report}" status)
+if(NOT passed STREQUAL "passed")
+  message(FATAL_ERROR "Convert report acceptance absent")
+endif()
+string(JSON report SET "${report}" moduleBytes ${bytes})
+string(JSON report SET "${report}" processMetrics "${metrics}")
+foreach(name conversion.wasm runtime.js conversion-journal-report.wasm payment-journal-fixtures.json tests.js config.capnp)
+  file(SHA256 "${OUTPUT}/${name}" hash)
+  string(JSON report SET "${report}" "${name}" "\"${hash}\"")
+endforeach()
+file(WRITE "${OUTPUT}/proof.json" "${report}\n")
+message(STATUS "Convert report companion proof: ${OUTPUT}/proof.json")

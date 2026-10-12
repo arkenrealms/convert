@@ -9,6 +9,8 @@
 #include <string_view>
 namespace P=arken::file_conversion::service::v1::payment;
 unsigned PaymentRecoveryTests();
+unsigned PaymentJournalTests();
+std::string PaymentJournalFixtures();
 namespace {
 unsigned checks=0;
 auto packets=nlohmann::json::array();
@@ -158,9 +160,10 @@ Json ActorFixtures(){
   return fixtures;
 }
 }
-int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-payment-tests r4343\n";return 0;}
-  try{Check(argc==1||(argc==3&&std::string_view(argv[1])=="--write-fixtures"),"invalid arguments");Tests();checks+=PaymentRecoveryTests();const auto actors=ActorFixtures();
+int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-payment-tests r5725\n";return 0;}
+  try{Check(argc==1||(argc==3&&std::string_view(argv[1])=="--write-fixtures"),"invalid arguments");Tests();checks+=PaymentRecoveryTests();checks+=PaymentJournalTests();const auto actors=ActorFixtures();
     if(argc==3){const std::filesystem::path dir(argv[2]);std::filesystem::create_directories(dir);
       std::ofstream out(dir/"payment-packets.json",std::ios::binary);out<<packets.dump();Check(bool(out),"packet fixture write failed");
-      std::ofstream actorOut(dir/"payment-actor-fixtures.json",std::ios::binary);actorOut<<actors.dump();Check(bool(actorOut),"actor fixture write failed");}
+      std::ofstream actorOut(dir/"payment-actor-fixtures.json",std::ios::binary);actorOut<<actors.dump();Check(bool(actorOut),"actor fixture write failed");
+      std::ofstream journalOut(dir/"payment-journal-fixtures.json",std::ios::binary);journalOut<<PaymentJournalFixtures();Check(bool(journalOut),"journal fixture write failed");}
     std::cout<<checks<<" payment policy checks passed; "<<packets.size()<<" native/Wasm packets\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
