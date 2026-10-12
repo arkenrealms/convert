@@ -3,6 +3,7 @@
 #include "arken_file_conversion_service_v1/payment_profile.hpp"
 #include "arken_schema_cpp_v1/tool_json.hpp"
 #include "payment_json.hpp"
+#include "payment_journal_internal.hpp"
 #include <algorithm>
 #include <stdexcept>
 
@@ -24,10 +25,7 @@ Address ReadAddress(const Json& value) {
   J::require(std::any_of(bytes.begin(), bytes.end(), [](auto byte) { return byte != 0; }), "empty journal address");
   return bytes;
 }
-bool OperationKey(std::string_view key) {
-  return key.size() == 74 && key.starts_with("operation/") &&
-    std::all_of(key.begin() + 10, key.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
-}
+using detail::JournalOperationKey;
 struct Page {
   std::optional<Scope> scope;
   std::string actorKey, after;
@@ -36,7 +34,7 @@ struct Page {
       : after(J::readScalar<std::string>(input.at("after"))),
         limit(J::readScalar<std::uint32_t>(input.at("limit"))) {
     J::require(limit > 0 && limit <= journalMaximumRows, "journal row limit");
-    J::require(after.empty() || OperationKey(after), "journal cursor");
+    J::require(after.empty() || JournalOperationKey(after), "journal cursor");
     if (!input.at("scope").is_null()) {
       const auto stored = Parse(J::readScalar<std::string>(input.at("scope")), 512);
       Fields(stored, {"chain", "asset", "payer"});
@@ -113,7 +111,7 @@ std::string JournalProjectPacket(std::string_view text) noexcept {
     for (const auto& entry : entries) {
       Fields(entry, {"key", "value"});
       const auto key = J::readScalar<std::string>(entry.at("key"));
-      J::require(OperationKey(key) && key > previous, "journal key order");
+      J::require(JournalOperationKey(key) && key > previous, "journal key order");
       previous = key;
       auto row = ProjectRow(page, entry); // Validate lookahead before reporting success.
       if (rows.size() < page.limit) { rows.push_back(std::move(row)); last = key; }

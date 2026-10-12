@@ -29,9 +29,15 @@ REPORT_EXPORT bool arken_convert_report_commit(std::uint32_t size) noexcept {
   input.resize(size); committed = true; return true;
 }
 REPORT_EXPORT std::uint32_t arken_convert_report_run(std::uint32_t mode) noexcept {
-  if (!committed || (mode != 9 && mode != 10)) { arken_convert_report_clear(); return 0; }
+  if (!committed || mode < 9 || mode > 13) { arken_convert_report_clear(); return 0; }
   prepared = committed = false;
-  output = mode == 9 ? P::JournalReadPlanPacket(input) : P::JournalProjectPacket(input);
+  switch (mode) {
+    case 9: output = P::JournalReadPlanPacket(input); break;
+    case 10: output = P::JournalProjectPacket(input); break;
+    case 11: output = P::JournalReportAdmissionPacket(input); break;
+    case 12: output = P::JournalReportRequestPacket(input); break;
+    case 13: output = P::JournalReportContextPacket(input); break;
+  }
   Clear(input);
   if (output.size() > P::journalMaximumPacketBytes) { arken_convert_report_clear(); return 0; }
   return static_cast<std::uint32_t>(output.size());

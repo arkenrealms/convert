@@ -16,4 +16,9 @@ inline constexpr std::size_t journalMaximumPacketBytes = 1048576;
 // Historical tool and update-time metadata were not retained and remain null.
 std::string JournalReadPlanPacket(std::string_view) noexcept;
 std::string JournalProjectPacket(std::string_view) noexcept;
+// Private HTTPS report grant admission and bounded actor-page request. Uses
+// shared paid-operation read policy; no storage or payment effects.
+std::string JournalReportAdmissionPacket(std::string_view) noexcept;
+std::string JournalReportRequestPacket(std::string_view) noexcept;
+std::string JournalReportContextPacket(std::string_view) noexcept;
 } // namespace arken::file_conversion::service::v1::payment

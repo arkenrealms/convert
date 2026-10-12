@@ -1,9 +1,12 @@
 // ABI/parity assertions only; all record generation, validation and projection
-// are native. No endpoint, payment executor, authorization store or provider.
+// are native. Durable storage and protected HTTP are proved by the sibling recipe.
 import module from './conversion-journal-report.wasm';
 import fixturesText from './payment-journal-fixtures.json';
+import accessText from './payment-journal-access-fixtures.json';
+export {JournalLedger} from './payment_journal_http.js';
+import {proveConversionJournalHttp} from './payment_journal_http.js';
 import {paymentStorageAdvance} from './runtime.js';
-export const journal = {async test() {
+export const journal = {async test(_controller,env) {
   let checks=0,packets=0,frozenTransitions=0;
   const check=(ok,message)=>{++checks;if(!ok)throw Error(message);};
   check(WebAssembly.Module.imports(module).length===0,'Report imports host capabilities');
@@ -24,7 +27,7 @@ export const journal = {async test() {
       return decoder.decode(new Uint8Array(abi.memory.buffer,abi.arken_convert_report_result(),size));
     }finally{abi.arken_convert_report_clear();}
   };
-  const fixtures=JSON.parse(fixturesText);
+  const fixtures=[...JSON.parse(fixturesText),...JSON.parse(accessText).vectors];
   for(const fixture of fixtures){
     if(fixture.mode===2){
       check(JSON.stringify(paymentStorageAdvance(fixture.input))===fixture.output,'Frozen payment codec differs');
@@ -38,7 +41,7 @@ export const journal = {async test() {
   check(!abi.arken_convert_report_commit(1),'Commit without prepare');
   check(!abi.arken_convert_report_prepare(0)&&!abi.arken_convert_report_prepare(1048577),'Unbounded prepare');
   check(Boolean(abi.arken_convert_report_prepare(1))&&!abi.arken_convert_report_commit(2),'Oversized commit');
-  for(const mode of [0,1,2,3,4,5,6,7,8,11,12,13,0xffffffff]){
+  for(const mode of [0,1,2,3,4,5,6,7,8,14,0xffffffff]){
     check(Boolean(abi.arken_convert_report_prepare(2)),'Prepare for denied mode');
     check(abi.arken_convert_report_commit(2)&&abi.arken_convert_report_run(mode)===0,'Effect-capable report mode');
   }
@@ -46,7 +49,8 @@ export const journal = {async test() {
   packet(10,sample.input);const memory=abi.memory.buffer.byteLength;
   for(let i=0;i<100;++i)check(packet(10,sample.input)===sample.output,'Repeated journal read changed');
   check(abi.memory.buffer.byteLength===memory&&memory<=16777216,'Report memory did not stabilize');
-  console.log(JSON.stringify({status:'passed',checks,packets,frozenTransitions,wasmBytes:memory,
-    hostImports:0,paidModuleRebuilt:false,storageWrites:0,networkRequests:0,financialEffects:0,
-    evidence:'codec-parity-not-durable-storage-or-http',productionDeployed:false}));
+  const http=await proveConversionJournalHttp(env);
+  console.log(JSON.stringify({status:'passed',checks,packets,frozenTransitions,wasmBytes:memory,http,
+    hostImports:0,paidModuleRebuilt:false,reportStorageWrites:0,fixtureStorageWrites:http.fixtureStorageWrites,networkRequests:0,financialEffects:0,
+    evidence:'codec-parity-and-protected-durable-http',productionDeployed:false}));
 }};

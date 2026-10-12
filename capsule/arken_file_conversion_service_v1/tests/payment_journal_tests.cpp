@@ -12,6 +12,7 @@ namespace P = arken::file_conversion::service::v1::payment;
 using Json = nlohmann::json;
 unsigned checks;
 Json fixtures = Json::array();
+Json actorFixtures;
 void Check(bool condition, const char* reason) {
   ++checks;
   if (!condition) throw std::runtime_error(reason);
@@ -21,6 +22,8 @@ struct Actor {
   std::optional<P::NonceClaim> claim;
   std::map<std::string, std::string> storage;
   std::vector<Json> entries;
+  Json commands = Json::array();
+  std::uint8_t nonce = 9;
   Actor() {
     auto& q = operation.quote;
     q.operation[0] = 1; q.tenant[0] = 2; q.input[0] = 3; q.options[0] = 4;
@@ -32,7 +35,7 @@ struct Actor {
   void Step(P::EventKind kind) {
     P::Event event; event.kind = kind; event.expectedRevision = operation.revision; event.now = 100;
     if (kind == P::EventKind::request) {
-      P::Authorization auth; auth.payload[0] = 8; auth.nonce[0] = 9;
+      P::Authorization auth; auth.payload[0] = 8; auth.nonce[0] = nonce;
       auth.validAfter = 90; auth.validBefore = 150; event.authorization = auth;
     }
     if (kind == P::EventKind::verificationPassed) event.verifiedPayer = operation.quote.scope.payer;
@@ -64,6 +67,7 @@ struct Actor {
     const auto expected = P::Advance(operation, operation.quote, claim, event);
     Check(expected.error == P::Error::none && expected.changed, "journal fixture transition failed");
     Check(writes.at("decision") == Json::parse(P::DecisionPacket(expected)), "stored journal transition differs");
+    commands.push_back({{"command", command}, {"expected", writes.at("decision")}, {"storageWrites", writes.at("writes").size()}});
     for (const auto& write : writes.at("writes")) storage[write.at("key").get<std::string>()] = write.at("value");
     operation = expected.operation; claim = expected.nonceClaim;
     const auto key = keys.at("operationKey").get<std::string>();
@@ -93,6 +97,9 @@ void Tests() {
        P::EventKind::outputCommitted, P::EventKind::beginSettlement, P::EventKind::settlementUncertain,
        P::EventKind::reconciledSucceeded}) actor.Step(kind);
   const std::vector<std::string> stages{"verifying", "authorized", "computing", "outputReady", "settling", "settlementUnknown", "settled"};
+  Actor secondActor; secondActor.operation.quote.operation[0] = 12; secondActor.nonce = 12;
+  secondActor.Step(P::EventKind::request);
+  actorFixtures = {{"main", actor.commands}, {"second", secondActor.commands}};
   for (std::size_t i = 0; i < actor.entries.size(); ++i) {
     const auto packet = actor.Page(actor.entries[i]);
     const auto frozen = actor.storage;
@@ -181,3 +188,4 @@ void Tests() {
 
 unsigned PaymentJournalTests() { checks = 0; fixtures = Json::array(); Tests(); return checks; }
 std::string PaymentJournalFixtures() { return fixtures.dump(); }
+std::string PaymentJournalActorFixtures() { return actorFixtures.dump(); }
