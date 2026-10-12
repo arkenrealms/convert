@@ -58,6 +58,20 @@ export async function proveConversionJournalHttp(env,retainWorker){
  const emptyId=originalNamespace.idFromName('empty-fixture').toString();
  const emptyResponse=await call({body:JSON.stringify({...seed.body,actorId:emptyId})}),empty=await emptyResponse.json();
  check(emptyResponse.status===200&&empty.rows.length===0&&empty.actorKey===null,'Empty actor');
+ check(empty.actorKind==='empty'&&first.actorKind==='payment'&&second.actorKind==='payment','Actor classification');
+ const quotaId=originalNamespace.idFromName(scenarios.quota.actorKey),quotaActor=originalNamespace.get(quotaId);
+ if(env.PHASE==='write'){
+  equal(await quotaActor.reservePublicUpload(scenarios.quota.command),scenarios.quota.decision,'Native quota fixture');
+  fixtureStorageWrites+=scenarios.quota.expected.writes.length;
+ }
+ const quotaBefore=await quotaActor.storedRows();
+ const quotaResponse=await call({body:JSON.stringify({...seed.body,actorId:quotaId.toString()})}),quota=await quotaResponse.json();
+ check(quotaResponse.status===200&&quota.actorKind==='public-upload-budget'&&quota.actorKey===scenarios.quota.actorKey&&
+  quota.actorId===quotaId.toString()&&quota.rows.length===0&&quota.reachedEnd&&quota.nextCursor===null,'Quota actor classified');
+ equal(await quotaActor.storedRows(),quotaBefore,'Report changed quota storage');
+ const foreignQuota=originalNamespace.idFromName('wrong-quota-fixture');
+ fixtureStorageWrites+=await originalNamespace.get(foreignQuota).seedRows(quotaBefore);
+ check((await call({body:JSON.stringify({...seed.body,actorId:foreignQuota.toString()})})).status===503,'Foreign quota actor admitted');
  const wrongId=originalNamespace.idFromName('wrong-scope-fixture');
  fixtureStorageWrites+=await originalNamespace.get(wrongId).seedRows(JSON.parse(before));
  check((await call({body:JSON.stringify({...seed.body,actorId:wrongId.toString()})})).status===503,'Foreign scope actor admitted');
@@ -87,5 +101,6 @@ export async function proveConversionJournalHttp(env,retainWorker){
  equal(await actor.storedRows(),JSON.parse(before),'Report changed durable payment bytes');
  return {status:'passed',phase:env.PHASE,checks,rows:rows.length,actorCalls,storageUnchanged:true,publicEvidence,
   storage:'workerd-disk-backed-durable-objects',originalPaidEngine:true,networkRequests:0,financialEffects:0,
+  quotaActorClassified:true,quotaStorageUnchanged:true,foreignQuotaRejected:true,
   reportStorageWrites:0,fixtureStorageWrites,fixtureSeedingOnly:true,processRestartProved:env.PHASE==='read',productionDeployed:false};
 }

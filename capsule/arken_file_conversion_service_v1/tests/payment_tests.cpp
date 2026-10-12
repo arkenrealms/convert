@@ -163,7 +163,7 @@ Json ActorFixtures(){
   return fixtures;
 }
 }
-int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-payment-tests r5729\n";return 0;}
+int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-payment-tests r5732\n";return 0;}
   try{Check(argc==1||((argc==3||argc==4)&&std::string_view(argv[1])=="--write-fixtures"),"invalid arguments");
     std::string configuration;
     if(argc==4){Check(std::filesystem::file_size(argv[3])<=1024,"journal configuration too large");

@@ -1,6 +1,7 @@
 #include "arken_file_conversion_service_v1/payment_journal.hpp"
 #include "arken_file_conversion_service_v1/payment_packet.hpp"
 #include "arken_file_conversion_service_v1/payment_profile.hpp"
+#include "arken_file_conversion_service_v1/public_admission.hpp"
 #include <nlohmann/json.hpp>
 #include <map>
 #include <stdexcept>
@@ -100,10 +101,38 @@ void Tests() {
   Actor secondActor; secondActor.operation.quote.operation[0] = 12; secondActor.nonce = 12;
   secondActor.Step(P::EventKind::request);
   actorFixtures = {{"main", actor.commands}, {"second", secondActor.commands}};
+  const Json quotaCommand{{"kind","reserve"},{"scope",nullptr},{"record",nullptr},
+    {"operation",std::string(64,'e')},{"bytes","22"},{"now","150"}};
+  const auto quota = Json::parse(arken::file_conversion::service::v1::PublicAdmissionPacket(quotaCommand.dump()));
+  const auto quotaLookup = Json::parse(arken::file_conversion::service::v1::PublicAdmissionPacket("{\"kind\":\"lookup\"}"));
+  Check(quota.at("allowed") && quota.at("writes").size()==2,"quota fixture admission");
+  actorFixtures["quota"]={{"command",quotaCommand.dump()},{"expected",quota},
+    {"decision",{{"allowed",quota.at("allowed")},{"replayed",quota.at("replayed")}}},
+    {"actorKey",quotaLookup.at("actorKey")}};
+  const auto quotaScope=quota.at("writes")[1].at("value");
+  Json quotaPage{{"scope",quotaScope},{"after",""},{"limit",16},{"now","300"},{"entries",Json::array()}};
+  const Json quotaRead{{"scope",quotaScope},{"after",""},{"limit",16}};
+  const auto quotaPlan=Json::parse(P::JournalReadPlanPacket(quotaRead.dump()));
+  fixtures.push_back({{"mode",9},{"input",quotaRead.dump()},{"output",quotaPlan.dump()}});
+  Check(quotaPlan.at("actorKind")=="public-upload-budget"&&quotaPlan.at("actorKey")==quotaLookup.at("actorKey"),"quota plan identity");
+  const auto quotaReport=Project(quotaPage);
+  Check(quotaReport.at("actorKind")=="public-upload-budget"&&quotaReport.at("actorKey")==quotaPlan.at("actorKey")&&
+    quotaReport.at("rows").empty()&&quotaReport.at("reachedEnd")&&quotaReport.at("nextCursor").is_null(),"quota report classification");
+  for(unsigned scenario=0;scenario<5;++scenario) {
+    auto invalid=quotaPage;auto role=Json::parse(quotaScope.get<std::string>());
+    if(scenario==0)role["version"]=2;
+    if(scenario==1)role["role"]="unknown";
+    if(scenario==2)role["extra"]=true;
+    invalid["scope"]=role.dump();
+    if(scenario==3)invalid["entries"].push_back(actor.entries.back());
+    if(scenario==4)invalid["after"]="operation/"+std::string(64,'e');
+    Rejected(invalid);
+  }
   for (std::size_t i = 0; i < actor.entries.size(); ++i) {
     const auto packet = actor.Page(actor.entries[i]);
     const auto frozen = actor.storage;
     const auto result = Project(packet); const auto& row = result.at("rows").at(0);
+    Check(result.at("actorKind")=="payment","payment role lost");
     Check(row.at("stage") == stages.at(i), "retained payment stage lost");
     Check(row.at("tool").is_null() && row.at("updatedAt").is_null() && row.at("classification") == "unknown", "invented report metadata");
     Check(row.size() == 13 && !row.contains("authorization") && !row.contains("nonce") && !row.contains("output") && !row.contains("tenant"), "journal projection leaks private state");
@@ -147,7 +176,7 @@ void Tests() {
   Check(Project(paged).at("reachedEnd") && Project(paged).at("rows").at(0).at("operation") == std::string(64, 'f'), "exclusive next page failed");
   paged["entries"] = Json::array(); Check(Project(paged).at("reachedEnd"), "empty scoped tail rejected");
   auto empty = base; empty["scope"] = nullptr; empty["entries"] = Json::array();
-  Check(Project(empty).at("actorKey").is_null() && Project(empty).at("rows").empty(), "empty actor misrepresented");
+  Check(Project(empty).at("actorKind")=="empty" && Project(empty).at("actorKey").is_null() && Project(empty).at("rows").empty(), "empty actor misrepresented");
   empty["after"] = operationKey; Rejected(empty);
   for (unsigned scenario = 0; scenario < 26; ++scenario) {
     auto bad = base;

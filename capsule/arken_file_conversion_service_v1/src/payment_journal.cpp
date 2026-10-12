@@ -4,6 +4,7 @@
 #include "arken_schema_cpp_v1/tool_json.hpp"
 #include "payment_json.hpp"
 #include "payment_journal_internal.hpp"
+#include "payment_actor_roles.hpp"
 #include <algorithm>
 #include <stdexcept>
 
@@ -29,6 +30,7 @@ using detail::JournalOperationKey;
 struct Page {
   std::optional<Scope> scope;
   std::string actorKey, after;
+  std::string_view actorKind = "empty";
   std::uint32_t limit;
   explicit Page(const Json& input)
       : after(J::readScalar<std::string>(input.at("after"))),
@@ -37,11 +39,18 @@ struct Page {
     J::require(after.empty() || JournalOperationKey(after), "journal cursor");
     if (!input.at("scope").is_null()) {
       const auto stored = Parse(J::readScalar<std::string>(input.at("scope")), 512);
+      if (stored == detail::PublicUploadActorRole()) {
+        J::require(after.empty(), "nonpayment journal cursor");
+        actorKind = "public-upload-budget";
+        actorKey = detail::publicUploadActorKey;
+        return;
+      }
       Fields(stored, {"chain", "asset", "payer"});
       scope = Scope{J::readScalar<std::uint32_t>(stored.at("chain")), ReadAddress(stored.at("asset")), ReadAddress(stored.at("payer"))};
       Quote quote; quote.scope = *scope;
       J::require(PaymentProfileForQuote(quote).has_value(), "unsupported journal scope");
       actorKey = std::to_string(scope->chain) + "/" + Hex(scope->asset) + "/" + Hex(scope->payer);
+      actorKind = "payment";
     } else J::require(after.empty(), "unscoped journal cursor");
   }
 };
@@ -91,7 +100,7 @@ std::string JournalReadPlanPacket(std::string_view text) noexcept {
     Fields(input, {"scope", "after", "limit"});
     const Page page(input);
     return Json{{"schema", "arken.convert.payment-journal-read.v1"}, {"scopeKey", "scope"},
-      {"actorKey", page.scope ? Json(page.actorKey) : Json(nullptr)}, {"prefix", "operation/"},
+      {"actorKind", page.actorKind}, {"actorKey", page.actorKey.empty() ? Json(nullptr) : Json(page.actorKey)}, {"prefix", "operation/"},
       {"after", page.after}, {"limit", page.limit + 1}}.dump();
   } catch (const std::exception&) { return "{\"packetError\":\"invalid_payment_journal_plan\"}"; }
   catch (...) { return "{\"packetError\":\"payment_journal_unavailable\"}"; }
@@ -118,7 +127,7 @@ std::string JournalProjectPacket(std::string_view text) noexcept {
     }
     const bool reachedEnd = entries.size() <= page.limit;
     return Json{{"schema", "arken.convert.payment-journal-page.v1"}, {"service", "convert"},
-      {"actorKey", page.scope ? Json(page.actorKey) : Json(nullptr)},
+      {"actorKind", page.actorKind}, {"actorKey", page.actorKey.empty() ? Json(nullptr) : Json(page.actorKey)},
       {"observedAt", J::writeScalar(now)}, {"after", page.after}, {"limit", page.limit},
       {"nextCursor", reachedEnd ? Json(nullptr) : Json(last)}, {"reachedEnd", reachedEnd},
       {"snapshot", "actor-live-page"}, {"evidence", "retained-payment-records"},
