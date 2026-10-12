@@ -20,6 +20,16 @@ foreach(file runtime.js worker.js payment_ledger.js x402_facilitator.js paid_con
 endforeach()
 include("${CMAKE_CURRENT_LIST_DIR}/stage_production_package.cmake")
 stage_conversion_production_package("${run}")
+file(WRITE "${run}/ledger_subject.js" "export {ConversionPaymentLedger} from './payment_ledger.js';\n")
+set(candidate_report_modules "")
+if(JOURNAL_PACKAGE)
+ if(STAGED_STATE)
+  message(FATAL_ERROR "Choose one exact candidate or staged package authority")
+ endif()
+ include("${CMAKE_CURRENT_LIST_DIR}/stage_journal_candidate.cmake")
+ stage_conversion_journal_candidate("${run}")
+ file(WRITE "${run}/ledger_subject.js" "export {ConversionPaymentLedger} from './production_worker.js';\n")
+endif()
 file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/payment_actor_tests.js" "${run}/tests.js")
 file(COPY_FILE "${ACTOR_FIXTURES}" "${run}/payment-actor-fixtures.json")
 file(COPY_FILE "${X402_FIXTURES}" "${run}/x402-fixtures.json")
@@ -43,6 +53,8 @@ const config :Workerd.Config = (
  services=[(name="tests",worker=(
   compatibilityDate="2026-09-11",
   modules=[(name="tests.js",esModule=embed "tests.js"),
+           (name="ledger_subject.js",esModule=embed "ledger_subject.js"),
+           @candidate_report_modules@
            (name="payment_ledger.js",esModule=embed "payment_ledger.js"),
            (name="runtime.js",esModule=embed "runtime.js"),
            (name="bounded_body.js",esModule=embed "bounded_body.js"),
@@ -107,7 +119,7 @@ file(READ "${run}/x402-fixtures.json" x402_fixtures)
 string(JSON x402_vectors LENGTH "${x402_fixtures}" vectors)
 string(JSON paid_vectors LENGTH "${x402_fixtures}" paidVectors)
 set(source_hashes "{}")
-foreach(file runtime.js worker.js payment_ledger.js x402_facilitator.js paid_conversion.js sandbox_worker.js bounded_body.js settlement_reconciliation.js public_admission.js cdp_authorization.js cdp_authorization_tests.js mainnet_profile_tests.js production_worker.js production_startup.js production_http_tests.js tests.js x402_actor_tests.js paid_http_tests.js r2_bucket_fixture.js payment_recovery_actor_tests.js settlement_chain_fixture.js public_admission_actor_tests.js public_http_tests.js)
+foreach(file runtime.js worker.js payment_ledger.js x402_facilitator.js paid_conversion.js sandbox_worker.js bounded_body.js settlement_reconciliation.js public_admission.js cdp_authorization.js cdp_authorization_tests.js mainnet_profile_tests.js production_worker.js production_startup.js production_http_tests.js tests.js ledger_subject.js x402_actor_tests.js paid_http_tests.js r2_bucket_fixture.js payment_recovery_actor_tests.js settlement_chain_fixture.js public_admission_actor_tests.js public_http_tests.js ${candidate_report_names})
   file(SHA256 "${run}/${file}" source_hash)
   string(JSON source_hashes SET "${source_hashes}" "${file}" "\"${source_hash}\"")
 endforeach()
@@ -136,6 +148,11 @@ if(STAGED_STATE)
   string(JSON proof SET "${proof}" productionPackageHashes "${production_package_hashes}")
   string(JSON proof SET "${proof}" productionPackageSha256 "\"${production_package_sha256}\"")
   string(JSON proof SET "${proof}" productionStagePlanSha256 "\"${production_stage_plan_sha256}\"")
+endif()
+if(JOURNAL_PACKAGE)
+ string(JSON proof SET "${proof}" candidateSha256 "\"${candidate_hash}\"")
+ string(JSON proof SET "${proof}" candidateFiles "${candidate_files}")
+ string(JSON proof SET "${proof}" productionActorExportQualified true)
 endif()
 file(WRITE "${run}/proof.json" "${proof}\n")
 file(COPY_FILE "${run}/proof.json" "${OUTPUT}/proof.json")

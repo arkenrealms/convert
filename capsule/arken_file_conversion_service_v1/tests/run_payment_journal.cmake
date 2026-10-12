@@ -9,10 +9,14 @@ if(EXISTS "${OUTPUT}")
 endif()
 file(MAKE_DIRECTORY "${OUTPUT}")
 execute_process(COMMAND "${PAYMENT_TESTS}" --version --invalid RESULT_VARIABLE status OUTPUT_VARIABLE version TIMEOUT 5)
-if(NOT status EQUAL 0 OR NOT version MATCHES "^arken-conversion-payment-tests r5726")
+if(NOT status EQUAL 0 OR NOT version MATCHES "^arken-conversion-payment-tests r5729")
   message(FATAL_ERROR "Incorrect native payment journal owner")
 endif()
-execute_process(COMMAND "${PAYMENT_TESTS}" --write-fixtures "${OUTPUT}" RESULT_VARIABLE status OUTPUT_VARIABLE native ERROR_VARIABLE error TIMEOUT 15)
+set(configuration_argument)
+if(JOURNAL_PACKAGE)
+ set(configuration_argument "${JOURNAL_PACKAGE}/configuration.json")
+endif()
+execute_process(COMMAND "${PAYMENT_TESTS}" --write-fixtures "${OUTPUT}" ${configuration_argument} RESULT_VARIABLE status OUTPUT_VARIABLE native ERROR_VARIABLE error TIMEOUT 15)
 file(WRITE "${OUTPUT}/native.log" "${native}${error}")
 if(NOT status EQUAL 0)
   message(FATAL_ERROR "Native payment journal proof failed: ${error}")
@@ -47,6 +51,17 @@ arken_cdp_transport_stage_worker("${OUTPUT}")
 foreach(name journal_worker.js journal_ledger.js journal_report_runtime.js)
  file(COPY_FILE "${CMAKE_CURRENT_LIST_DIR}/../platform/cloudflare/${name}" "${OUTPUT}/${name}")
 endforeach()
+file(WRITE "${OUTPUT}/report_subject.js" [=[
+export {ConversionJournalLedger as SubjectLedger} from './journal_ledger.js';
+import {withConversionJournalReport} from './journal_worker.js';
+export const createReportSubject=clock=>withConversionJournalReport({fetch:async()=>new Response('public-route-retained',{status:202})},{clock});
+export async function provePublicPassthrough(worker,env){return {passed:(await worker.fetch(new Request('https://convert.mcp.arken.gg/v1'),env)).status===202,productionEntry:false};}
+]=])
+set(extra_modules "")
+if(JOURNAL_PACKAGE)
+ include("${CMAKE_CURRENT_LIST_DIR}/stage_journal_candidate.cmake")
+ stage_conversion_journal_candidate("${OUTPUT}")
+endif()
 file(READ "${OUTPUT}/payment-journal-access-fixtures.json" fixtures)
 string(JSON configuration GET "${fixtures}" seed admission serviceConfiguration)
 file(WRITE "${OUTPUT}/report-configuration.json" "${configuration}")
@@ -59,6 +74,8 @@ const config:Workerd.Config=(services=[(name="tests",worker=(compatibilityDate="
  (name="payment-journal-access-fixtures.json",text=embed "payment-journal-access-fixtures.json"),
  (name="payment-journal-actors.json",text=embed "payment-journal-actors.json"),
  (name="payment_journal_http.js",esModule=embed "payment_journal_http.js"),
+ (name="report_subject.js",esModule=embed "report_subject.js"),
+ @extra_modules@
  (name="journal_worker.js",esModule=embed "journal_worker.js"),
  (name="journal_ledger.js",esModule=embed "journal_ledger.js"),
  (name="journal_report_runtime.js",esModule=embed "journal_report_runtime.js"),
@@ -89,7 +106,13 @@ foreach(phase write read)
  if(NOT status EQUAL 0)
   message(FATAL_ERROR "Convert report ${phase} proof failed: ${report}${error}")
  endif()
- string(STRIP "${report}" report)
+ string(REGEX MATCHALL "ARKEN_CONVERT_REPORT_PROOF [^\r\n]+" records "${report}")
+ list(LENGTH records record_count)
+ if(NOT record_count EQUAL 1)
+  message(FATAL_ERROR "Expected exactly one owned report proof record")
+ endif()
+ list(GET records 0 record)
+ string(REGEX REPLACE "^ARKEN_CONVERT_REPORT_PROOF " "" report "${record}")
  string(JSON passed GET "${report}" status)
  if(NOT passed STREQUAL "passed")
   message(FATAL_ERROR "Convert report acceptance absent")
@@ -105,5 +128,12 @@ foreach(name conversion.wasm runtime.js payment_ledger.js public_admission.js co
   file(SHA256 "${OUTPUT}/${name}" hash)
   string(JSON report SET "${report}" "${name}" "\"${hash}\"")
 endforeach()
+file(SHA256 "${OUTPUT}/report_subject.js" subject_hash)
+string(JSON report SET "${report}" report_subject.js "\"${subject_hash}\"")
+if(JOURNAL_PACKAGE)
+ string(JSON report SET "${report}" candidateSha256 "\"${candidate_hash}\"")
+ string(JSON report SET "${report}" candidateFiles "${candidate_files}")
+ string(JSON report SET "${report}" productionEntryQualified true)
+endif()
 file(WRITE "${OUTPUT}/proof.json" "${report}\n")
 message(STATUS "Convert report companion proof: ${OUTPUT}/proof.json")

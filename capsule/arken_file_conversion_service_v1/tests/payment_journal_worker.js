@@ -50,7 +50,7 @@ export const journal = {async test(_controller,env) {
   for(let i=0;i<100;++i)check(packet(10,sample.input)===sample.output,'Repeated journal read changed');
   check(abi.memory.buffer.byteLength===memory&&memory<=16777216,'Report memory did not stabilize');
   const http=await proveConversionJournalHttp(env);
-  console.log(JSON.stringify({status:'passed',checks,packets,frozenTransitions,wasmBytes:memory,http,
+  console.log('ARKEN_CONVERT_REPORT_PROOF '+JSON.stringify({status:'passed',checks,packets,frozenTransitions,wasmBytes:memory,http,
     hostImports:0,paidModuleRebuilt:false,reportStorageWrites:0,fixtureStorageWrites:http.fixtureStorageWrites,networkRequests:0,financialEffects:0,
     evidence:'codec-parity-and-protected-durable-http',productionDeployed:false}));
 }};
