@@ -147,6 +147,7 @@ Server::Server(ServerDescription description)
     // Dispatch only needs identity. Retaining the original schemas here would
     // duplicate the immutable tools projection and amplify Wasm startup heap.
     commands_.push_back({{"commandId",id},{"name",name}});
+    summaryTools_.push_back({publicName,name});
     if(presentation->requestMaximumBytes)
       tools_.back()["_meta"]={{"arken/requestMaximumBytes",presentation->requestMaximumBytes}};
   }

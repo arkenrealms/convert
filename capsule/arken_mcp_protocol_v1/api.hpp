@@ -2,6 +2,7 @@
 #include "arken_schema_cpp_v1/tool_json.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -51,6 +52,14 @@ struct RequestPlan {
   Json metadata;
 };
 
+// Trusted native catalog identities, never assembled from a caller request.
+// The observation contract is separate from dispatch and grants no authority.
+struct CallSummaryTool {
+  std::string publicName, canonicalName;
+};
+[[nodiscard]] Json summarizeCall(const Json&, std::string_view serviceId,
+                                 int httpStatus, std::span<const CallSummaryTool>);
+
 // Pure protocol planning. A tool call never executes, authenticates, reserves a
 // budget or starts a provider here. The owning domain must admit it separately.
 class Server {
@@ -70,6 +79,7 @@ public:
 private:
   ServerDescription description_;
   Json commands_, tools_;
+  std::vector<CallSummaryTool> summaryTools_;
 };
 
 [[nodiscard]] Json parseRequestJson(std::string_view);
