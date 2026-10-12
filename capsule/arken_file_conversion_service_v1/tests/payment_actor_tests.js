@@ -9,7 +9,8 @@ export {cdpAuthorization} from './cdp_authorization_tests.js';
 export {mainnetProfile} from './mainnet_profile_tests.js';
 export {productionHttp} from './production_http_tests.js';
 import {commitPublicReservation} from './public_admission.js';
-import {ConversionPaymentLedger,commitPaymentTransition,commitPaymentDispatch,paymentLedger} from './payment_ledger.js';
+import {ConversionPaymentLedger} from './ledger_subject.js';
+import {commitPaymentTransition,commitPaymentDispatch,paymentLedger} from './payment_ledger.js';
 import {paymentStorageLookup} from './runtime.js';
 
 const fixtures=JSON.parse(fixtureText),s=fixtures.scenarios,c=fixtures.constants;

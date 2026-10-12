@@ -24,10 +24,10 @@ Json Run(unsigned mode, const std::string& input) {
   return Json::parse(output);
 }
 }
-unsigned PaymentJournalAccessTests() {
+unsigned PaymentJournalAccessTests(std::string_view selectedConfiguration) {
   checks = 0; vectors = Json::array();
-  const auto configuration = Json{{"schema", "arken.convert.journal-configuration.v1"},
-    {"origin", "https://convert.mcp.arken.gg"}, {"namespaceId", std::string(32, '1')}}.dump();
+  const auto configuration = selectedConfiguration.empty() ? Json{{"schema", "arken.convert.journal-configuration.v1"},
+    {"origin", "https://convert.mcp.arken.gg"}, {"namespaceId", std::string(32, '1')}}.dump() : std::string(selectedConfiguration);
   const std::string token(64, '2');
   const Json grant{{"schema", "arken.convert.journal-read-grant.v1"}, {"grantId", std::string(64, '3')},
     {"configurationSha256", Hash(configuration)}, {"credentialDigest", Hash(token)}, {"notBefore", "100"}, {"expires", "200"}};

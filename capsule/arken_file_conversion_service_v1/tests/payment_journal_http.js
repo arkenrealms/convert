@@ -2,10 +2,9 @@
 // These credentials and storage mutation methods exist only in isolated proof.
 import accessText from './payment-journal-access-fixtures.json';
 import actorText from './payment-journal-actors.json';
-import {ConversionJournalLedger} from './journal_ledger.js';
-import {withConversionJournalReport} from './journal_worker.js';
+import {SubjectLedger,createReportSubject,provePublicPassthrough} from './report_subject.js';
 import {paymentStorageLookup} from './runtime.js';
-export class JournalLedger extends ConversionJournalLedger {
+export class JournalLedger extends SubjectLedger {
  async storedRows(){return Array.from(await this.ctx.storage.list());}
  async seedRows(rows){for(const [key,value] of rows)await this.ctx.storage.put(key,value);await this.ctx.storage.sync();return rows.length;}
  async instance(){
@@ -32,7 +31,7 @@ export async function proveConversionJournalHttp(env){
  const originalNamespace=env.PAYMENT_LEDGER;
  const testEnv={...env,CONVERT_REPORT_CONTROL:seed.admission.reportConfiguration,
   PAYMENT_LEDGER:{idFromString:value=>originalNamespace.idFromString(value),get:value=>{++actorCalls;return originalNamespace.get(value);}}};
- const worker=withConversionJournalReport({fetch:async()=>new Response('public-route-retained',{status:202})},{clock:()=>now});
+ const worker=createReportSubject(()=>now);
  const path=seed.admission.request.path,origin=seed.admission.request.origin;
  const request=({headers={},body=JSON.stringify({...seed.body,actorId}),method='POST',route=path}={})=>new Request(origin+route,{method,
   headers:{'content-type':'application/json',authorization:seed.admission.request.authorization,...headers},...(method==='POST'?{body}:{})});
@@ -44,7 +43,8 @@ export async function proveConversionJournalHttp(env){
   check((await call({body})).status===400,'Malformed page admitted');
  check((await call({body:' '.repeat(1025)})).status===503,'Oversized body admitted');
  check(actorCalls===0,'Denied request reached storage');
- check((await call({route:'/v1'})).status===202,'Public route intercepted');
+ const publicEvidence=await provePublicPassthrough(worker,testEnv);
+ check(publicEvidence.passed,'Public route intercepted');
  const response=await call({body:JSON.stringify({actorId,after:'',limit:1})}),first=await response.json();
  check(response.status===200&&response.headers.get('cache-control')==='no-store'&&!response.headers.has('access-control-allow-origin'),'Private response headers');
  check(first.schema==='arken.convert.payment-journal-page.v1'&&first.rows.length===1&&!first.reachedEnd&&first.nextCursor,'First page');
@@ -84,7 +84,7 @@ export async function proveConversionJournalHttp(env){
  testEnv.PAYMENT_LEDGER=namespace;
  check((await call()).status===200,'Report lease not released');
  equal(await actor.storedRows(),JSON.parse(before),'Report changed durable payment bytes');
- return {status:'passed',phase:env.PHASE,checks,rows:rows.length,actorCalls,storageUnchanged:true,
+ return {status:'passed',phase:env.PHASE,checks,rows:rows.length,actorCalls,storageUnchanged:true,publicEvidence,
   storage:'workerd-disk-backed-durable-objects',originalPaidEngine:true,networkRequests:0,financialEffects:0,
   reportStorageWrites:0,fixtureStorageWrites,fixtureSeedingOnly:true,processRestartProved:env.PHASE==='read',productionDeployed:false};
 }

@@ -12,7 +12,7 @@ unsigned PaymentRecoveryTests();
 unsigned PaymentJournalTests();
 std::string PaymentJournalFixtures();
 std::string PaymentJournalActorFixtures();
-unsigned PaymentJournalAccessTests();
+unsigned PaymentJournalAccessTests(std::string_view configuration);
 std::string PaymentJournalAccessFixtures();
 namespace {
 unsigned checks=0;
@@ -163,9 +163,14 @@ Json ActorFixtures(){
   return fixtures;
 }
 }
-int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-payment-tests r5726\n";return 0;}
-  try{Check(argc==1||(argc==3&&std::string_view(argv[1])=="--write-fixtures"),"invalid arguments");Tests();checks+=PaymentRecoveryTests();checks+=PaymentJournalTests();checks+=PaymentJournalAccessTests();const auto actors=ActorFixtures();
-    if(argc==3){const std::filesystem::path dir(argv[2]);std::filesystem::create_directories(dir);
+int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-payment-tests r5729\n";return 0;}
+  try{Check(argc==1||((argc==3||argc==4)&&std::string_view(argv[1])=="--write-fixtures"),"invalid arguments");
+    std::string configuration;
+    if(argc==4){Check(std::filesystem::file_size(argv[3])<=1024,"journal configuration too large");
+      std::ifstream input(argv[3],std::ios::binary);Check(bool(input),"journal configuration unavailable");
+      configuration.assign(std::istreambuf_iterator<char>(input),{});Check(!configuration.empty(),"journal configuration empty");}
+    Tests();checks+=PaymentRecoveryTests();checks+=PaymentJournalTests();checks+=PaymentJournalAccessTests(configuration);const auto actors=ActorFixtures();
+    if(argc>=3){const std::filesystem::path dir(argv[2]);std::filesystem::create_directories(dir);
       std::ofstream out(dir/"payment-packets.json",std::ios::binary);out<<packets.dump();Check(bool(out),"packet fixture write failed");
       std::ofstream actorOut(dir/"payment-actor-fixtures.json",std::ios::binary);actorOut<<actors.dump();Check(bool(actorOut),"actor fixture write failed");
       std::ofstream journalOut(dir/"payment-journal-fixtures.json",std::ios::binary);journalOut<<PaymentJournalFixtures();Check(bool(journalOut),"journal fixture write failed");
