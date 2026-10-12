@@ -2,7 +2,7 @@ include_guard(GLOBAL)
 # Stable browser substrates use the native compiler and an explicitly imported
 # browser capability surface. This does not compile authored LiveMachine programs.
 function(arken_browser_cpp_reactor target)
-    cmake_parse_arguments(ARG "NO_HOST_IO" "MAX_MEMORY_BYTES;STACK_BYTES" "" ${ARGN})
+    cmake_parse_arguments(ARG "NO_HOST_IO" "MAX_MEMORY_BYTES;STACK_BYTES" "EXPORT_FUNCTIONS" ${ARGN})
     if(ARG_UNPARSED_ARGUMENTS OR ARG_KEYWORDS_MISSING_VALUES)
         message(FATAL_ERROR "${target}: unknown or incomplete reactor profile arguments")
     endif()
@@ -42,8 +42,19 @@ function(arken_browser_cpp_reactor target)
         endforeach()
     endif()
     set_target_properties(${target} PROPERTIES SUFFIX .wasm)
-    target_link_options(${target} PRIVATE -Wl,--export-dynamic -Wl,--export=malloc
-        -Wl,--export=free "-Wl,--max-memory=${ARG_MAX_MEMORY_BYTES}" "-Wl,-z,stack-size=${ARG_STACK_BYTES}")
+    if(DEFINED ARG_EXPORT_FUNCTIONS)
+        # Restricted companions expose only their explicitly owned byte ABI.
+        # Existing runtime consumers retain the established dynamic exports.
+        foreach(symbol IN LISTS ARG_EXPORT_FUNCTIONS)
+            if(NOT symbol MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
+                message(FATAL_ERROR "${target}: invalid EXPORT_FUNCTIONS symbol ${symbol}")
+            endif()
+            target_link_options(${target} PRIVATE "-Wl,--export=${symbol}")
+        endforeach()
+    else()
+        target_link_options(${target} PRIVATE -Wl,--export-dynamic -Wl,--export=malloc -Wl,--export=free)
+    endif()
+    target_link_options(${target} PRIVATE "-Wl,--max-memory=${ARG_MAX_MEMORY_BYTES}" "-Wl,-z,stack-size=${ARG_STACK_BYTES}")
 endfunction()
 
 # Native-compiled browser test entry shared by concrete capsule conformance
