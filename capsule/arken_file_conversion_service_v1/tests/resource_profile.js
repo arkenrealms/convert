@@ -1,6 +1,6 @@
 // Real candidate actions and assertions. Image codecs, payment and report
 // decisions remain in the frozen C++ modules. Native CDP owns memory accounting.
-import {productionHttp} from './production_http_tests.js';
+import {proveProductionHttp} from './production_http_tests.js';
 import {proveConversionJournalHttp} from './payment_journal_http.js';
 import {convertImage} from './runtime.js';
 import fixtureText from './startup-fixtures.json';
@@ -19,7 +19,7 @@ export default {async fetch(request,env){try{
  else if(phase==='/calibrate-wasm')calibrationWasm=new WebAssembly.Memory({initial:128,maximum:128});
  else if(phase==='/production'){
   check(!production,'Production resource workload repeated');
-  await productionHttp.test(null,{...env,PHASE:'write'},retain);production=true;
+  await proveProductionHttp({...env,PHASE:'write'},retain);production=true;
  }else if(phase==='/journal'){
   check(production&&!journal,'Journal resource workload order');
   result=await proveConversionJournalHttp({...env,PHASE:'write'},retain);journal=true;

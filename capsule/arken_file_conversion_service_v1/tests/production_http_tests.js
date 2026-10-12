@@ -11,7 +11,7 @@ const headers={'content-type':'application/json',accept:'application/json, text/
 const req=(method,params)=>new Request('https://production.example/mcp',{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
 const tga=new Uint8Array([0,0,2,0,0,0,0,0,0,0,0,0,1,0,1,0,32,40,30,20,10,255]);
 const hex=b=>Array.from(new Uint8Array(b),x=>x.toString(16).padStart(2,'0')).join('');
-export const productionHttp={async test(_controller,bindings,retainWorker){
+export async function proveProductionHttp(bindings,retainWorker){
   for(const v of f.vectors)check(JSON.stringify(productionStartupPacket(v.input))===JSON.stringify(v.expected),'native/Wasm startup mismatch');
   for(const v of f.qualificationVectors)check(JSON.stringify(productionQualificationPacket(v.input))===JSON.stringify(v.expected),'native/Wasm qualification mismatch');
   for(const v of f.surfaces)check(JSON.stringify(serverSurface(v.input))===JSON.stringify(v.expected),'native/Wasm surface mismatch');
@@ -115,4 +115,5 @@ export const productionHttp={async test(_controller,bindings,retainWorker){
   let release;waitProbe=new Promise(r=>{release=r;});const changing=startup.ensure(env);env.RELEASE_ID='c'.repeat(64);release();
   check(!(await changing).ready&&!startup.status(env).ready,'late startup admitted changed configuration');
   console.log('Production HTTP passed: static/disabled/failed/ready/cache/expiry/config-change, actual C++ PNG, mocked mainnet payment, retained paid results after disable and artifact/HMAC isolation. No real credentials or payments.');
-}};
+}
+export const productionHttp={async test(_controller,bindings){return proveProductionHttp(bindings);}};
