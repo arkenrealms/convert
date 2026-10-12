@@ -11,7 +11,7 @@ const headers={'content-type':'application/json',accept:'application/json, text/
 const req=(method,params)=>new Request('https://production.example/mcp',{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
 const tga=new Uint8Array([0,0,2,0,0,0,0,0,0,0,0,0,1,0,1,0,32,40,30,20,10,255]);
 const hex=b=>Array.from(new Uint8Array(b),x=>x.toString(16).padStart(2,'0')).join('');
-export const productionHttp={async test(_controller,bindings){
+export const productionHttp={async test(_controller,bindings,retainWorker){
   for(const v of f.vectors)check(JSON.stringify(productionStartupPacket(v.input))===JSON.stringify(v.expected),'native/Wasm startup mismatch');
   for(const v of f.qualificationVectors)check(JSON.stringify(productionQualificationPacket(v.input))===JSON.stringify(v.expected),'native/Wasm qualification mismatch');
   for(const v of f.surfaces)check(JSON.stringify(serverSurface(v.input))===JSON.stringify(v.expected),'native/Wasm surface mismatch');
@@ -43,6 +43,7 @@ export const productionHttp={async test(_controller,bindings){
     settles++;check(env.FILES.outputWrites>0,'settlement preceded output');
     return new Response(JSON.stringify({success:true,payer,network:'eip155:8453',transaction:'0x'+'af'.repeat(32)}));
   }});
+  retainWorker?.(app);
   const call=async(name,args,payment)=>(await (await app.fetch(req('tools/call',{name,arguments:args,...(payment?{_meta:{'x402/payment':payment}}:{})}),env)).json()).result;
   const health=async()=>(await app.fetch(new Request('https://production.example/health'),env)).json();
   const init=await (await app.fetch(req('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'fixture',version:'1'}}),{})).json();
