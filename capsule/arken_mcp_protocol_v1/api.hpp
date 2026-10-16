@@ -30,6 +30,9 @@ struct ToolPresentation {
   std::string description;
   // Trusted optional full-envelope restriction; zero inherits the server.
   std::size_t requestMaximumBytes = 0;
+  // Optional trusted presentation name (for aggregate family prefixes). Only
+  // this spelling is accepted on the wire; canonical dispatch is unchanged.
+  std::string publicName{};
 };
 struct ServerDescription {
   std::string name, version, instructions;
