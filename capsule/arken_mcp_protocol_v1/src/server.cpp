@@ -130,7 +130,12 @@ Server::Server(ServerDescription description)
                "unknown idempotency");
     J::require(!presentation->readOnly || idempotency == "safe",
                "read-only presentation requires safe command");
-    const auto publicName=description_.toolNameStyle==ToolNameStyle::familyLocal?shortToolName(name):name;
+    const auto publicName=!presentation->publicName.empty()?presentation->publicName:
+      description_.toolNameStyle==ToolNameStyle::familyLocal?shortToolName(name):name;
+    if(!presentation->publicName.empty())
+      J::require(publicName.size()<=128&&std::all_of(publicName.begin(),publicName.end(),[](char c){
+        return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-';
+      }),"invalid explicit public tool name");
     J::require(publicNames.insert(publicName).second,"duplicate public tool name");
     Json tool{{"name", publicName},
                       {"description", presentation->description.empty()
