@@ -33,7 +33,8 @@ export const paidHttp={async test(_controller,bindings){
     if(lose)throw Error('fixture_settlement_reply_lost');
     return {status:200,body:JSON.stringify({success:true,payer,network:'eip155:84532',transaction:'0x'+'af'.repeat(32)})};
   }});
-  const app=createWorker(adapter),peer=createWorker(adapter);
+  const observations=[],emitCallSummary=value=>observations.push(value);
+  const app=createWorker(adapter,{emitCallSummary}),peer=createWorker(adapter,{emitCallSummary});
   const rpc=async(method,params,id=1)=>(await app.fetch(request(method,params,id),env)).json();
   const call=async(name,args,payment=null)=>rpc('tools/call',{name,arguments:args,...(payment?{_meta:{'x402/payment':payment}}:{})});
   const upload=async(bytes=tga)=>{
@@ -53,6 +54,10 @@ export const paidHttp={async test(_controller,bindings){
   check(init.result.serverInfo.name==='Arken Convert','public MCP name');
   const listed=await rpc('tools/list',{});check(listed.result.tools.find(t=>t.name==='convert_image').annotations.openWorldHint,'paid network annotation');
   const lease=await upload(),payment=await challenge(lease);
+  const quoteRecords=observations.slice(-3),quoteContext=quoteRecords[1],quoteLink=quoteRecords[2];
+  check(quoteRecords[0].schema==='arken.mcp.call.v1'&&quoteContext.schema==='arken.mcp.cost-context.v1'&&quoteLink.schema==='arken.mcp.operation-cost-link.v1','native quote observation records');
+  check(quoteContext.service==='convert'&&quoteContext.command==='conversion.v1.convert_image'&&quoteContext.exchangeKind==='quote'&&quoteContext.release===env.RELEASE_ID&&quoteContext.httpStatus===200,'quote cost classification');
+  check(Object.keys(quoteContext).length===7&&Object.keys(quoteLink).length===3&&quoteLink.service==='convert'&&/^[a-f0-9]{64}$/.test(quoteLink.operation)&&!JSON.stringify(quoteRecords).includes(lease.file_id),'quote observation leaked file identity');
   check((env.FILES.bodyReads.input||0)===0,'payment challenge opened image body');
   const free=createWorker();
   check((await (await free.fetch(request('tools/call',{name:'convert_image',arguments:{file_id:lease.file_id}}),env)).json()).result.isError,'preview bypassed sandbox namespace');
@@ -63,6 +68,7 @@ export const paidHttp={async test(_controller,bindings){
   const complete=await call('convert_image',{file_id:lease.file_id},payment);
   check(complete.result._meta?.['x402/payment-response'].success,'paid receipt absent');
   const receipt=complete.result.structuredContent;
+  check(!JSON.stringify(complete).includes('arken.mcp.cost-context.v1')&&!JSON.stringify(complete).includes('arken.mcp.operation-cost-link.v1'),'private observations leaked into public receipt');
   check(receipt.width===1&&receipt.height===1&&verifies===1&&settles===1,'paid conversion identity');
   check(env.FILES.bodyReads.input===1&&(env.FILES.bodyReads.output||0)===0,'paid metadata inspection opened image bodies');
   const download=await app.fetch(new Request(receipt.download_url),env),bytes=new Uint8Array(await download.arrayBuffer());
@@ -72,8 +78,10 @@ export const paidHttp={async test(_controller,bindings){
   now++;
   const repeated=await call('convert_image',{file_id:lease.file_id},payment);
   check(JSON.stringify(repeated.result)===JSON.stringify(complete.result)&&settles===1&&env.FILES.outputWrites===1,'paid reply replay changed');
+  check(observations.at(-2).exchangeKind==='operation'&&JSON.stringify(observations.at(-1))===JSON.stringify(quoteLink),'replay cost link changed or was classified as a quote');
   env.RELEASE_ID='09'.repeat(32);
   check(JSON.stringify((await call('convert_image',{file_id:lease.file_id})).result)===JSON.stringify(complete.result),'completed receipt lost across release');
+  check(observations.at(-2).release===env.RELEASE_ID&&observations.at(-2).exchangeKind==='operation'&&JSON.stringify(observations.at(-1))===JSON.stringify(quoteLink),'replay observation lost executing release or stable operation');
   env.RELEASE_ID='07'.repeat(32);
   const other=structuredClone(payment);other.payload.authorization.from='0x'+'13'.repeat(20);
   check((await call('convert_image',{file_id:lease.file_id},other)).result.isError&&settles===1,'second payer rebound same file');

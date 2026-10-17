@@ -11,6 +11,8 @@ namespace arken::file_conversion::service::v1 {
 // Private completion metadata only; malformed/oversized input returns null.
 // Does not plan or execute a command, inspect storage, or admit payment.
 [[nodiscard]] std::string CallSummary(std::string_view request, int httpStatus) noexcept;
+// Private completion metadata; never part of the public JSON-RPC response.
+[[nodiscard]] std::string CostContextPacket(std::string_view packet) noexcept;
 // Native admission against the immutable upload options, before any payment or
 // result lookup. Pair tools share the generic file/quote identity, not a new job.
 [[nodiscard]] std::string ConversionTargetPacket(std::string_view json) noexcept;

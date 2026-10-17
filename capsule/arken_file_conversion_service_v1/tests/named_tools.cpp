@@ -16,6 +16,12 @@ void NamedToolsTest() {
       {"params",{{"name",name},{"arguments",args},{"_meta",metadata}}}}.dump();
   };
   const Json target={{"file_id",std::string(64,'1')},{"file_token",std::string(64,'2')}};
+  const auto cost=[&](const std::string& request){return Json::parse(Service::CostContextPacket(Json{{"request",request},
+    {"release",std::string(64,'a')},{"exchangeKind","operation"},{"httpStatus",503}}.dump()));};
+  const auto metadata=cost(call("png_to_jpeg",target));
+  Require(metadata.size()==7&&metadata.at("command")=="conversion.v1.png_to_jpeg"&&metadata.at("httpStatus")==503&&
+    metadata.dump().find(std::string(64,'1'))==std::string::npos&&metadata.dump().find(std::string(64,'2'))==std::string::npos,"cost_context_capability_leak");
+  Require(cost(call("png_to_jpeg",{{"file_id","SECRET"}})).is_null()&&cost(call("unknown",target)).is_null(),"cost_context_unvalidated_command");
   // Private telemetry is a disclosure boundary: hostile values must never
   // become log labels, and classification must not alter public admission.
   const std::string privateMarker="PRIVATE_SOURCE_TOKEN_PAYMENT";

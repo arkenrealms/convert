@@ -60,6 +60,13 @@ struct RequestPlan {
 struct CallSummaryTool {
   std::string publicName, canonicalName;
 };
+enum class CostExchange { operation, quote };
+// Private metadata only. The operation digest must already be one-way; never
+// pass a public file/operation capability as operationDigest.
+[[nodiscard]] Json operationCostLink(std::string_view serviceId, std::string_view operationDigest);
+// Domain separation shared by file owners and protected receipt readers.
+// The caller hashes the returned preimage with its existing SHA-256 owner.
+[[nodiscard]] std::string operationCostPreimage(std::string_view serviceId, std::string_view operationId);
 [[nodiscard]] Json summarizeCall(const Json&, std::string_view serviceId,
                                  int httpStatus, std::span<const CallSummaryTool>);
 
@@ -78,6 +85,9 @@ public:
   // Non-object envelopes or invalid owner/status inputs produce null.
   [[nodiscard]] Json callSummary(const Json& request, std::string_view serviceId,
                                  int httpStatus) const;
+  [[nodiscard]] Json costContext(std::uint32_t commandId, std::string_view serviceId,
+                                std::string_view release, std::size_t canonicalArgumentBytes,
+                                CostExchange exchange, int httpStatus) const;
 
 private:
   ServerDescription description_;

@@ -31,6 +31,12 @@ export const protocol={async test(){
   check(summaries.length===2&&summaries[1].tool==='unknown','unknown name was logged');
   await observed.fetch(request('{'),e);
   check(summaries.length===2,'malformed body generated a summary');
+  const failedTarget=call('convert_image',{file_id:'1'.repeat(64),file_token:'2'.repeat(64)});
+  const costReply=await observed.fetch(request(failedTarget),{...e,RELEASE_ID:'a'.repeat(64)});
+  const costBody=await costReply.text(),costLogs=summaries.slice(-2);
+  check(costLogs[0].schema==='arken.mcp.call.v1'&&costLogs[1].schema==='arken.mcp.cost-context.v1'&&
+    costLogs[1].command==='conversion.v1.convert_image'&&costLogs[1].httpStatus===costReply.status&&
+    !JSON.stringify(costLogs).includes('2'.repeat(64))&&!costBody.includes('cost-context'),'Failed attempt cost privacy');
   const init=await (await worker.fetch(request(rpc('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'test',version:'1'}})),e)).json();
   check(init.result.serverInfo.name==='Arken Convert','initialize');
   const listed=await (await worker.fetch(request(rpc('tools/list')),e)).json();

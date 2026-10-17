@@ -10,6 +10,7 @@ export function planRequest(text) {
 export function planSandboxRequest(text) {return invokePacket(text,api.arken_mcp_sandbox_plan);}
 export function planProductionRequest(text) {return invokePacket(text,api.arken_mcp_production_plan);}
 export function callSummary(text,status) {return invokePacket(text,()=>api.arken_mcp_call_summary(status),api.arken_mcp_prepare,true);}
+export function costContextPacket(packet) {return invokePacket(JSON.stringify(packet),api.arken_mcp_cost_context,api.arken_settlement_prepare,true);}
 export function serverSurface(text) {return invokePacket(text,api.arken_server_surface);}
 export function endpointPacket(text) {return invokePacket(text,api.arken_conversion_endpoint);}
 export function conversionTargetPacket(text) {return invokePacket(text,api.arken_conversion_target);}

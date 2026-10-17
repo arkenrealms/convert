@@ -77,6 +77,22 @@ std::string CallSummary(std::string_view text, int httpStatus) noexcept {
     return "null";
   }
 }
+std::string CostContextPacket(std::string_view text) noexcept {
+  try {
+    const auto packet=mcp::parseBoundedJson(text,65536);
+    J::require(packet.is_object()&&packet.size()==4,"cost context fields");
+    const auto request=J::readScalar<std::string>(packet.at("request"));
+    const auto plan=Json::parse(PlanRequest(request,ServerMode::production));
+    if(plan.at("kind")!="command")return "null";
+    auto arguments=plan.at("arguments");arguments.erase("codec");
+    const auto exchange=J::readScalar<std::string>(packet.at("exchangeKind"));
+    J::require(exchange=="quote"||exchange=="operation","cost exchange kind");
+    return server(ServerMode::production).costContext(plan.at("commandId").get<std::uint32_t>(),"convert",
+        J::readScalar<std::string>(packet.at("release")),arguments.dump().size(),
+        exchange=="quote"?mcp::CostExchange::quote:mcp::CostExchange::operation,
+        J::readScalar<int>(packet.at("httpStatus"))).dump();
+  } catch(...) {return "null";}
+}
 std::string Catalog() {
   auto catalog=Json::parse(S::commandCatalog);
   const auto descriptions=presentations(ServerMode::production);
