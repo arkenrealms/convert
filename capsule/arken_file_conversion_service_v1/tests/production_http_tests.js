@@ -11,7 +11,7 @@ const headers={'content-type':'application/json',accept:'application/json, text/
 const req=(method,params)=>new Request('https://production.example/mcp',{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
 const tga=new Uint8Array([0,0,2,0,0,0,0,0,0,0,0,0,1,0,1,0,32,40,30,20,10,255]);
 const hex=b=>Array.from(new Uint8Array(b),x=>x.toString(16).padStart(2,'0')).join('');
-export async function proveProductionHttp(bindings,retainWorker,createWorker=createProductionWorker){
+export async function proveProductionHttp(bindings,retainWorker,createWorker=createProductionWorker,workload){
   for(const v of f.vectors)check(JSON.stringify(productionStartupPacket(v.input))===JSON.stringify(v.expected),'native/Wasm startup mismatch');
   for(const v of f.qualificationVectors)check(JSON.stringify(productionQualificationPacket(v.input))===JSON.stringify(v.expected),'native/Wasm qualification mismatch');
   for(const v of f.surfaces)check(JSON.stringify(serverSurface(v.input))===JSON.stringify(v.expected),'native/Wasm surface mismatch');
@@ -50,7 +50,8 @@ export async function proveProductionHttp(bindings,retainWorker,createWorker=cre
   check(init.result.instructions.includes('Base mainnet'),'production initialization mislabeled');
   check((await health()).mode==='x402-production'&&(await health()).charging===false,'disabled production claims charging');
   await app.fetch(req('tools/list',{}),env);check(probes===0&&env.FILES.values.size===0,'static discovery did I/O');
-  const uploadArgs={source_bytes:tga.length,input_format:'tga',output_format:'png'};
+  const source=workload?.bytes??tga,expectedHash=workload?.sha256??f.nativePngSha256;
+  const uploadArgs={source_bytes:source.byteLength,input_format:workload?.inputFormat??'tga',output_format:workload?.outputFormat??'png'};
   check((await call('prepare_upload',uploadArgs)).isError&&probes===0&&env.FILES.values.size===0,'disabled upload accepted');
   const qurl='https://production.example/_arken/production/qualify';
   const qualify=(options={})=>app.fetch(new Request(qurl,{method:'POST',headers:{authorization:'Bearer '+env.ACCESS_TOKEN},...options}),env);
@@ -92,7 +93,7 @@ export async function proveProductionHttp(bindings,retainWorker,createWorker=cre
   const prepared=await call('prepare_upload',uploadArgs),lease=prepared.structuredContent;
   check(lease&&Date.parse(lease.expires_at)-Date.now()>3590000&&probes===readyCalls,'production lease or cache incorrect');
   check([...env.FILES.values.keys()].every(k=>k.startsWith('production/')),'production wrote another prefix');
-  check((await app.fetch(new Request(lease.upload_url,{method:'PUT',body:tga}),env)).status===204,'production upload failed');
+  check((await app.fetch(new Request(lease.upload_url,{method:'PUT',body:source}),env)).status===204,'production upload failed');
   const target={file_id:lease.file_id,file_token:lease.file_token};const offer=(await call('convert_image',target)).structuredContent;
   check(offer.accepts[0].network==='eip155:8453','production offer wrong network');
   const payment={x402Version:2,resource:offer.resource,accepted:offer.accepts[0],payload:{signature:'0x'+'00'.repeat(65),authorization:{
@@ -100,7 +101,8 @@ export async function proveProductionHttp(bindings,retainWorker,createWorker=cre
   const complete=await call('convert_image',target,payment);
   check(complete._meta?.['x402/payment-response']?.network==='eip155:8453'&&verifies===1&&settles===1,'production payment flow failed');
   const receipt=complete.structuredContent,download=await app.fetch(new Request(receipt.download_url),env),bytes=new Uint8Array(await download.arrayBuffer());
-  check(download.status===200&&bytes[0]===137&&bytes[1]===80&&hex(await crypto.subtle.digest('SHA-256',bytes))===receipt.sha256&&receipt.sha256===f.nativePngSha256,'production PNG bytes differ from native result');
+  check(download.status===200&&hex(await crypto.subtle.digest('SHA-256',bytes))===receipt.sha256&&receipt.sha256===expectedHash,'production bytes differ from native result');
+  const result={inputBytes:source.byteLength,inputFormat:uploadArgs.input_format,outputFormat:uploadArgs.output_format,outputBytes:bytes.length,sha256:receipt.sha256,paidHttp:true};
   env.PAYMENTS_ENABLED='false';failSupported=true;const disabledProbes=probes;
   check((await readiness()).status===503&&probes===disabledProbes,'disable depends on provider health');
   check((await call('prepare_upload',uploadArgs)).isError,'disabled new purchase accepted');
@@ -110,10 +112,21 @@ export async function proveProductionHttp(bindings,retainWorker,createWorker=cre
   // Even deliberate identity copies in the same bucket cannot cross HMAC domains.
   for(const [key,value] of [...env.FILES.values])for(const prefix of ['sandbox','preview'])env.FILES.values.set(key.replace(/^production/,prefix),structuredClone(value));
   for(const other of [sandbox,preview])check((await other.fetch(new Request(receipt.download_url),env)).status===403,'cross-surface capability accepted');
+  // Remove only synthetic cross-surface copies after their rejection proof.
+  // Retain the real production upload/output for resource and replay checks.
+  for(const key of [...env.FILES.values.keys()])if(!key.startsWith('production/'))env.FILES.values.delete(key);
   env.PAYMENTS_ENABLED='true';now=1300;const expired=probes;await startup.ensure(env);check(probes===expired+3,'expired startup cache not refreshed');
   env.RELEASE_ID='b'.repeat(64);check(!startup.status(env).ready,'changed release reused readiness');
   let release;waitProbe=new Promise(r=>{release=r;});const changing=startup.ensure(env);env.RELEASE_ID='c'.repeat(64);release();
   check(!(await changing).ready&&!startup.status(env).ready,'late startup admitted changed configuration');
   console.log('Production HTTP passed: static/disabled/failed/ready/cache/expiry/config-change, actual C++ PNG, mocked mainnet payment, retained paid results after disable and artifact/HMAC isolation. No real credentials or payments.');
+  return {result,async replay(){
+    const before={probes,verifies,settles,writes:env.FILES.outputWrites};
+    check(JSON.stringify(await call('convert_image',target))===JSON.stringify(complete),'retained paid replay changed receipt');
+    const download=await app.fetch(new Request(receipt.download_url),env);
+    check(download.status===200&&hex(await crypto.subtle.digest('SHA-256',await download.arrayBuffer()))===expectedHash,'retained download native parity');
+    check(probes===before.probes&&verifies===before.verifies&&settles===before.settles&&env.FILES.outputWrites===before.writes,'retained replay repeated effects');
+    return {...result,completedReplay:true,providerVerifies:0,providerSettles:0,outputWrites:0};
+  }};
 }
 export const productionHttp={async test(_controller,bindings){return proveProductionHttp(bindings);}};
