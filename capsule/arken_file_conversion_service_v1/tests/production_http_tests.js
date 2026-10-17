@@ -11,7 +11,7 @@ const headers={'content-type':'application/json',accept:'application/json, text/
 const req=(method,params)=>new Request('https://production.example/mcp',{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
 const tga=new Uint8Array([0,0,2,0,0,0,0,0,0,0,0,0,1,0,1,0,32,40,30,20,10,255]);
 const hex=b=>Array.from(new Uint8Array(b),x=>x.toString(16).padStart(2,'0')).join('');
-export async function proveProductionHttp(bindings,retainWorker){
+export async function proveProductionHttp(bindings,retainWorker,createWorker=createProductionWorker){
   for(const v of f.vectors)check(JSON.stringify(productionStartupPacket(v.input))===JSON.stringify(v.expected),'native/Wasm startup mismatch');
   for(const v of f.qualificationVectors)check(JSON.stringify(productionQualificationPacket(v.input))===JSON.stringify(v.expected),'native/Wasm qualification mismatch');
   for(const v of f.surfaces)check(JSON.stringify(serverSurface(v.input))===JSON.stringify(v.expected),'native/Wasm surface mismatch');
@@ -34,7 +34,7 @@ export async function proveProductionHttp(bindings,retainWorker){
   const env={ACCESS_TOKEN:f.configuration.downloadSecret,FILES:new Bucket(),PAYMENT_LEDGER:bindings.LEDGER,RELEASE_ID:f.configuration.releaseId,
     CDP_API_KEY_ID:f.configuration.keyId,CDP_API_KEY_SECRET:f.configuration.keySecret,CDP_RPC_CLIENT_KEY:f.configuration.rpcClientKey,PAYMENTS_ENABLED:'false'};
   let settles=0,verifies=0;
-  const app=createProductionWorker({startup,clock:()=>String(now),fetcher:async(url,options)=>{
+  const app=createWorker({startup,clock:()=>String(now),fetcher:async(url,options)=>{
     const body=JSON.parse(options.body);check(options.headers.Authorization?.startsWith('Bearer ')&&body.paymentRequirements.network==='eip155:8453','production effect not authenticated mainnet');
     const jwt=options.headers.Authorization.slice(7).split('.');const claims=JSON.parse(atob(jwt[1].replaceAll('-','+').replaceAll('_','/')));
     check(claims.sub===env.CDP_API_KEY_ID&&JSON.stringify(claims.uris)===JSON.stringify(['POST '+url.slice(8)]),'production credential or JWT scope drift');
