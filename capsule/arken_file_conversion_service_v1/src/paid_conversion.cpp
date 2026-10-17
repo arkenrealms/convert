@@ -2,6 +2,7 @@
 #include "arken_file_conversion_service_v1/x402.hpp"
 #include "arken_file_conversion_service_v1/payment_profile.hpp"
 #include "arken_file_conversion_service_v1/api.hpp"
+#include "arken_mcp_protocol_v1/api.hpp"
 #include "payment_json.hpp"
 #include "arken_schema_generated/command-json.hpp"
 #include <algorithm>
@@ -30,7 +31,10 @@ Json QuotePacket(const Json& j){
   q.priceVersion=detail::PayloadDigest(profile->priceIdentity);q.amount=profile->imagePrice;
   q.scope.chain=profile->chain;q.scope.asset=profile->asset;
   q.recipient=ImagePaymentRecipient();q.expiresAt=J::readScalar<std::uint64_t>(j.at("expiresAt"));
-  return {{"quote",detail::WriteQuote(q)},{"codec",admission.at("arguments").at("codec")}};
+  const auto preimage=arken::mcp::v1::operationCostPreimage("convert",Hex(q.operation));
+  J::require(!preimage.empty(),"cost operation identity");
+  return {{"quote",detail::WriteQuote(q)},{"codec",admission.at("arguments").at("codec")},
+    {"operationCostLink",arken::mcp::v1::operationCostLink("convert",Hex(detail::PayloadDigest(preimage)))}};
 }
 Json Bind(const Json& j){
   detail::Fields(j,{"kind","quote","payment","binding","now"});auto quote=detail::ReadQuote(j.at("quote"));
@@ -51,6 +55,7 @@ Json Bind(const Json& j){
     payment=bound.at("payment");
   }
   auto result=X({{"kind","prepare"},{"quote",detail::WriteQuote(quote)},{"payment",payment},{"now",j.at("now")}});
+  result["exchangeKind"]=result.at("kind")=="challenge"?"quote":"operation";
   if(result.at("kind")=="admit")result["binding"]=Json{{"quote",detail::Parse(result.at("command").get<std::string>()).at("quote")},{"payment",result.at("payment")}}.dump();return result;
 }
 Output ReceiptOutput(const Json& j,const Operation& op){

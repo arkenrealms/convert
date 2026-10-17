@@ -15,7 +15,7 @@ async function outputReceipt(bucket,key){
 export function createPaidConversion({clock=clockSeconds,send,fetcher,readChain,profileId='base-sepolia-v1',requestPlan=planSandboxRequest,startup,executionContext}={}){
   return {
     profileId,startup,planRequest:requestPlan,
-    async convert(plan,env,{found,owner,id,execute}){
+    async convert(plan,env,{found,owner,id,execute,observe}){
       if(!env.PAYMENT_LEDGER||!env.RELEASE_ID)return failure('payment_not_configured');
       const source=await env.FILES.head(found.key+'/input');
       if(!source)return failure('upload_required');
@@ -25,8 +25,10 @@ export function createPaidConversion({clock=clockSeconds,send,fetcher,readChain,
       const context=executionContext?executionContext(env):{};
       const qualified=packet({kind:'quote',profileId,fileId:id,owner,inputDigest:source.customMetadata?.sha256,
         arguments:found.record.args,release:env.RELEASE_ID,expiresAt:String(Math.floor(found.record.expiresAt/1000))});
+      observe?.({operationCostLink:qualified.operationCostLink});
       const quote=qualified.quote;
       let prepared=packet({kind:'bind',quote,payment:plan.payment,binding:bound,now:clock()});
+      observe?.({exchangeKind:prepared.exchangeKind});
       if(prepared.kind!=='admit')return prepared.result;
       if(bound===null){
         // R2's immutable file binding chooses one payer/authorization per file;
@@ -35,6 +37,7 @@ export function createPaidConversion({clock=clockSeconds,send,fetcher,readChain,
         bound=await binding(env.FILES,found.key);
         if(bound===null)return failure('payment_binding_unavailable');
         prepared=packet({kind:'bind',quote,payment:plan.payment,binding:bound,now:clock()});
+        observe?.({exchangeKind:prepared.exchangeKind});
         if(prepared.kind!=='admit')return prepared.result;
       }
       const ledger=paymentLedger(env.PAYMENT_LEDGER,prepared.command);

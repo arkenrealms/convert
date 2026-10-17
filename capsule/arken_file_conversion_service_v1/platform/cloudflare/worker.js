@@ -1,4 +1,4 @@
-import {planRequest,convertImage,serverSurface,endpointPacket,conversionTargetPacket,callSummary} from './runtime.js';
+import {planRequest,convertImage,serverSurface,endpointPacket,conversionTargetPacket,callSummary,costContextPacket} from './runtime.js';
 import {readBoundedBody} from './bounded_body.js';
 import {accessPlan,fileOwner,reservePublicUpload} from './public_admission.js';
 const jsonHeaders={'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'};
@@ -30,7 +30,7 @@ async function downloadUrl(env,url,owner,id,expiresAt,surface) {
   const token=await signed(env.ACCESS_TOKEN,`${surface.downloadDomain}${owner}:${id}:output:${expiresAt}`);
   return `${url.origin}/files/${id}/output?owner=${owner}&expires=${expiresAt}&token=${token}`;
 }
-async function command(plan,env,url,owner,payment,surface,publicRequest=false) {
+async function command(plan,env,url,owner,payment,surface,publicRequest=false,observe) {
   const prefix=surface.artifactPrefix;
   if(!env.FILES)return toolReply(plan,{code:'storage_not_configured'},true);
   if(plan.commandId===1) {
@@ -52,7 +52,7 @@ async function command(plan,env,url,owner,payment,surface,publicRequest=false) {
   if(publicRequest&&found.record.publicFile!==true)return toolReply(plan,{code:'file_unavailable'},true);
   const target=conversionTargetPacket(JSON.stringify({commandId:plan.commandId,arguments:found.record.args}));
   if(!target.allowed)return toolReply(plan,{code:target.code},true);
-  if(payment)return toolResult(plan,await payment.convert(plan,env,{found,url,owner,id,
+  if(payment)return toolResult(plan,await payment.convert(plan,env,{found,url,owner,id,observe,
     execute:(inputDigest,codec)=>convertAndStore(env,url,owner,id,found,surface,inputDigest,codec)}));
   const previous=await env.FILES.get(found.key+'/result');
   if(previous)return toolReply(plan,await previous.json());
@@ -150,9 +150,16 @@ const surface=describe(false);return {
         let text;
         try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}
         catch(error){console.warn('invalid UTF-8 MCP request');return problem('invalid_utf8',400);}
+        let exchangeKind='operation',operationCostLink=null,completed=false;
+        const observe=value=>{if(value.operationCostLink)operationCostLink=value.operationCostLink;if(value.exchangeKind)exchangeKind=value.exchangeKind;};
         complete=response=>{
-          try {const summary=callSummary(text,response.status);if(summary)emitCallSummary(summary);}
-          catch {try {console.warn('MCP call summary unavailable');}catch {return response;}}
+          if(completed)return response;completed=true;
+          try {
+            const summary=callSummary(text,response.status);
+            const context=costContextPacket({request:text,release:env.RELEASE_ID??'',exchangeKind,httpStatus:response.status});
+            for(const value of [summary,context,...(context?[operationCostLink]:[])])if(value)emitCallSummary(value);
+          }
+          catch(error){console.warn('MCP observation unavailable');}
           return response;
         };
         const plan=(payment?.planRequest||planRequest)(text);
@@ -160,7 +167,7 @@ const surface=describe(false);return {
         if(plan.kind==='response')return complete(new Response(plan.status===202?null:plan.body,{status:plan.status,headers:jsonHeaders}));
         if(!secretValid)return complete(toolReply(plan,{code:'server_not_configured'},true));
         if(publicRequest){const access=accessPlan(context,plan.commandId===1?'upload':'file',plan.arguments.file_id??null,plan.arguments.file_token??null);if(access.mode==='denied')return complete(problem(access.code,401));owner=access.owner;}
-        return complete(await command(plan,env,url,owner,payment,surface,publicRequest));
+        return complete(await command(plan,env,url,owner,payment,surface,publicRequest,observe));
       } finally {bodyInFlight=false;}
     } catch(error) {
       console.error('conversion request failed',{code:error.message==='body_limit'?'body_limit':'request_failed'});
