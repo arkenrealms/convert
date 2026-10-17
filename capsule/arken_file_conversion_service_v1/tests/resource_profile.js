@@ -2,6 +2,7 @@
 // decisions remain in the frozen C++ modules. Native CDP owns memory accounting.
 import {proveProductionHttp} from './production_http_tests.js';
 import {proveConversionJournalHttp} from './payment_journal_http.js';
+import {createResourceWorker,resourceGuardEvidence} from './resource_subject.js';
 import {convertImage} from './runtime.js';
 import fixtureText from './startup-fixtures.json';
 import maximumPng from './maximum-input.png';
@@ -19,7 +20,7 @@ export default {async fetch(request,env){try{
  else if(phase==='/calibrate-wasm')calibrationWasm=new WebAssembly.Memory({initial:128,maximum:128});
  else if(phase==='/production'){
   check(!production,'Production resource workload repeated');
-  await proveProductionHttp({...env,PHASE:'write'},retain);production=true;
+  await proveProductionHttp({...env,PHASE:'write'},retain,createResourceWorker);production=true;
  }else if(phase==='/journal'){
   check(production&&!journal,'Journal resource workload order');
   result=await proveConversionJournalHttp({...env,PHASE:'write'},retain);journal=true;
@@ -34,7 +35,7 @@ export default {async fetch(request,env){try{
   check(output.width===1024&&output.height===1024&&hash===fixture.largeJpeg.sha256&&hash===resourceFixture.outputSha256,'Maximum source/pixel result differs from native');
   conversions++;result={inputBytes:input.length,width:output.width,height:output.height,outputBytes:output.bytes.length,sha256:hash};
  }else throw Error('Unknown resource action');
- return Response.json({status:'passed',phase,result,production,journal,conversions,retainedWorkers:retained.length,
+ return Response.json({status:'passed',phase,result,guard:resourceGuardEvidence(),production,journal,conversions,retainedWorkers:retained.length,
   calibrationArrayBytes:calibrationArray?.byteLength??0,calibrationWasmBytes:calibrationWasm?.buffer.byteLength??0,
   financialEffects:0,externalRequests:0});
 }catch(error){console.error('Convert resource qualification failed',error);return Response.json({status:'failed',error:String(error)},{status:500});}}};
