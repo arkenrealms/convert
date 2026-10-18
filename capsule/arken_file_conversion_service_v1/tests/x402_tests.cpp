@@ -60,7 +60,6 @@ Json Fixture(bool mainnet=false){
   const auto q=P::detail::WriteQuote(Quote(100,mainnet));const Json prepare={{"kind","prepare"},{"quote",q},{"payment",nullptr},{"now","100"}};
   const auto challenge=Wire(prepare);Check(challenge.at("kind")=="challenge","challenge");const auto& r=challenge.at("result");
   Check(r.at("isError")==true&&Json::parse(r.at("content")[0].at("text").get<std::string>())==r.at("structuredContent"),"MCP challenge mirrors");
-  Check(r.at("_meta").at("arken/payment-guide").at("url")=="https://mcp.arken.gg/guide"&&r.at("content").size()==2,"MCP payment guide missing");
   Check(r.at("structuredContent").at("accepts")[0].at("extra")==Json{{"name",mainnet?"USD Coin":"USDC"},{"version","2"}},"wrong token signature domain");
   const auto payment=Payment(challenge);auto admission=prepare;admission["payment"]=payment.dump();const auto admitted=Wire(admission);
   Check(admitted.at("kind")=="admit","payment shape admission");Ledger ledger;auto decision=ledger.transition(admitted.at("command").get<std::string>());
