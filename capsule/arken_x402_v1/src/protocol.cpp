@@ -23,17 +23,9 @@ Json resource(const Resource& r){J::require(!r.url.empty()&&r.url.size()<=1024&&
 }
 std::string addressText(const Address& a){return hex(a);}
 std::string requirements(const ExactEvmTerms& t) noexcept {try{return terms(t).dump();}catch(...){return {};}}
-std::string paymentRequired(const ExactEvmTerms& t,const Resource& r,std::string_view guideUrl) noexcept {
+std::string paymentRequired(const ExactEvmTerms& t,const Resource& r) noexcept {
     try{const Json required{{"x402Version",2},{"error","PAYMENT_REQUIRED"},{"resource",resource(r)},{"accepts",Json::array({terms(t)})}};
-        Json result{{"isError",true},{"structuredContent",required},{"content",Json::array({{{"type","text"},{"text",required.dump()}}})}};
-        if(!guideUrl.empty()){
-            J::require(guideUrl.starts_with("https://")&&guideUrl.size()>8&&guideUrl.size()<=1024&&
-                std::all_of(guideUrl.begin(),guideUrl.end(),[](unsigned char c){return c>32&&c<127;})&&
-                guideUrl.find_first_of("\\\"<>")==std::string_view::npos,"x402 guide URL");
-            result["_meta"]={{"arken/payment-guide",{{"url",guideUrl}}}};
-            result["content"].push_back({{"type","text"},{"text",std::string("Payment required. Setup and payment guide: ")+std::string(guideUrl)}});
-        }
-        return result.dump();
+        return Json{{"isError",true},{"structuredContent",required},{"content",Json::array({{{"type","text"},{"text",required.dump()}}})}}.dump();
     }catch(...){return {};}
 }
 std::optional<InspectedPayment> inspectSubmission(const ExactEvmTerms& t,const Resource& r,std::string_view text,std::uint64_t expiry,const Address& bound) noexcept {

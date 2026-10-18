@@ -23,8 +23,7 @@ struct InspectedPayment {
     std::string normalizedPayload;
 };
 [[nodiscard]] std::string requirements(const ExactEvmTerms&) noexcept;
-// Informational guidance is trusted composition, never part of signed terms.
-[[nodiscard]] std::string paymentRequired(const ExactEvmTerms&,const Resource&,std::string_view guideUrl={}) noexcept;
+[[nodiscard]] std::string paymentRequired(const ExactEvmTerms&,const Resource&) noexcept;
 [[nodiscard]] std::optional<InspectedPayment> inspectSubmission(const ExactEvmTerms&,const Resource&,
     std::string_view payload,std::uint64_t maximumExpiry,const Address& boundPayer={}) noexcept;
 [[nodiscard]] std::string verificationBody(const ExactEvmTerms&,const InspectedPayment&) noexcept;
