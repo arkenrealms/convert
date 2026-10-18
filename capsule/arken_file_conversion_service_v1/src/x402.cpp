@@ -47,7 +47,7 @@ Json Prepare(const Json& j){
   detail::Fields(j,{"kind","quote","payment","now"});const auto q=detail::ReadQuote(j.at("quote"));const auto now=J::readScalar<std::uint64_t>(j.at("now"));
   if(j.at("payment").is_null()){
     J::require(now<q.expiresAt&&q.expiresAt-now>=60,"file expiry too close");
-    const auto challenge=arken::x402::v1::paymentRequired(Terms(q),Resource(q));J::require(!challenge.empty(),"payment challenge");
+    const auto challenge=arken::x402::v1::paymentRequired(Terms(q),Resource(q),"https://mcp.arken.gg/guide");J::require(!challenge.empty(),"payment challenge");
     return {{"kind","challenge"},{"result",detail::Parse(challenge)}};
   }
   const auto submitted=Submission(q,J::readScalar<std::string>(j.at("payment")));
