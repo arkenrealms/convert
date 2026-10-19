@@ -110,7 +110,12 @@ export async function proveProductionHttp(bindings,retainWorker,createWorker=cre
   check((await app.fetch(new Request(receipt.download_url),env)).status===200,'disable stranded paid download');
   check(probes===disabledProbes&&verifies===1&&settles===1,'disable recontacted provider or resettled');failSupported=false;
   // Even deliberate identity copies in the same bucket cannot cross HMAC domains.
-  for(const [key,value] of [...env.FILES.values])for(const prefix of ['sandbox','preview'])env.FILES.values.set(key.replace(/^production/,prefix),structuredClone(value));
+  // R2 namespace aliases need distinct metadata, not additional in-memory
+  // copies of every maximum-size object. Bucket.get copies its immutable
+  // backing bytes and Bucket.put replaces the record, so sharing this fixture
+  // backing cannot let a reader/writer modify the production object.
+  for(const [key,value] of [...env.FILES.values])for(const prefix of ['sandbox','preview'])env.FILES.values.set(key.replace(/^production/,prefix),{
+    ...structuredClone({httpMetadata:value.httpMetadata,customMetadata:value.customMetadata}),bytes:value.bytes});
   for(const other of [sandbox,preview])check((await other.fetch(new Request(receipt.download_url),env)).status===403,'cross-surface capability accepted');
   // Remove only synthetic cross-surface copies after their rejection proof.
   // Retain the real production upload/output for resource and replay checks.

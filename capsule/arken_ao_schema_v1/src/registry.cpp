@@ -182,7 +182,7 @@ constexpr std::array<AoChunkTypeDescriptor, 65u> chunk_type_descriptors{{
     {aodb_asst_chunk_type_id, "arken.ao.chunk.aodb.asst", "ASST",
      {1u, 0u, 0u}, 1u, AoChunkScope::format, aodb_format_id, {'A', 'S', 'S', 'T'}},
     {aodb_celestial_chunk_type_id, "arken.ao.chunk.aodb.celestial", "CELE",
-     {2u, 0u, 0u}, 2u, AoChunkScope::format, aodb_format_id, {'C', 'E', 'L', 'E'}},
+     {1u, 0u, 0u}, 1u, AoChunkScope::format, aodb_format_id, {'C', 'E', 'L', 'E'}},
     {aodb_world_features_chunk_type_id, "arken.ao.chunk.aodb.world_features", "WFTR",
      {1u, 4u, 0u}, 1u, AoChunkScope::format, aodb_format_id, {'W', 'F', 'T', 'R'}},
     {aodb_cols_chunk_type_id, "arken.ao.chunk.aodb.cols", "COLS",
