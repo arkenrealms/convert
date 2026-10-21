@@ -55,6 +55,19 @@ function(arken_browser_cpp_reactor target)
         target_link_options(${target} PRIVATE -Wl,--export-dynamic -Wl,--export=malloc -Wl,--export=free)
     endif()
     target_link_options(${target} PRIVATE "-Wl,--max-memory=${ARG_MAX_MEMORY_BYTES}" "-Wl,-z,stack-size=${ARG_STACK_BYTES}")
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        if(NOT CMAKE_STRIP OR NOT EXISTS "${CMAKE_STRIP}")
+            message(FATAL_ERROR "${target}: native browser toolchain must provide llvm-strip")
+        endif()
+        set(unstripped "${CMAKE_CURRENT_BINARY_DIR}/${target}.unstripped.wasm")
+        set_property(TARGET ${target} PROPERTY ARKEN_BROWSER_CPP_UNSTRIPPED_FILE "${unstripped}")
+        set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_FUNCTION_LIST_FILE}")
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:${target}>" "${unstripped}"
+            COMMAND "${CMAKE_STRIP}" --strip-all -o "$<TARGET_FILE:${target}>.stripped" "$<TARGET_FILE:${target}>"
+            COMMAND "${CMAKE_COMMAND}" -E rename "$<TARGET_FILE:${target}>.stripped" "$<TARGET_FILE:${target}>"
+            BYPRODUCTS "${unstripped}" VERBATIM)
+    endif()
 endfunction()
 
 # Native-compiled browser test entry shared by concrete capsule conformance
