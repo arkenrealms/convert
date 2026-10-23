@@ -29,6 +29,7 @@ void* raster_reallocate(void* pointer,std::size_t size){return size<=maximum_all
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+#include <skcms_public.h>
 
 namespace arken::image::v1::detail {
 namespace {
@@ -38,10 +39,50 @@ std::uint32_t crc32(Bytes bytes){
     for(auto byte:bytes){value^=std::to_integer<std::uint8_t>(byte);for(unsigned bit=0;bit<8;++bit)value=(value>>1)^(0xedb88320u&(0u-(value&1u)));}
     return ~value;
 }
-DecodeError png_profile(Bytes bytes,bool allow16,bool scalarData=false){
+struct PngColourProfile {
+    std::vector<std::byte> bytes;
+    skcms_ICCProfile profile{};
+};
+DecodeError read_icc(Bytes chunk,PngColourProfile& colour){
+    constexpr std::size_t limit=4*1024*1024;
+    if(!colour.bytes.empty())return DecodeError::invalid_layout;
+    std::size_t name=0;
+    while(name<chunk.size()&&name<80&&U8(chunk,name)!=0){
+        const auto c=U8(chunk,name);
+        if(c<32||(c>126&&c<161)||(c==32&&(name==0||U8(chunk,name-1)==32)))return DecodeError::invalid_layout;
+        ++name;
+    }
+    if(name==0||name>79||!Range(chunk,name,2)||U8(chunk,name)!=0||U8(chunk,name-1)==32||U8(chunk,name+1)!=0)return DecodeError::invalid_layout;
+    const auto compressed=chunk.subspan(name+2);
+    if(compressed.size()<6)return DecodeError::truncated;
+    if(compressed.size()>limit)return DecodeError::resource_limit;
+    colour.bytes.resize(limit+2);
+    stbi__zbuf inflater{};
+    inflater.zbuffer=reinterpret_cast<stbi_uc*>(const_cast<std::byte*>(compressed.data()));
+    inflater.zbuffer_end=inflater.zbuffer+compressed.size();
+    if(!stbi__do_zlib(&inflater,reinterpret_cast<char*>(colour.bytes.data()),int(limit),0,1))return DecodeError::invalid_layout;
+    const auto size=std::size_t(inflater.zout-inflater.zout_start);
+    // Require precisely one zlib stream and its Adler trailer, including when
+    // the inflater read ahead into that trailer. No trailing/concatenated data.
+    if(inflater.hit_zeof_once||inflater.num_bits<0||inflater.zbuffer-inflater.num_bits/8!=inflater.zbuffer_end-4)return DecodeError::invalid_layout;
+    std::uint32_t a=1,b=0;
+    for(std::size_t i=0;i<size;++i){a=(a+U8(colour.bytes,i))%65521;b=(b+a)%65521;}
+    if(((b<<16)|a)!=be32(compressed,compressed.size()-4))return DecodeError::invalid_layout;
+    if(size<132||be32(colour.bytes,0)!=size)return DecodeError::invalid_layout;
+    colour.bytes.resize(size+2); // skcms documents two readable padding bytes.
+    colour.bytes[size]=colour.bytes[size+1]=std::byte{0};
+    if(!skcms_Parse(colour.bytes.data(),size,&colour.profile))return DecodeError::invalid_layout;
+    if(colour.profile.data_color_space!=skcms_Signature_RGB||skcms_GetInputChannelCount(&colour.profile)!=3)return DecodeError::unsupported_content;
+    return DecodeError::none;
+}
+bool apply_colour(const PngColourProfile& colour,Image& image){
+    return colour.bytes.empty()||skcms_Transform(image.rgba8.data(),skcms_PixelFormat_RGBA_8888,skcms_AlphaFormat_Unpremul,&colour.profile,
+        image.rgba8.data(),skcms_PixelFormat_RGBA_8888,skcms_AlphaFormat_Unpremul,skcms_sRGB_profile(),std::size_t(image.width)*image.height);
+}
+DecodeError png_profile(Bytes bytes,bool allow16,bool scalarData=false,PngColourProfile* colour=nullptr){
     constexpr unsigned char signature[]={137,80,78,71,13,10,26,10};
     if(bytes.size()<8||std::memcmp(bytes.data(),signature,8))return DecodeError::wrong_magic;
-    bool header=false,data=false;
+    bool header=false,data=false,srgb=false,nonSrgb=false,palette=false;
     for(std::size_t at=8;at<bytes.size();){
         if(!Range(bytes,at,12))return DecodeError::truncated;
         const auto count=be32(bytes,at),kind=be32(bytes,at+4);
@@ -50,18 +91,29 @@ DecodeError png_profile(Bytes bytes,bool allow16,bool scalarData=false){
         if(!header){if(kind!=0x49484452u||count!=13)return DecodeError::invalid_layout;header=true;
             if(U8(bytes,at+16)==16&&!allow16)return DecodeError::unsupported_content;
         }else if(kind==0x49484452u)return DecodeError::invalid_layout;
-        if(kind==0x6163544cu||(!scalarData&&(kind==0x69434350u||kind==0x63494350u)))return DecodeError::unsupported_content;
+        if(kind==0x6163544cu||(!scalarData&&kind==0x63494350u))return DecodeError::unsupported_content;
+        if(kind==0x504c5445u)palette=true;
+        if(kind==0x69434350u&&!scalarData){
+            if(!colour||data||palette||srgb)return DecodeError::invalid_layout;
+            if(U8(bytes,25)!=2&&U8(bytes,25)!=3&&U8(bytes,25)!=6)return DecodeError::unsupported_content;
+            const auto error=read_icc(bytes.subspan(at+8,count),*colour);
+            if(error!=DecodeError::none)return error;
+        }
         // Scalar import explicitly consumes stored data values, not displayed
         // colour. ICC/gamma/chromaticity metadata must not remap heights.
-        if(kind==0x67414d41u&&(count!=4||(!scalarData&&be32(bytes,at+8)!=45455)))return DecodeError::unsupported_content;
-        if(kind==0x73524742u&&(count!=1||U8(bytes,at+8)>3))return DecodeError::invalid_layout;
+        if(kind==0x67414d41u){if(count!=4)return DecodeError::invalid_layout;nonSrgb|=be32(bytes,at+8)!=45455;}
+        if(kind==0x73524742u){if(count!=1||U8(bytes,at+8)>3||srgb||(colour&&!colour->bytes.empty()))return DecodeError::invalid_layout;srgb=true;}
         if(kind==0x6348524du){
             constexpr std::uint32_t srgb[]={31270,32900,64000,33000,30000,60000,15000,6000};
             if(count!=32)return DecodeError::invalid_layout;
-            if(!scalarData)for(unsigned i=0;i<8;++i)if(be32(bytes,at+8+i*4)!=srgb[i])return DecodeError::unsupported_content;
+            for(unsigned i=0;i<8;++i)nonSrgb|=be32(bytes,at+8+i*4)!=srgb[i];
         }
         if(kind==0x49444154u)data=true;
-        if(kind==0x49454e44u)return count==0&&data&&at+12==bytes.size()?DecodeError::none:DecodeError::invalid_layout;
+        if(kind==0x49454e44u){
+            if(count!=0||!data||at+12!=bytes.size())return DecodeError::invalid_layout;
+            if(!scalarData&&nonSrgb&&(!colour||colour->bytes.empty()))return DecodeError::unsupported_content;
+            return DecodeError::none;
+        }
         at+=std::size_t(count)+12;
     }
     return DecodeError::truncated;
@@ -155,8 +207,8 @@ ScalarDecodeResult DecodeScalarPng16(Bytes bytes,const DecodeOptions& options){
 DecodeResult DecodeRaster(Format format,Bytes bytes,const DecodeOptions& options){
     if(options.frameIndex||options.directionIndex||options.mipIndex)return Failure(DecodeError::selection_out_of_range);
     if(bytes.size()>static_cast<std::size_t>(std::numeric_limits<int>::max()))return Failure(DecodeError::input_too_large);
-    unsigned orientation=1;DecodeError profile=DecodeError::none;
-    if(format==Format::png)profile=png_profile(bytes,options.allowPng16BitRenderingDerivative);
+    unsigned orientation=1;DecodeError profile=DecodeError::none;PngColourProfile colour;
+    if(format==Format::png)profile=png_profile(bytes,options.allowPng16BitRenderingDerivative,false,&colour);
     else if(format==Format::gif)profile=gif_profile(bytes);
     else if(format==Format::jpeg)profile=jpeg_profile(bytes,orientation);
     else if(format!=Format::bmp || bytes.size()<54||U8(bytes,0)!='B'||U8(bytes,1)!='M')profile=DecodeError::wrong_magic;
@@ -186,7 +238,11 @@ DecodeResult DecodeRaster(Format format,Bytes bytes,const DecodeOptions& options
         if(width!=expected_width||height!=expected_height)return Failure(DecodeError::invalid_dimensions);
         DecodeResult result;result.image.width=width;result.image.height=height;result.image.sourceBitsPerChannel=16;
         result.image.rgba8.resize(std::size_t(width)*height*4);
-        for(std::size_t i=0;i<result.image.rgba8.size();++i)result.image.rgba8[i]=static_cast<std::uint8_t>((std::uint32_t(pixels.get()[i])+128)/257);
+        if(colour.bytes.empty()){
+            for(std::size_t i=0;i<result.image.rgba8.size();++i)result.image.rgba8[i]=static_cast<std::uint8_t>((std::uint32_t(pixels.get()[i])+128)/257);
+        }else if(!skcms_Transform(pixels.get(),std::endian::native==std::endian::little?skcms_PixelFormat_RGBA_16161616LE:skcms_PixelFormat_RGBA_16161616BE,
+            skcms_AlphaFormat_Unpremul,&colour.profile,result.image.rgba8.data(),skcms_PixelFormat_RGBA_8888,skcms_AlphaFormat_Unpremul,
+            skcms_sRGB_profile(),std::size_t(width)*height))return Failure(DecodeError::unsupported_content);
         return result;
     }
     std::unique_ptr<unsigned char,decltype(&stbi_image_free)> pixels(stbi_load_from_memory(data,static_cast<int>(bytes.size()),&width,&height,&components,4),stbi_image_free);
@@ -194,6 +250,7 @@ DecodeResult DecodeRaster(Format format,Bytes bytes,const DecodeOptions& options
     if(width!=expected_width||height!=expected_height)return Failure(DecodeError::invalid_dimensions);
     DecodeResult result;result.image.width=static_cast<std::uint32_t>(width);result.image.height=static_cast<std::uint32_t>(height);
     result.image.rgba8.assign(pixels.get(),pixels.get()+std::size_t(width)*height*4);
+    if(!apply_colour(colour,result.image))return Failure(DecodeError::unsupported_content);
     orient(result.image,orientation);return result;
 }
 }
