@@ -6,6 +6,19 @@
 namespace arken::conversion::cloudflare {
 void NamedToolsTest() {
   namespace Service=arken::file_conversion::service::v1;
+  // Telemetry is a privacy/counting boundary, never a public result schema.
+  const auto observation=[](unsigned error,unsigned decode=0,unsigned encode=0) {
+    return Json::parse(Service::ConversionObservation(7,9,error,decode,encode));
+  };
+  const auto success=observation(0);
+  Require(success.size()==6&&success.at("inputFormat")=="png"&&success.at("outputFormat")=="jpeg"&&
+    success.at("outcome")=="succeeded"&&success.at("reason")=="none","conversion_observation_success");
+  Require(observation(5,6).at("reason")=="unsupported_compression","conversion_observation_compression");
+  Require(observation(5,4).at("reason")=="invalid_file","conversion_observation_bad_input");
+  Require(observation(6,0,5).at("reason")=="alpha_policy","conversion_observation_alpha");
+  Require(observation(0,1).is_null()&&observation(5).is_null()&&observation(99).is_null()&&
+    observation(6,1,1).is_null(),"conversion_observation_inconsistent_status");
+  Require(Json::parse(Service::ConversionObservation(999,9,2,0,0)).at("inputFormat")=="unknown","conversion_observation_unknown_format");
   struct Pair {const char* name; const char* input; const char* output; unsigned id;};
   constexpr Pair pairs[]{
     {"png_to_jpeg","png","jpeg",3}, {"jpeg_to_png","jpeg","png",4},
