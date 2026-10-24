@@ -23,6 +23,10 @@ extern "C" EXPORT void arken_mcp_plan() noexcept {output=arken::file_conversion:
 extern "C" EXPORT void arken_mcp_sandbox_plan() noexcept {output=arken::file_conversion::service::v1::PlanRequest(input,arken::file_conversion::service::v1::ServerMode::sandbox);}
 extern "C" EXPORT void arken_mcp_production_plan() noexcept {output=arken::file_conversion::service::v1::PlanRequest(input,arken::file_conversion::service::v1::ServerMode::production);}
 extern "C" EXPORT void arken_mcp_call_summary(int status) noexcept {output=arken::file_conversion::service::v1::CallSummary(input,status);}
+extern "C" EXPORT void arken_conversion_observation(std::uint32_t source,std::uint32_t target,
+    std::uint32_t error,std::uint32_t decode,std::uint32_t encode) noexcept {
+    output=arken::file_conversion::service::v1::ConversionObservation(source,target,error,decode,encode);
+}
 extern "C" EXPORT void arken_mcp_cost_context() noexcept {output=arken::file_conversion::service::v1::CostContextPacket(input);}
 extern "C" EXPORT void arken_server_surface() noexcept {output=arken::file_conversion::service::v1::SurfacePacket(input);}
 extern "C" EXPORT void arken_conversion_endpoint() noexcept {output=arken::file_conversion::service::v1::EndpointPacket(input);}
