@@ -39,16 +39,11 @@ function invokePacket(text,invoke,prepare=api.arken_mcp_prepare,sensitive=false)
   return JSON.parse(decoder.decode(new Uint8Array(api.memory.buffer,api.arken_mcp_output(),api.arken_mcp_output_size())));
   } finally {if(sensitive){bytes.fill(0);api.arken_mcp_clear();}}
 }
-export function convertImage(bytes,codec,observe) {
+export function convertImage(bytes,codec) {
   if(!api.arken_conversion_prepare(bytes.byteLength))throw Error('conversion_busy_or_input_limit');
   try {
     new Uint8Array(api.memory.buffer,api.arken_conversion_input(),bytes.byteLength).set(new Uint8Array(bytes));
     const error=api.arken_conversion_run(codec.input,codec.output,codec.quality,codec.alpha);
-    if(observe)try {
-      const value=invokePacket('',()=>api.arken_conversion_observation(codec.input,codec.output,error,
-        api.arken_conversion_decode_error(),api.arken_conversion_encode_error()));
-      if(value)observe(value);
-    } catch(observationError) {console.warn('Conversion observation unavailable');}
     if(error) return {error,decodeError:api.arken_conversion_decode_error(),encodeError:api.arken_conversion_encode_error()};
     return {width:api.arken_conversion_width(),height:api.arken_conversion_height(),
       alphaFlattened:Boolean(api.arken_conversion_alpha_flattened()),

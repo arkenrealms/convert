@@ -98,7 +98,7 @@ export const admission={async test(){
   check((await worker.fetch(new Request(input,{method:'PUT',headers,body:tga}),e)).status===204,'failed upload poisoned admission');
 }};
 export const conversion={async test(){
-  const events=[],worker=createWorker(null,{emitCallSummary:value=>events.push(value)}),e=env();
+  const e=env();
   const prepared=await (await worker.fetch(request(call('prepare_upload',{
     source_bytes:tga.length,input_format:'tga',output_format:'png'})),e)).json();
   const lease=prepared.result.structuredContent;
@@ -112,9 +112,6 @@ export const conversion={async test(){
   check(receipt.width===1&&receipt.height===1&&receipt.media_type==='image/png','C++ output metadata');
   const repeated=await (await worker.fetch(request(call('convert_image',{file_id:lease.file_id})),e)).json();
   check(JSON.stringify(repeated.result.structuredContent)===JSON.stringify(receipt),'repeat changed receipt');
-  const outcomes=events.filter(value=>value.schema==='arken.mcp.conversion.v1');
-  check(outcomes.length===1&&outcomes[0].inputFormat==='tga'&&outcomes[0].outputFormat==='png'&&outcomes[0].outcome==='succeeded','codec outcome missing or replay counted');
-  check(!JSON.stringify(converted).includes('arken.mcp.conversion.v1'),'private observation entered public result');
   const download=await worker.fetch(new Request(receipt.download_url),e);
   check(download.status===200,'signed download');
   const bytes=new Uint8Array(await download.arrayBuffer());check(bytes[0]===137&&bytes[1]===80&&bytes[2]===78,'actual PNG output');
@@ -127,20 +124,6 @@ export const conversion={async test(){
   const recordKey=[...e.FILES.values.keys()].find(k=>k.endsWith('/request'));
   const record=await (await e.FILES.get(recordKey)).json();record.expiresAt=1;await e.FILES.put(recordKey,JSON.stringify(record));
   check((await worker.fetch(new Request(receipt.download_url),e)).status===404,'expired file retained access');
-}};
-export const conversionFailureObservation={async test(){
-  const events=[],worker=createWorker(null,{emitCallSummary:value=>events.push(value)}),e=env();
-  const prepared=await (await worker.fetch(request(call('prepare_upload',{
-    source_bytes:tga.length,input_format:'png',output_format:'jpeg'})),e)).json();
-  const lease=prepared.result.structuredContent;
-  await worker.fetch(new Request(lease.upload_url,{method:'PUT',headers,body:tga}),e);
-  const result=await (await worker.fetch(request(call('convert_image',{file_id:lease.file_id})),e)).json();
-  const outcomes=events.filter(value=>value.schema==='arken.mcp.conversion.v1');
-  check(result.result.isError===true&&outcomes.length===1&&outcomes[0].inputFormat==='png'&&outcomes[0].outputFormat==='jpeg'&&outcomes[0].reason==='invalid_file','failure pair not observed');
-  check(Object.keys(outcomes[0]).length===6&&!JSON.stringify(outcomes).includes(lease.file_id),'private file identity logged');
-  const failing=createWorker(null,{emitCallSummary:()=>{throw Error('private diagnostic');}});
-  const again=await (await failing.fetch(request(call('convert_image',{file_id:lease.file_id})),e)).json();
-  check(JSON.stringify(again)===JSON.stringify(result),'observation failure changed codec result');
 }};
 export const largeImage={async test(){
   const e=env(),bytes=new Uint8Array(18+1024*1024*4);
