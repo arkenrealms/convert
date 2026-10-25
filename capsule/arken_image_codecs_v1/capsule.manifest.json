@@ -6,7 +6,7 @@
   "public_dependencies": [],
   "private_dependencies": ["arken_ao_core_v1", "arken_digest_v1"],
   "test_dependencies": [],
-  "external_dependencies":[{"recipe":"stb-image-2.30-v1","scope":"private","components":["image"],"reason":"Pinned memory-only PNG/BMP/JPEG decoding and bounded PNG/BMP/JPEG/TGA encoding."}],
+  "external_dependencies":[{"recipe":"stb-image-2.30-v1","scope":"private","components":["image"],"reason":"Pinned memory-only PNG/BMP/JPEG decoding and bounded PNG/BMP/JPEG/TGA encoding."},{"recipe":"skcms-f0bbebb-v1","scope":"private","components":["colour"],"reason":"Pinned portable RGB ICC to sRGB conversion; identical native and browser implementation."}],
   "capabilities": [
     "bounded_blp1_blp2_decode",
     "bounded_pcx_decode",

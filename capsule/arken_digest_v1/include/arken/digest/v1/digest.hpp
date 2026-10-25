@@ -50,6 +50,16 @@ struct Sha256ContentAddress final
     }
 };
 
+// Fixed-size native continuation; never a serialization of C++ object memory.
+struct Sha256Checkpoint final
+{
+    std::uint32_t version = 1;
+    std::array<std::uint32_t, 8u> state{};
+    std::array<std::uint8_t, 64u> buffer{};
+    std::uint64_t total_bytes = 0;
+    std::uint32_t buffered_bytes = 0;
+};
+
 class Sha256Hasher final
 {
   public:
@@ -57,6 +67,8 @@ class Sha256Hasher final
 
     [[nodiscard]] bool update(std::span<std::byte const> bytes) noexcept;
     [[nodiscard]] std::optional<Sha256Digest> finalize() const noexcept;
+    [[nodiscard]] std::optional<Sha256Checkpoint> checkpoint() const noexcept;
+    [[nodiscard]] static std::optional<Sha256Hasher> restore(Sha256Checkpoint const&) noexcept;
 
   private:
     void compress(std::byte const* block) noexcept;
