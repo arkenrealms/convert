@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Portable bounded file-conversion commands over existing Arken codec owners; independent of UI, transport, storage and payment.",
   "public_dependencies": ["arken_image_codecs_v1", "arken_canvas_execution_v1"],
-  "private_dependencies": [],
+  "private_dependencies": ["arken_mcp_suggestions_v1"],
   "test_dependencies": [],
   "capabilities": ["bounded_image_conversion", "explicit_alpha_loss", "memory_only_conversion", "bounded_encoded_image_processing", "image_processing_profile_inventory"]
 }
