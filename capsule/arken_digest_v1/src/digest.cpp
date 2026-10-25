@@ -125,36 +125,6 @@ bool Sha256Hasher::update(std::span<std::byte const> bytes) noexcept
     return true;
 }
 
-std::optional<Sha256Checkpoint> Sha256Hasher::checkpoint() const noexcept
-{
-    if(!valid_) return std::nullopt;
-    Sha256Checkpoint output;
-    output.state = state_;
-    output.total_bytes = total_bytes_;
-    output.buffered_bytes = static_cast<std::uint32_t>(buffered_bytes_);
-    for(std::size_t i = 0; i < buffered_bytes_; ++i)
-        output.buffer[i] = std::to_integer<std::uint8_t>(buffer_[i]);
-    return output;
-}
-
-std::optional<Sha256Hasher> Sha256Hasher::restore(Sha256Checkpoint const& input) noexcept
-{
-    if(input.version != 1 || input.buffered_bytes >= input.buffer.size()
-        || input.total_bytes > std::numeric_limits<std::uint64_t>::max() / 8u
-        || input.total_bytes % input.buffer.size() != input.buffered_bytes)
-        return std::nullopt;
-    for(std::size_t i = input.buffered_bytes; i < input.buffer.size(); ++i)
-        if(input.buffer[i] != 0) return std::nullopt;
-    Sha256Hasher output;
-    if(input.total_bytes < input.buffer.size() && input.state != output.state_) return std::nullopt;
-    output.state_ = input.state;
-    output.total_bytes_ = input.total_bytes;
-    output.buffered_bytes_ = input.buffered_bytes;
-    for(std::size_t i = 0; i < input.buffered_bytes; ++i)
-        output.buffer_[i] = std::byte(input.buffer[i]);
-    return output;
-}
-
 std::optional<Sha256Digest> Sha256Hasher::finalize() const noexcept
 {
     if(!valid_)

@@ -30,7 +30,7 @@ async function downloadUrl(env,url,owner,id,expiresAt,surface) {
   const token=await signed(env.ACCESS_TOKEN,`${surface.downloadDomain}${owner}:${id}:output:${expiresAt}`);
   return `${url.origin}/files/${id}/output?owner=${owner}&expires=${expiresAt}&token=${token}`;
 }
-async function command(plan,env,url,owner,payment,surface,publicRequest=false,observe,emitObservation) {
+async function command(plan,env,url,owner,payment,surface,publicRequest=false,observe) {
   const prefix=surface.artifactPrefix;
   if(!env.FILES)return toolReply(plan,{code:'storage_not_configured'},true);
   if(plan.commandId===1) {
@@ -53,19 +53,19 @@ async function command(plan,env,url,owner,payment,surface,publicRequest=false,ob
   const target=conversionTargetPacket(JSON.stringify({commandId:plan.commandId,arguments:found.record.args}));
   if(!target.allowed)return toolReply(plan,{code:target.code},true);
   if(payment)return toolResult(plan,await payment.convert(plan,env,{found,url,owner,id,observe,
-    execute:(inputDigest,codec)=>convertAndStore(env,url,owner,id,found,surface,inputDigest,codec,emitObservation)}));
+    execute:(inputDigest,codec)=>convertAndStore(env,url,owner,id,found,surface,inputDigest,codec)}));
   const previous=await env.FILES.get(found.key+'/result');
   if(previous)return toolReply(plan,await previous.json());
-  const receipt=await convertAndStore(env,url,owner,id,found,surface,undefined,undefined,emitObservation);
+  const receipt=await convertAndStore(env,url,owner,id,found,surface);
   return toolReply(plan,receipt,Boolean(receipt.code));
 }
-async function convertAndStore(env,url,owner,id,found,surface,inputDigest,codec=found.record.args.codec,emitObservation) {
+async function convertAndStore(env,url,owner,id,found,surface,inputDigest,codec=found.record.args.codec) {
   const source=await env.FILES.get(found.key+'/input');
   if(!source)return {code:'upload_required'};
   if(source.size>8388608||source.size!==found.record.args.source_bytes)return {code:'source_size_mismatch'};
   const bytes=await source.arrayBuffer();
   if(inputDigest&&await digest(bytes)!==inputDigest)return {code:'source_digest_mismatch'};
-  const result=convertImage(bytes,codec,emitObservation);
+  const result=convertImage(bytes,codec);
   if(result.error)return {code:'conversion_rejected',...result};
   const format=found.record.args.output_format;
   const mediaType=format==='jpeg'?'image/jpeg':format==='tga'?'image/x-tga':`image/${format}`;
@@ -167,7 +167,7 @@ const surface=describe(false);return {
         if(plan.kind==='response')return complete(new Response(plan.status===202?null:plan.body,{status:plan.status,headers:jsonHeaders}));
         if(!secretValid)return complete(toolReply(plan,{code:'server_not_configured'},true));
         if(publicRequest){const access=accessPlan(context,plan.commandId===1?'upload':'file',plan.arguments.file_id??null,plan.arguments.file_token??null);if(access.mode==='denied')return complete(problem(access.code,401));owner=access.owner;}
-        return complete(await command(plan,env,url,owner,payment,surface,publicRequest,observe,emitCallSummary));
+        return complete(await command(plan,env,url,owner,payment,surface,publicRequest,observe));
       } finally {bodyInFlight=false;}
     } catch(error) {
       console.error('conversion request failed',{code:error.message==='body_limit'?'body_limit':'request_failed'});
