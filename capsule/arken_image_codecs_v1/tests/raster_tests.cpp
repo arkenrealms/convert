@@ -1,5 +1,9 @@
 #include "arken_image_codecs_v1/test_support/raster_fixtures.hpp"
 #include "arken_image_codecs_v1/test_support/scalar_fixtures.hpp"
+#include "arken_image_codecs_v1/test_support/icc_fixtures.hpp"
+#include "arken_image_codecs_v1/encode.hpp"
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 namespace image=arken::image::v1;
@@ -7,6 +11,36 @@ void require(bool value,const char* message){if(!value)throw std::runtime_error(
 int main(int argc,char** argv){
     if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-raster-codec-tests-r4566\n";return 0;}
     try{
+        if(argc==4&&std::string_view(argv[1])=="--convert-png"){
+            std::ifstream input(argv[2],std::ios::binary|std::ios::ate);const auto size=input.tellg();
+            require(bool(input)&&size>0&&size<=50*1024*1024,"PNG input unavailable or too large");
+            std::vector<std::byte> bytes(static_cast<std::size_t>(size));input.seekg(0);input.read(reinterpret_cast<char*>(bytes.data()),size);
+            require(bool(input),"PNG input read failed");const auto decoded=image::DecodeImage(image::Format::png,bytes);
+            if(!decoded)throw std::runtime_error("PNG decode rejected: "+std::to_string(unsigned(decoded.issue.code)));
+            require(std::filesystem::create_directory(argv[3]),"Output directory must be new");
+            for(const auto& [name,format]:{std::pair{"expected.png",image::Format::png},std::pair{"expected.jpeg",image::Format::jpeg}}){
+                image::EncodeOptions options;if(format==image::Format::jpeg)options.alphaPolicy=image::AlphaPolicy::flatten_white;
+                const auto encoded=image::EncodeImage(format,decoded.image.width,decoded.image.height,decoded.image.rgba8,options);
+                require(bool(encoded),"Output encode failed");
+                std::ofstream output(std::filesystem::path(argv[3])/name,std::ios::binary);output.write(reinterpret_cast<const char*>(encoded.bytes.data()),encoded.bytes.size());require(bool(output),"Output write failed");
+            }
+            std::cout<<"Converted PNG to sRGB PNG and JPEG: "<<decoded.image.width<<'x'<<decoded.image.height<<'\n';return 0;
+        }
+        require(argc==1,"Usage: arken-raster-codec-tests [--convert-png INPUT NEW-OUTPUT]");
+        const std::vector<std::uint8_t> grey{128,128,128,37,64,64,64,255};
+        const auto plain=image::EncodePng(2,1,grey);require(bool(plain),"ICC fixture PNG encode");
+        const auto icc=raster_fixture::IccPayload(raster_fixture::LinearRgbProfile());
+        const auto tagged=raster_fixture::WithIcc(plain.bytes,icc);
+        const auto managed=image::DecodeImage(image::Format::png,tagged);require(bool(managed),"Linear RGB ICC rejected");
+        for(unsigned c=0;c<3;++c)require(std::abs(int(managed.image.rgba8[c])-188)<=1&&std::abs(int(managed.image.rgba8[4+c])-137)<=1,"ICC colour not converted to sRGB");
+        require(managed.image.rgba8[3]==37&&managed.image.rgba8[7]==255,"ICC changed unassociated alpha");
+        require(image::DecodeImage(image::Format::png,plain.bytes).image.rgba8==grey,"Untagged PNG changed");
+        require(!image::DecodeImage(image::Format::png,raster_fixture::WithIcc(tagged,icc)),"Duplicate ICC accepted");
+        auto damaged=icc;damaged.back()^=std::byte{1};require(!image::DecodeImage(image::Format::png,raster_fixture::WithIcc(plain.bytes,damaged)),"ICC Adler corruption accepted");
+        auto trailing=icc;trailing.insert(trailing.end()-4,std::byte{0});require(!image::DecodeImage(image::Format::png,raster_fixture::WithIcc(plain.bytes,trailing)),"ICC trailing zlib data accepted");
+        auto invalid=raster_fixture::LinearRgbProfile();raster_fixture::Be(invalid,136,0xfffffff0);require(!image::DecodeImage(image::Format::png,raster_fixture::WithIcc(plain.bytes,raster_fixture::IccPayload(invalid))),"ICC tag overrun accepted");
+        require(!image::DecodeImage(image::Format::png,raster_fixture::WithIcc(plain.bytes,raster_fixture::IccPayload(std::vector<std::byte>(4*1024*1024+1)))),"ICC inflate bound ignored");
+        require(bool(image::DecodeScalar16(image::ScalarFormat::png16,raster_fixture::WithIcc(raster_fixture::Png16(true),icc))),"ICC altered scalar PNG policy");
         const auto scalarPng=image::DecodeScalar16(image::ScalarFormat::png16,raster_fixture::Png16(true));
     require(scalarPng&&scalarPng.samples==std::vector<std::uint16_t>{0,32896,65535,257},"Scalar PNG lost low bits");
     const auto dataChromaticities=image::DecodeScalar16(image::ScalarFormat::png16,raster_fixture::WithChromaticities(raster_fixture::Png16(true),false));
