@@ -98,7 +98,7 @@ std::string Catalog() {
   const auto descriptions=presentations(ServerMode::production);
   for(auto& command:catalog.at("commands"))
     for(const auto& p:descriptions)
-      if(p.commandId>=3&&command.at("commandId")==p.commandId) command["description"]=p.description;
+      if(command.at("commandId")==p.commandId) command["description"]=p.description;
   return catalog.dump();
 }
 std::string ConversionTargetPacket(std::string_view text) noexcept {
