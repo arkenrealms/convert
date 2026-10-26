@@ -1176,6 +1176,9 @@ function(_arken_extpkg_materialize_tool_profile recipe_json recipe_id selected_c
 endfunction()
 
 function(_arken_extpkg_materialize_system_sdk recipe_json recipe_id selected_components)
+    # Recipe-owned Find modules resolve from this SDK, including compositions
+    # that intentionally do not import the umbrella SDK CMake entry point.
+    list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/..")
     _arken_extpkg_json_optional_string(_find_package "${recipe_json}" "" "${recipe_id}" adapter findPackage)
     if(NOT _find_package STREQUAL "")
         find_package("${_find_package}" REQUIRED)
