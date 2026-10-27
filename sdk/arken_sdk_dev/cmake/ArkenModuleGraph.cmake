@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/ArkenModuleComponents.cmake")
 
 function(_arken_manifest_array_to_list out_var json_text field_name)
     set(_values "")
@@ -281,6 +282,8 @@ function(_arken_visit_module module_key)
     get_property(_kind GLOBAL PROPERTY "ARKEN_MODULE_KIND_${_key_ident}")
     get_property(_module_dir GLOBAL PROPERTY "ARKEN_MODULE_DIR_${_key_ident}")
     file(READ "${_manifest_path}" _manifest_json)
+    _arken_component_view(_manifest_json _component_entry "${_manifest_json}" "${_manifest_path}")
+    set_property(GLOBAL PROPERTY "ARKEN_GRAPH_ENTRY_${_key_ident}" "${_component_entry}")
 
     set_property(GLOBAL APPEND PROPERTY ARKEN_GRAPH_VISITING "${module_key}")
 
@@ -357,6 +360,7 @@ function(arken_resolve_enabled_capsules out_var)
     endif()
 
     file(READ "${ARG_ROOT_MANIFEST}" _root_manifest_json)
+    _arken_initialize_component_selection("${_root_manifest_json}")
     _arken_manifest_array_to_list(_root_public_dependencies "${_root_manifest_json}" "public_dependencies")
     _arken_manifest_array_to_list(_root_private_dependencies "${_root_manifest_json}" "private_dependencies")
     set(_root_dependencies
@@ -374,6 +378,7 @@ function(arken_resolve_enabled_capsules out_var)
     foreach(_dependency IN LISTS _root_dependencies)
         _arken_visit_module("${_dependency}")
     endforeach()
+    _arken_validate_reached_components()
 
     get_property(_enabled_dirs GLOBAL PROPERTY ARKEN_GRAPH_ENABLED_CAPSULE_DIRS)
     list(REMOVE_DUPLICATES _enabled_dirs)
