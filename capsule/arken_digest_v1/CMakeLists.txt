@@ -5,6 +5,7 @@ endif()
 add_library(arken_digest_v1 STATIC
     src/digest.cpp
     src/hmac.cpp
+    src/source_digest.cpp
 )
 add_library(arken::digest_v1 ALIAS arken_digest_v1)
 target_compile_features(arken_digest_v1 PUBLIC cxx_std_20)
@@ -34,6 +35,11 @@ if(BUILD_TESTING OR ARKEN_DIGEST_V1_BUILD_TESTS OR OASIS_NATIVE_BUILD_HOST_TESTS
     add_test(NAME ArkenDigestV1.Version COMMAND arken-digest-v1-tests --version --invalid)
     set_tests_properties(ArkenDigestV1.Version PROPERTIES
         TIMEOUT 5 PASS_REGULAR_EXPRESSION "arken-digest-v1-tests-r5373")
+    add_executable(arken-digest-source-tests tests/source_digest_tests.cpp)
+    target_link_libraries(arken-digest-source-tests PRIVATE arken_digest_v1)
+    add_test(NAME ArkenDigestV1.Source COMMAND arken-digest-source-tests)
+    add_test(NAME ArkenDigestV1.SourceVersion COMMAND arken-digest-source-tests --invalid --version)
+    set_tests_properties(ArkenDigestV1.SourceVersion PROPERTIES TIMEOUT 5 PASS_REGULAR_EXPRESSION "arken-digest-source-tests-r6152")
     find_program(ARKEN_DIGEST_V1_NODE_EXECUTABLE NAMES node)
     if(ARKEN_DIGEST_V1_NODE_EXECUTABLE)
         add_test(
