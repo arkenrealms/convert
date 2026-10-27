@@ -1,4 +1,5 @@
 #include "arken_file_conversion_v1/api.hpp"
+#include "image_preview.hpp"
 #include <new>
 
 namespace arken::file_conversion::v1 {
@@ -10,13 +11,16 @@ bool SupportsInput(image::Format format) noexcept {
         || format == image::Format::jpeg || format == image::Format::dds
         || format == image::Format::tga;
 }
-bool SupportsOutput(image::Format format) noexcept {
-    return format == image::Format::png || format == image::Format::bmp
-        || format == image::Format::jpeg || format == image::Format::tga;
-}
-ImageResult ConvertImage(std::span<const std::byte> source, const ImageOptions& options) noexcept {
-    if (source.empty() || source.size() > maximumSourceBytes) return Failure(Error::input_limit);
-    if (!SupportsInput(options.input)) return Failure(Error::input_format_unavailable);
+namespace {
+struct Profile {
+    std::uint32_t sourceBytes,outputBytes,pixels,dimension;
+    image::RasterProfile codec;
+};
+constexpr Profile hosted{maximumSourceBytes,maximumOutputBytes,maximumPixels,maximumDimension,image::RasterProfile::bounded};
+constexpr Profile browser{browserMaximumSourceBytes,browserMaximumOutputBytes,browserMaximumPixels,browserMaximumDimension,image::RasterProfile::largeRaster};
+ImageResult Convert(std::span<const std::byte> source,const ImageOptions& options,const Profile& profile) noexcept {
+    if (source.empty() || source.size() > profile.sourceBytes) return Failure(Error::input_limit);
+    if (!SupportsInput(options.input)||(profile.codec==image::RasterProfile::largeRaster&&!SupportsOutput(options.input))) return Failure(Error::input_format_unavailable);
     if (!SupportsOutput(options.output)) return Failure(Error::output_format_unavailable);
     if (options.jpegQuality < 1 || options.jpegQuality > 100
         || (options.output != image::Format::jpeg && options.jpegQuality != 95)
@@ -26,9 +30,10 @@ ImageResult ConvertImage(std::span<const std::byte> source, const ImageOptions& 
         return Failure(Error::invalid_options);
     try {
         image::DecodeOptions decode;
-        decode.maximumSourceBytes = maximumSourceBytes;
-        decode.maximumPixels = maximumPixels;
-        decode.maximumDimension = maximumDimension;
+        decode.maximumSourceBytes = profile.sourceBytes;
+        decode.maximumPixels = profile.pixels;
+        decode.maximumDimension = profile.dimension;
+        decode.resourceProfile = profile.codec;
         auto decoded = image::DecodeImage(options.input, source, decode);
         if (!decoded) {
             auto result = Failure(Error::decode_failed);
@@ -36,9 +41,10 @@ ImageResult ConvertImage(std::span<const std::byte> source, const ImageOptions& 
             return result;
         }
         image::EncodeOptions encode;
-        encode.maximumOutputBytes = maximumOutputBytes;
-        encode.maximumPixels = maximumPixels;
-        encode.maximumDimension = maximumDimension;
+        encode.maximumOutputBytes = profile.outputBytes;
+        encode.maximumPixels = profile.pixels;
+        encode.maximumDimension = profile.dimension;
+        encode.resourceProfile = profile.codec;
         encode.jpegQuality = options.jpegQuality;
         encode.alphaPolicy = options.alphaPolicy;
         auto encoded = image::EncodeImage(options.output, decoded.image.width,
@@ -52,9 +58,37 @@ ImageResult ConvertImage(std::span<const std::byte> source, const ImageOptions& 
         result.width = decoded.image.width; result.height = decoded.image.height;
         result.alphaFlattened = encoded.alphaFlattened;
         result.bytes = std::move(encoded.bytes);
+        if(profile.codec==image::RasterProfile::largeRaster&&options.output==image::Format::tga)
+            detail::SetPreview(result,std::move(decoded.image));
         return result;
     } catch (const std::bad_alloc&) { return Failure(Error::allocation_failed); }
     catch (...) { return Failure(Error::internal_failure); }
+}
+}
+ImageResult ConvertImage(std::span<const std::byte> source,const ImageOptions& options) noexcept {
+    return Convert(source,options,hosted);
+}
+ImageResult ConvertBrowserImage(std::span<const std::byte> source,const ImageOptions& options) noexcept {
+    return Convert(source,options,browser);
+}
+ImageResult InspectBrowserImage(std::span<const std::byte> source,image::Format format) noexcept {
+    if(source.empty()||source.size()>browser.sourceBytes)return Failure(Error::input_limit);
+    if(!SupportsOutput(format))return Failure(Error::input_format_unavailable);
+    try {
+        image::DecodeOptions options;
+        options.maximumSourceBytes=browser.sourceBytes;options.maximumPixels=browser.pixels;
+        options.maximumDimension=browser.dimension;options.resourceProfile=browser.codec;
+        auto decoded=image::DecodeImage(format,source,options);
+        if(!decoded){auto result=Failure(Error::decode_failed);result.decodeError=decoded.issue.code;return result;}
+        ImageResult result;result.width=decoded.image.width;result.height=decoded.image.height;
+        if(format==image::Format::tga)detail::SetPreview(result,std::move(decoded.image));
+        return result;
+    }catch(const std::bad_alloc&){return Failure(Error::allocation_failed);}
+    catch(...){return Failure(Error::internal_failure);}
+}
+std::string_view BrowserImageErrorMessage(Error error) noexcept {
+    if(error==Error::input_limit)return "Choose a nonempty image no larger than 128 MiB";
+    return ErrorMessage(error);
 }
 std::string_view ErrorMessage(Error error) noexcept {
     switch (error) {

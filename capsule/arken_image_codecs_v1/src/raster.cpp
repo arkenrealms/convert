@@ -1,4 +1,5 @@
 #include "reader.hpp"
+#include "large_raster.hpp"
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -244,6 +245,12 @@ DecodeResult DecodeRaster(Format format,Bytes bytes,const DecodeOptions& options
             skcms_AlphaFormat_Unpremul,&colour.profile,result.image.rgba8.data(),skcms_PixelFormat_RGBA_8888,skcms_AlphaFormat_Unpremul,
             skcms_sRGB_profile(),std::size_t(width)*height))return Failure(DecodeError::unsupported_content);
         return result;
+    }
+    if(options.resourceProfile==RasterProfile::largeRaster){
+        auto result=DecodeLargeRasterPixels(bytes,width,height);
+        if(!result)return result;
+        if(!apply_colour(colour,result.image))return Failure(DecodeError::unsupported_content);
+        orient(result.image,orientation);return result;
     }
     std::unique_ptr<unsigned char,decltype(&stbi_image_free)> pixels(stbi_load_from_memory(data,static_cast<int>(bytes.size()),&width,&height,&components,4),stbi_image_free);
     if(!pixels)return Failure(DecodeError::invalid_layout);

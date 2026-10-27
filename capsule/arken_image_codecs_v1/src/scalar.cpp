@@ -77,7 +77,7 @@ ScalarDecodeResult DecodeScalar16(ScalarFormat format,std::span<const std::byte>
     try{
         if(bytes.empty())return fail(DecodeError::truncated);
         if(bytes.size()>options.maximumSourceBytes||bytes.size()>std::size_t(std::numeric_limits<int>::max()))return fail(DecodeError::input_too_large);
-        if(options.maximumDimension>8192||options.maximumPixels>8ull*1024*1024)return fail(DecodeError::resource_limit);
+        if(options.resourceProfile!=RasterProfile::bounded||options.maximumDimension>8192||options.maximumPixels>8ull*1024*1024)return fail(DecodeError::resource_limit);
         if(options.frameIndex||options.directionIndex||options.mipIndex)return fail(DecodeError::selection_out_of_range);
         switch(format){case ScalarFormat::png16:return detail::DecodeScalarPng16(bytes,options);
           case ScalarFormat::tiff16:return detail::DecodeScalarTiff16(bytes,options);}
