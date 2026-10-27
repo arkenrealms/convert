@@ -4,6 +4,7 @@
 
 namespace arken::image::v1 {
 enum class Format : std::uint32_t {pcx=1, cel=2, dc6=3, blp=4, dds=5, tga=6, png=7, bmp=8, jpeg=9, gif=10};
+enum class RasterProfile : std::uint32_t {bounded, largeRaster};
 struct DecodeOptions {
     std::uint32_t frameIndex=0, directionIndex=0, mipIndex=0;
     std::uint32_t celWidth=0, celFrameHeaderBytes=0;
@@ -16,6 +17,8 @@ struct DecodeOptions {
     // Explicit presentation conversion only. The importer must preserve the
     // encoded original; default callers never silently lose 16-bit precision.
     bool allowPng16BitRenderingDerivative=false;
+    // Explicit resident-image opt-in; numeric budgets still apply per call.
+    RasterProfile resourceProfile=RasterProfile::bounded;
 };
 struct Image {
     std::uint32_t width=0, height=0, frameCount=1, directionCount=1, mipCount=1;

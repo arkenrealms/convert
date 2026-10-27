@@ -10,6 +10,7 @@ struct EncodeOptions {
     std::uint64_t maximumPixels=8ull*1024*1024;
     std::uint32_t maximumDimension=8192,jpegQuality=95;
     AlphaPolicy alphaPolicy=AlphaPolicy::preserve;
+    RasterProfile resourceProfile=RasterProfile::bounded;
 };
 struct EncodeResult {
     EncodeError error=EncodeError::none;

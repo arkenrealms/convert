@@ -1,11 +1,14 @@
 #include "reader.hpp"
+#include "resource_profile.hpp"
 #include <new>
 
 namespace arken::image::v1 {
 DecodeResult DecodeImage(Format format,std::span<const std::byte> bytes,const DecodeOptions& options) noexcept {
     if(bytes.empty())return detail::Failure(DecodeError::truncated);
     if(bytes.size()>options.maximumSourceBytes)return detail::Failure(DecodeError::input_too_large);
-    if(!options.maximumPixels||options.maximumPixels>(format==Format::png?32ull:8ull)*1024*1024||!options.maximumDimension||options.maximumDimension>8192)
+    if(!detail::ValidProfile(options.resourceProfile,format)
+        ||!options.maximumPixels||options.maximumPixels>detail::DecodePixelCeiling(options.resourceProfile,format)
+        ||!options.maximumDimension||options.maximumDimension>8192)
         return detail::Failure(DecodeError::resource_limit);
     try{
         switch(format){
