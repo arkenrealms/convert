@@ -2,6 +2,13 @@
   "name": "Arken Schema C++ V1",
   "key": "arken_schema_cpp_v1",
   "version": "1.7.0",
+  "components": {
+    "runtime": {
+      "cmake": "cmake/Runtime.cmake",
+      "public_dependencies": ["arken_schema_core_v1"],
+      "private_dependencies": []
+    }
+  },
   "public_dependencies": [
     "arken_schema_idl_v1",
     "arken_schema_core_v1"
