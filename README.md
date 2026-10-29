@@ -51,3 +51,32 @@ Object journal/restart and production release qualification remain separate.
 Nothing is deployed. No credentials are included, and this repository does not
 grant a new license to first-party code. Preserve the existing runtime notice and
 the pinned dependencies' license files when distributing modules.
+
+## Updating this repository
+
+Waygate generates the file inventory from actual build dependencies. Do not edit
+the generated file lists or copy the whole monorepo into this package.
+
+The separately built native `arken-waygate-refresh` tool uses the monorepo's
+`capsule/arken_waygate_service_v1/recipes/refresh/convert.json` profile. Supply a
+clean, committed source revision and a fresh output directory. It builds and
+tests both the source and an isolated candidate before preparing an update.
+
+```sh
+arken-waygate-refresh --source "$UDE" --commit "$REV" \
+  --profile capsule/arken_waygate_service_v1/recipes/refresh/convert.json \
+  --output "$RUN" --cc "$CC" --cxx "$CXX" \
+  --destination "$PWD" --application-output "$APPLY_RUN" \
+  --expected-head "$(git rev-parse HEAD)" --previous-prepared "$PREVIOUS_RUN"
+```
+
+For the first refresh of an existing repo, replace `--previous-prepared` with
+`--previous-recipe` and `--previous-commit` from its accepted Waygate baseline.
+Later runs use the preceding prepared directory. Retain those receipts and their
+qualification artifacts. Failed qualification never applies an update; a stale
+destination or independent mapped edit is rejected rather than overwritten.
+
+Reverse contributions use the same prepared mapping through the explicit
+`--operation reverse` command. They require a frozen standalone commit and the
+monorepo's expected HEAD. A reverse import is not a deployment or a claim that
+the contributed code has passed a new build. No command pushes automatically.
