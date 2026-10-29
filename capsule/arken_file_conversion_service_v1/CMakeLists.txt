@@ -45,7 +45,7 @@ target_link_libraries(arken_file_conversion_service_v1 PRIVATE arken_file_conver
 target_compile_features(arken_file_conversion_service_v1 PUBLIC cxx_std_20)
 target_include_directories(arken_file_conversion_service_v1 PUBLIC "${CMAKE_CURRENT_LIST_DIR}/.."
     PRIVATE "${CMAKE_CURRENT_LIST_DIR}/generated")
-target_link_libraries(arken_file_conversion_service_v1 PUBLIC arken_file_conversion_v1 arken_file_conversion_service_v1_payment_profiles arken_file_conversion_service_v1_payment_state arken_file_conversion_service_v1_x402 arken_file_conversion_service_v1_cdp_provider arken_file_conversion_service_v1_settlement_observer arken_file_conversion_service_v1_public_admission
+target_link_libraries(arken_file_conversion_service_v1 PUBLIC arken_file_conversion_images_v1 arken_file_conversion_service_v1_payment_profiles arken_file_conversion_service_v1_payment_state arken_file_conversion_service_v1_x402 arken_file_conversion_service_v1_cdp_provider arken_file_conversion_service_v1_settlement_observer arken_file_conversion_service_v1_public_admission
     PRIVATE arken_schema_cpp_v1_tool_json arken_digest_v1 arken_mcp_protocol_v1 arken_x402_v1)
 if(ARKEN_BROWSER_CPP)
     include("${CMAKE_CURRENT_LIST_DIR}/../arken_file_conversion_v1/cmake/ArkenFileConversionReactor.cmake")
@@ -56,7 +56,7 @@ if(ARKEN_BROWSER_CPP)
         EXPORT_FUNCTIONS arken_convert_report_prepare arken_convert_report_commit arken_convert_report_run
         arken_convert_report_result arken_convert_report_clear arken_convert_report_limit)
     target_link_options(arken-conversion-journal-report-module PRIVATE -Wl,--strip-debug)
-    arken_file_conversion_reactor(arken-file-conversion-service-module)
+    arken_file_conversion_reactor(arken-file-conversion-service-module LIBRARY arken_file_conversion_images_v1)
     target_sources(arken-file-conversion-service-module PRIVATE platform/wasm/bridge.cpp)
     target_link_libraries(arken-file-conversion-service-module PRIVATE arken_file_conversion_service_v1)
 endif()

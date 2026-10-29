@@ -29,7 +29,8 @@ Json Cases() {
                          c::Error expected = c::Error::none) {
         const auto start = std::chrono::steady_clock::now();
         auto result = c::ConvertImage(source, options);
-        Check(result.error == expected, id + ": wrong disposition");
+        Check(result.error == expected, id + ": expected error " + std::to_string(unsigned(expected))
+            + ", observed " + std::to_string(unsigned(result.error)));
         if (result) {
             const auto decoded = image::DecodeImage(options.output, result.bytes);
             Check(bool(decoded) && decoded.image.width == result.width && decoded.image.height == result.height,

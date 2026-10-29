@@ -9,6 +9,17 @@ function(arken_add_file_conversion_images)
     target_link_libraries(arken_file_conversion_images_v1 PUBLIC arken_image_codecs_v1)
 endfunction()
 
+function(arken_add_file_conversion_image_tests)
+    get_filename_component(owner "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
+    add_executable(arken-file-conversion-tests "${owner}/tests/image_tests.cpp")
+    target_link_libraries(arken-file-conversion-tests PRIVATE arken_file_conversion_images_v1
+        arken_nlohmann_json_header_only arken::external_stb_image_v1)
+    add_test(NAME FileConversion.Native COMMAND arken-file-conversion-tests)
+    add_test(NAME FileConversion.Version COMMAND arken-file-conversion-tests --version --invalid)
+    set_tests_properties(FileConversion.Native PROPERTIES TIMEOUT 120)
+    set_tests_properties(FileConversion.Version PROPERTIES TIMEOUT 5 PASS_REGULAR_EXPRESSION "r4327")
+endfunction()
+
 function(arken_add_browser_image_tests)
     get_filename_component(owner "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
     add_executable(arken-browser-image-profile-tests "${owner}/tests/browser_image_tests.cpp")

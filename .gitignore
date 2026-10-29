@@ -1,0 +1,4 @@
+/build*/
+/.tmp/
+/.arken/
+.DS_Store
