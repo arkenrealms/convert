@@ -6,7 +6,7 @@
 namespace {
 // PNG IDAT accumulation and inflater capacity growth can exceed the decoded
 // surface extent. Keep the ordinary decoder's smaller guard unchanged.
-constexpr std::size_t maximumAllocation=256u*1024u*1024u+8192u;
+constexpr std::size_t maximumAllocation=arken::image::v1::detail::maximumLargeRasterAllocation;
 void* Allocate(std::size_t size){return size<=maximumAllocation?std::malloc(size):nullptr;}
 void* Reallocate(void* pointer,std::size_t size){return size<=maximumAllocation?std::realloc(pointer,size):nullptr;}
 }

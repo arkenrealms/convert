@@ -1,6 +1,7 @@
 #include "arken_image_codecs_v1/test_support/raster_fixtures.hpp"
 #include "arken_image_codecs_v1/test_support/scalar_fixtures.hpp"
 #include "arken_image_codecs_v1/test_support/icc_fixtures.hpp"
+#include "arken_image_codecs_v1/test_support/png_layout_fixtures.hpp"
 #include "arken_image_codecs_v1/encode.hpp"
 #include <filesystem>
 #include <fstream>
@@ -27,6 +28,13 @@ int main(int argc,char** argv){
             std::cout<<"Converted PNG to sRGB PNG and JPEG: "<<decoded.image.width<<'x'<<decoded.image.height<<'\n';return 0;
         }
         require(argc==1,"Usage: arken-raster-codec-tests [--convert-png INPUT NEW-OUTPUT]");
+        for(const auto size:{std::pair{1u,1u},std::pair{9u,7u}}){
+            const auto decoded=image::DecodeImage(image::Format::png,raster_fixture::LayoutPng(size.first,size.second,true));
+            require(decoded&&decoded.image.rgba8==raster_fixture::Pixels(size.first,size.second,true),"Adam7 pass extent or empty pass rejected");
+        }
+        const auto packed=image::DecodeImage(image::Format::png,raster_fixture::LayoutPng(9,2,false,true));
+        require(packed&&packed.image.rgba8==std::vector<std::uint8_t>(9*2*4,255),"Sub-byte PNG row padding rejected");
+        require(!image::DecodeImage(image::Format::png,raster_fixture::LayoutPng(1,1,false,false,true)),"Excess inflated PNG bytes accepted");
         const std::vector<std::uint8_t> grey{128,128,128,37,64,64,64,255};
         const auto plain=image::EncodePng(2,1,grey);require(bool(plain),"ICC fixture PNG encode");
         const auto icc=raster_fixture::IccPayload(raster_fixture::LinearRgbProfile());

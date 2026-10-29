@@ -119,6 +119,39 @@ DecodeError png_profile(Bytes bytes,bool allow16,bool scalarData=false,PngColour
     }
     return DecodeError::truncated;
 }
+// A pixel-count limit alone does not bound IDAT expansion: a PNG can declare
+// one pixel and inflate megabytes of ignored trailing scanlines. Validate the
+// exact admitted filtered extent before the decoder can grow an inflate buffer.
+DecodeError png_inflate_shape(Bytes bytes,std::uint32_t width,std::uint32_t height,const DecodeOptions& options){
+    if(bytes.size()<33||U8(bytes,26)||U8(bytes,27)||U8(bytes,28)>1)return DecodeError::invalid_layout;
+    const auto depth=U8(bytes,24),type=U8(bytes,25);
+    const unsigned channels=type==0||type==3?1:type==2?3:type==4?2:type==6?4:0;
+    if(!channels||!(depth==1||depth==2||depth==4||depth==8||depth==16))return DecodeError::invalid_layout;
+    constexpr unsigned x0[]={0,4,0,2,0,1,0},y0[]={0,0,4,0,2,0,1};
+    constexpr unsigned dx[]={8,8,4,4,2,2,1},dy[]={8,8,8,4,4,2,2};
+    const bool interlaced=U8(bytes,28)!=0;
+    std::uint64_t extent=0;
+    for(unsigned pass=0;pass<(interlaced?7u:1u);++pass){
+        const auto w=interlaced?(width>x0[pass]?(width-x0[pass]+dx[pass]-1)/dx[pass]:0):width;
+        const auto h=interlaced?(height>y0[pass]?(height-y0[pass]+dy[pass]-1)/dy[pass]:0):height;
+        if(w&&h)extent+=(((std::uint64_t(w)*channels*depth+7)/8)+1)*h;
+    }
+    const auto limit=options.resourceProfile==RasterProfile::largeRaster?maximumLargeRasterAllocation:maximum_allocation;
+    if(!extent||extent>limit||extent>std::uint64_t(std::numeric_limits<int>::max()))return DecodeError::resource_limit;
+    std::vector<std::byte> compressed;
+    for(std::size_t at=8;at<bytes.size();){
+        if(!Range(bytes,at,12))return DecodeError::truncated;
+        const auto count=be32(bytes,at),kind=be32(bytes,at+4);
+        if(!Range(bytes,at+12,count))return DecodeError::truncated;
+        if(kind==0x49444154u)compressed.insert(compressed.end(),bytes.begin()+at+8,bytes.begin()+at+8+count);
+        at+=std::size_t(count)+12;
+    }
+    if(compressed.size()<6||compressed.size()>std::size_t(std::numeric_limits<int>::max()))return DecodeError::invalid_layout;
+    std::vector<char> filtered(static_cast<std::size_t>(extent));
+    const auto decoded=stbi_zlib_decode_buffer(filtered.data(),static_cast<int>(extent),
+        reinterpret_cast<const char*>(compressed.data()),static_cast<int>(compressed.size()));
+    return decoded==static_cast<int>(extent)?DecodeError::none:DecodeError::invalid_layout;
+}
 DecodeError gif_profile(Bytes bytes){
     if(bytes.size()<13)return DecodeError::truncated;
     const bool version87=!std::memcmp(bytes.data(),"GIF87a",6);
@@ -197,6 +230,7 @@ ScalarDecodeResult DecodeScalarPng16(Bytes bytes,const DecodeOptions& options){
     if(bytes.size()<33||U8(bytes,24)!=16||U8(bytes,25)!=0)return fail(DecodeError::unsupported_content);
     const auto w=be32(bytes,16),h=be32(bytes,20);
     if(!Dimensions(w,h,options))return fail(DecodeError::invalid_dimensions);
+    const auto shape=png_inflate_shape(bytes,w,h,options);if(shape!=DecodeError::none)return fail(shape);
     int width=0,height=0,components=0;
     std::unique_ptr<stbi_us,decltype(&stbi_image_free)> pixels(stbi_load_16_from_memory(
         reinterpret_cast<const unsigned char*>(bytes.data()),int(bytes.size()),&width,&height,&components,1),stbi_image_free);
@@ -217,6 +251,7 @@ DecodeResult DecodeRaster(Format format,Bytes bytes,const DecodeOptions& options
     int width=0,height=0,components=0;auto data=reinterpret_cast<const unsigned char*>(bytes.data());
     if(!stbi_info_from_memory(data,static_cast<int>(bytes.size()),&width,&height,&components))return Failure(DecodeError::invalid_layout);
     if(width<=0||height<=0||!Dimensions(static_cast<std::uint32_t>(width),static_cast<std::uint32_t>(height),options))return Failure(DecodeError::invalid_dimensions);
+    if(format==Format::png){const auto shape=png_inflate_shape(bytes,width,height,options);if(shape!=DecodeError::none)return Failure(shape);}
     if(format==Format::bmp){
         const auto size=U32(bytes,2),offset=U32(bytes,10),dib=U32(bytes,14),compression=U32(bytes,30);
         const auto bits=U16(bytes,28);
