@@ -1,0 +1,6 @@
+include_guard(GLOBAL)
+get_filename_component(_arken_family_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+add_library(arken_mcp_family_inventory_v1 STATIC "${_arken_family_root}/src/families.cpp")
+target_compile_features(arken_mcp_family_inventory_v1 PUBLIC cxx_std_20)
+target_include_directories(arken_mcp_family_inventory_v1 PUBLIC "${_arken_family_root}/..")
+target_compile_options(arken_mcp_family_inventory_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror)

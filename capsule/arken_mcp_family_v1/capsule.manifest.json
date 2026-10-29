@@ -1,0 +1,43 @@
+{
+  "key": "arken_mcp_family_v1",
+  "name": "Arken MCP Families",
+  "version": "1.0.0",
+  "public_dependencies": [
+    "arken_mcp_protocol_v1"
+  ],
+  "private_dependencies": [
+    "arken_schema_cpp_v1",
+    "arken_music_commands_v1",
+    "arken_video_commands_v1",
+    "arken_cad_commands_v1",
+    "arken_simulation_commands_v1",
+    "arken_geometry_commands_v1",
+    "arken_vector_commands_v1",
+    "arken_two_d_commands_v1",
+    "arken_three_d_commands_v1",
+    "arken_ui_commands_v1",
+    "arken_material_commands_v1",
+    "arken_texture_commands_v1",
+    "arken_animation_commands_v1",
+    "arken_games_commands_v1",
+    "arken_document_commands_v1",
+    "arken_code_commands_v1",
+    "arken_web_commands_v1",
+    "arken_knowledge_commands_v1",
+    "arken_workflow_commands_v1",
+    "arken_canvas_commands_v1"
+  ],
+  "test_dependencies": [],
+  "capabilities": [
+    "public_mcp_family_inventory",
+    "bounded_discovery_scaffold",
+    "domain_command_composition"
+  ],
+  "components": {
+    "inventory": {
+      "cmake": "cmake/Inventory.cmake",
+      "public_dependencies": [],
+      "private_dependencies": []
+    }
+  }
+}

@@ -65,7 +65,13 @@ and object-store effects use fixtures; this is not proof of a real purchase.
 The current-source journal check also exercises protected reporting, pagination,
 revocation, quota actors and unchanged ledger storage across restart. Its package
 and read-only report evidence are separate from predecessor-backed deployment
-qualification. The production budget wrapper remains a release requirement.
+qualification. The source attempt-guard check verifies missing/unavailable/denied
+budgets before body consumption, preserves named exports and responses, and
+reserves admitted requests once, including invalid calls. Native financial-policy
+checks run too. The shared budget service remains a required external binding.
+Local checks do not grant deployment authority or verify live policy, resource
+costs or profit. Guard evidence must be outside temporary directories; set
+`CONVERSION_GUARD_EVIDENCE_ROOT` to a durable directory if your build is temporary.
 Nothing is deployed. No credentials are included, and this repository does not
 grant a new license to first-party code. Preserve the existing runtime notice and
 the pinned dependencies' license files when distributing modules.

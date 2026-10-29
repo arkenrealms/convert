@@ -19,6 +19,7 @@ set(CONVERSION_STARTUP_FIXTURES "" CACHE FILEPATH "Native startup-fixtures.json 
 set(CONVERSION_SOURCE_PACKAGE_TOOL "" CACHE FILEPATH "Native Convert immutable source package tool")
 set(CONVERSION_REPORT_MODULE "" CACHE FILEPATH "Current-source journal report module")
 set(CONVERSION_PAYMENT_TESTS "" CACHE FILEPATH "Native journal fixture generator")
+set(CONVERSION_GUARD_EVIDENCE_ROOT "${CMAKE_CURRENT_BINARY_DIR}/source-guard-proof" CACHE PATH "Durable non-temporary source guard evidence")
 if(CONVERSION_SOURCE_PACKAGE_TOOL AND NOT CONVERSION_WASM)
     message(FATAL_ERROR "Source journal qualification requires CONVERSION_WASM")
 endif()
@@ -50,6 +51,12 @@ if(CONVERSION_WASM)
             "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/source-journal-proof"
             -P "${CMAKE_CURRENT_LIST_DIR}/../run_source_journal.cmake")
         set_tests_properties(FileConversionWorker.SourceJournal PROPERTIES TIMEOUT 100)
+        add_test(NAME FileConversionWorker.SourceGuard COMMAND "${CMAKE_COMMAND}"
+            "-DSOURCE_PACKAGE_TOOL=${CONVERSION_SOURCE_PACKAGE_TOOL}" "-DSOURCE_ROOT=${workspace}"
+            "-DWASM=${CONVERSION_WASM}" "-DREPORT_MODULE=${CONVERSION_REPORT_MODULE}"
+            "-DWORKERD=${workerd}" "-DOUTPUT=${CONVERSION_GUARD_EVIDENCE_ROOT}"
+            -P "${CMAKE_CURRENT_LIST_DIR}/../run_source_guard.cmake")
+        set_tests_properties(FileConversionWorker.SourceGuard PROPERTIES TIMEOUT 100)
     endif()
     if(CONVERSION_PAYMENT_ACTORS)
         if(NOT EXISTS "${CONVERSION_PAYMENT_ACTORS}")
