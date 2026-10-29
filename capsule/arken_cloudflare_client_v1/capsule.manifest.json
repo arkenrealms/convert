@@ -1,0 +1,18 @@
+{
+  "key": "arken_cloudflare_client_v1",
+  "name": "Arken Cloudflare Native Client",
+  "version": "1.0.0",
+  "components": {
+    "local_io": {
+      "cmake": "cmake/LocalIO.cmake",
+      "public_dependencies": ["arken_digest_v1"],
+      "private_dependencies": []
+    }
+  },
+  "description": "Owner-only native HTTPS, bounded file I/O and hash primitives shared by Arken Cloudflare publishers; no account or product semantics.",
+  "public_dependencies": [
+    "arken_digest_v1"
+  ],
+  "private_dependencies": [],
+  "test_dependencies": []
+}

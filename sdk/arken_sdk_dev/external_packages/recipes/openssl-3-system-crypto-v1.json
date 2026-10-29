@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "recipeId": "openssl-3-system-crypto-v1",
+  "packageId": "openssl-3-native-crypto-provider",
+  "upstreamVersion": "3.x",
+  "dependencyClass": "system-sdk",
+  "supportedPlatforms": ["linux", "macos", "windows"],
+  "source": {"kind": "system-sdk"},
+  "adapter": {
+    "kind": "system-sdk",
+    "version": 1,
+    "findPackage": "ArkenOpenSSLAuthority"
+  },
+  "license": {
+    "spdx": "Apache-2.0",
+    "distribution": "system",
+    "files": []
+  },
+  "components": [
+    {
+      "name": "crypto",
+      "target": "arken::external_openssl_3_crypto_v1",
+      "kind": "interface",
+      "systemTarget": "OpenSSL::Crypto"
+    },
+    {
+      "name": "ssl",
+      "target": "arken::external_openssl_3_ssl_v1",
+      "kind": "interface",
+      "systemTarget": "OpenSSL::SSL"
+    }
+  ],
+  "dependencies": []
+}

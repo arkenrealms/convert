@@ -20,8 +20,12 @@ ctest --test-dir build --output-on-failure
 ```
 
 Link `arken::convert_mcp`. The native checks cover service contracts, image output,
-payment transitions, recovery, and journal policy. They do not contact a payment
-provider or spend funds.
+payment transitions, recovery, journal policy, x402, public admission, provider
+signatures and production startup. Paid-request qualification currently uses
+the pinned macOS OpenSSL crypto package; it does not include deployment tools
+or live network probes. Other service-only builds can disable the checks with
+`-DARKEN_CONVERT_MCP_CHECKS=OFF`.
+The checks do not contact a payment provider or spend funds.
 
 ## Worker modules
 
@@ -37,17 +41,26 @@ cmake --build build-wasm --parallel 2 --target \
 ```
 
 After the native checks have generated `build/payment-packets.json`, run the
-network-denied Worker protocol check:
+network-denied Worker protocol and Durable Object restart checks:
 
 ```sh
 cmake -S capsule/arken_file_conversion_service_v1/tests/driver -B build-worker \
   -DCONVERSION_WASM="$PWD/build-wasm/capsules/arken_file_conversion_service_v1/arken-file-conversion-service-module.wasm" \
-  -DCONVERSION_PAYMENT_PACKETS="$PWD/build/payment-packets.json"
+  -DCONVERSION_PAYMENT_PACKETS="$PWD/build/payment-packets.json" \
+  -DCONVERSION_PAYMENT_ACTORS="$PWD/build/payment-actor-fixtures.json" \
+  -DCONVERSION_X402_FIXTURES="$PWD/build/paid-fixtures/x402-fixtures.json" \
+  -DCONVERSION_RECONCILIATION_FIXTURES="$PWD/build/paid-fixtures/reconciliation-fixtures.json" \
+  -DCONVERSION_PUBLIC_ADMISSION_FIXTURES="$PWD/build/paid-fixtures/public-admission-fixtures.json" \
+  -DCONVERSION_PROVIDER_FIXTURES="$PWD/build/paid-fixtures/provider-fixtures.json" \
+  -DCONVERSION_STARTUP_FIXTURES="$PWD/build/paid-fixtures/startup-fixtures.json"
 ctest --test-dir build-worker --output-on-failure
 ```
 
-This checks protocol and payment-state parity with fixture storage. Full Durable
-Object journal/restart and production release qualification remain separate.
+This checks native/Wasm protocol parity and paid-flow persistence across two
+Workerd processes using real local Durable Object storage. Facilitator, chain
+and object-store effects use fixtures; this is not proof of a real purchase.
+Current-source report-journal packaging and the production budget wrapper remain
+separate release requirements.
 Nothing is deployed. No credentials are included, and this repository does not
 grant a new license to first-party code. Preserve the existing runtime notice and
 the pinned dependencies' license files when distributing modules.
