@@ -6,8 +6,13 @@
   "version": "1.0.0",
   "kind": "deterministic-core",
   "namespace": "arken::digest::v1",
-  "portable": ["native", "wasm"],
-  "public_dependencies": ["arken_ao_schema_v1"],
+  "portable": [
+    "native",
+    "wasm"
+  ],
+  "public_dependencies": [
+    "arken_ao_schema_v1"
+  ],
   "private_dependencies": [],
   "test_dependencies": [],
   "capabilities": [
@@ -15,5 +20,14 @@
     "canonical_sha256_text",
     "sha256_content_addresses"
   ],
-  "optional_features": {}
+  "optional_features": {},
+  "components": {
+    "hash": {
+      "cmake": "cmake/Hash.cmake",
+      "public_dependencies": [
+        "arken_ao_schema_v1"
+      ],
+      "private_dependencies": []
+    }
+  }
 }
