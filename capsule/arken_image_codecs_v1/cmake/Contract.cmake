@@ -1,0 +1,5 @@
+include_guard(GLOBAL)
+get_filename_component(_arken_image_contract_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+add_library(arken_image_codecs_contract_v1 INTERFACE)
+target_compile_features(arken_image_codecs_contract_v1 INTERFACE cxx_std_20)
+target_include_directories(arken_image_codecs_contract_v1 INTERFACE "${_arken_image_contract_root}/..")

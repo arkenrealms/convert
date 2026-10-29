@@ -2,6 +2,13 @@
   "key": "arken_file_conversion_v1",
   "name": "Arken File Conversion v1",
   "version": "1.0.0",
+  "components": {
+    "contract": {
+      "cmake": "cmake/Contract.cmake",
+      "public_dependencies": ["arken_image_codecs_v1"],
+      "private_dependencies": []
+    }
+  },
   "description": "Portable bounded file-conversion commands over existing Arken codec owners; independent of UI, transport, storage and payment.",
   "public_dependencies": ["arken_image_codecs_v1", "arken_canvas_execution_v1"],
   "private_dependencies": ["arken_mcp_suggestions_v1", "arken_player_v1", "arken_pdf_v1"],

@@ -2,6 +2,13 @@
   "key": "arken_image_codecs_v1",
   "name": "Arken Image Codecs v1",
   "version": "1.0.0",
+  "components": {
+    "contract": {
+      "cmake": "cmake/Contract.cmake",
+      "public_dependencies": [],
+      "private_dependencies": []
+    }
+  },
   "description": "Portable bounded image and indexed-sprite decoding for browser-local editors and native asset import. Callers supply external palettes and sprite geometry where the original format does not encode them; the codec never guesses game colors or opens files.",
   "public_dependencies": [],
   "private_dependencies": ["arken_ao_core_v1", "arken_digest_v1"],
