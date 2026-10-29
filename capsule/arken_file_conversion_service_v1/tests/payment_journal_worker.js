@@ -51,6 +51,6 @@ export const journal = {async test(_controller,env) {
   check(abi.memory.buffer.byteLength===memory&&memory<=16777216,'Report memory did not stabilize');
   const http=await proveConversionJournalHttp(env);
   console.log('ARKEN_CONVERT_REPORT_PROOF '+JSON.stringify({status:'passed',checks,packets,frozenTransitions,wasmBytes:memory,http,
-    hostImports:0,paidModuleRebuilt:false,reportStorageWrites:0,fixtureStorageWrites:http.fixtureStorageWrites,networkRequests:0,financialEffects:0,
+    hostImports:0,sourceKind:env.SOURCE_KIND,paidModuleRebuilt:env.SOURCE_KIND==='current-source',reportStorageWrites:0,fixtureStorageWrites:http.fixtureStorageWrites,networkRequests:0,financialEffects:0,
     evidence:'codec-parity-and-protected-durable-http',productionDeployed:false}));
 }};

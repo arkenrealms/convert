@@ -100,7 +100,7 @@ export async function proveConversionJournalHttp(env,retainWorker){
  check((await call()).status===200,'Report lease not released');
  equal(await actor.storedRows(),JSON.parse(before),'Report changed durable payment bytes');
  return {status:'passed',phase:env.PHASE,checks,rows:rows.length,actorCalls,storageUnchanged:true,publicEvidence,
-  storage:'workerd-disk-backed-durable-objects',originalPaidEngine:true,networkRequests:0,financialEffects:0,
+  storage:'workerd-disk-backed-durable-objects',originalPaidEngine:env.SOURCE_KIND!=='current-source',networkRequests:0,financialEffects:0,
   quotaActorClassified:true,quotaStorageUnchanged:true,foreignQuotaRejected:true,
   reportStorageWrites:0,fixtureStorageWrites,fixtureSeedingOnly:true,processRestartProved:env.PHASE==='read',productionDeployed:false};
 }
