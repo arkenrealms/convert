@@ -88,7 +88,7 @@ if(NOT EMSCRIPTEN AND NOT ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
     )
 endif()
 
-if(BUILD_TESTING AND TARGET arken-schema-cpp-v1-codegen)
+if((BUILD_TESTING OR ARKEN_SCHEMA_CPP_V1_NATIVE_CHECKS) AND TARGET arken-schema-cpp-v1-codegen)
     add_test(NAME ArkenSchemaCppV1.CodegenVersion COMMAND arken-schema-cpp-v1-codegen --version --invalid)
     set_tests_properties(ArkenSchemaCppV1.CodegenVersion PROPERTIES TIMEOUT 5
         PASS_REGULAR_EXPRESSION "^arken-schema-cpp-v1-codegen r6078-command-selection-model-descriptions")
@@ -174,6 +174,9 @@ if(BUILD_TESTING AND NOT ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
         gtest_discover_tests(arken-schema-cpp-v1-generated-tests DISCOVERY_TIMEOUT 30)
     endif()
 
+endif()
+
+if(BUILD_TESTING OR ARKEN_SCHEMA_CPP_V1_NATIVE_CHECKS)
     if(TARGET arken-schema-cpp-v1-codegen)
         add_test(
             NAME ArkenSchemaCppV1.CodegenOverwriteGuard
