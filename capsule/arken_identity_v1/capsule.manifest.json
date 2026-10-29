@@ -13,5 +13,12 @@
     "typed_zero_overhead_ids",
     "stable_c_abi",
     "host_wasm_compatible_core"
-  ]
+  ],
+  "components": {
+    "types": {
+      "cmake": "cmake/Types.cmake",
+      "public_dependencies": [],
+      "private_dependencies": []
+    }
+  }
 }

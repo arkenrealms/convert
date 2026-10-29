@@ -6,11 +6,33 @@
   "version": "1.0.0",
   "kind": "deterministic-core",
   "namespace": "arken::ao::schema::v1",
-  "portable": ["native", "wasm"],
-  "public_dependencies": ["arken_identity_v1"],
+  "portable": [
+    "native",
+    "wasm"
+  ],
+  "public_dependencies": [
+    "arken_identity_v1"
+  ],
   "private_dependencies": [],
   "test_dependencies": [],
-  "external_dependencies": [{"recipe":"nlohmann-json-3.12.0-tracked-v1","scope":"public","components":["nlohmann_json"],"platforms":["android","ios","linux","macos","web","windows"],"reason":"Optional arken::ao_json_v1 header contract shares bounded canonical AO JSON mechanics across format-owned model adapters."}],
+  "external_dependencies": [
+    {
+      "recipe": "nlohmann-json-3.12.0-tracked-v1",
+      "scope": "public",
+      "components": [
+        "nlohmann_json"
+      ],
+      "platforms": [
+        "android",
+        "ios",
+        "linux",
+        "macos",
+        "web",
+        "windows"
+      ],
+      "reason": "Optional arken::ao_json_v1 header contract shares bounded canonical AO JSON mechanics across format-owned model adapters."
+    }
+  ],
   "capabilities": [
     "canonical_ao_format_identity",
     "registered_sha256_algorithm_identity",
@@ -18,5 +40,14 @@
     "versioned_aogm_aotm_aosc_aoan_and_aoav_formats",
     "registered_aoav_actor_visual_format"
   ],
-  "optional_features": {}
+  "optional_features": {},
+  "components": {
+    "types": {
+      "cmake": "cmake/Types.cmake",
+      "public_dependencies": [
+        "arken_identity_v1"
+      ],
+      "private_dependencies": []
+    }
+  }
 }

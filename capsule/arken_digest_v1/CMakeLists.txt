@@ -2,21 +2,8 @@ if(NOT TARGET arken_ao_schema_v1)
     message(FATAL_ERROR "arken_digest_v1 requires arken_ao_schema_v1")
 endif()
 
-add_library(arken_digest_v1 STATIC
-    src/digest.cpp
-    src/hmac.cpp
-    src/source_digest.cpp
-)
-add_library(arken::digest_v1 ALIAS arken_digest_v1)
-target_compile_features(arken_digest_v1 PUBLIC cxx_std_20)
-target_include_directories(arken_digest_v1 PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/Native.cmake")
 target_link_libraries(arken_digest_v1 PUBLIC arken_ao_schema_v1)
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-  target_compile_options(arken_digest_v1 PRIVATE
-    -Wall -Wextra -Wpedantic -Werror
-    $<$<CONFIG:Debug>:-O2>)
-endif()
 
 option(
     ARKEN_DIGEST_V1_BUILD_TESTS
