@@ -1,1 +1,20 @@
-{"key":"arken_mcp_protocol_v1","name":"Arken MCP Protocol","version":"1.0.0","public_dependencies":["arken_schema_cpp_v1"],"private_dependencies":[],"test_dependencies":[],"description":"Bounded MCP lifecycle and generated tool discovery; no domain execution, authentication or billing."}
+{
+  "key": "arken_mcp_protocol_v1",
+  "name": "Arken MCP Protocol",
+  "version": "1.0.0",
+  "public_dependencies": [
+    "arken_schema_cpp_v1"
+  ],
+  "private_dependencies": [],
+  "test_dependencies": [],
+  "description": "Bounded MCP lifecycle and generated tool discovery; no domain execution, authentication or billing.",
+  "components": {
+    "core": {
+      "cmake": "cmake/Core.cmake",
+      "public_dependencies": [
+        "arken_schema_cpp_v1"
+      ],
+      "private_dependencies": []
+    }
+  }
+}
