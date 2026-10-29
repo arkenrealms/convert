@@ -19,16 +19,21 @@ set(ARKEN_NLOHMANN_TARGET arken_nlohmann_json_header_only)
 set(ARKEN_NATIVE_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${ARKEN_NATIVE_GENERATED_DIR}")
 include("${_sdk}/cmake/ArkenModuleGraph.cmake")
-arken_resolve_enabled_capsules(modules ROOT_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/lib.manifest.json"
+set(root_manifest "${CMAKE_CURRENT_SOURCE_DIR}/lib.manifest.json")
+if(ARKEN_CONVERT_MCP_CHECKS AND NOT ARKEN_BROWSER_CPP)
+    set(root_manifest "${CMAKE_CURRENT_SOURCE_DIR}/qualification.manifest.json")
+endif()
+arken_resolve_enabled_capsules(modules ROOT_MANIFEST "${root_manifest}"
     CAPSULE_ROOT "${ARKEN_SOURCE_ROOT}/capsule" LIB_ROOT "${ARKEN_SOURCE_ROOT}/lib")
 arken_get_resolved_module_manifests(manifests)
 include("${_sdk}/cmake/ArkenExternalPackageGraph.cmake")
-arken_resolve_external_packages(ROOT_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/lib.manifest.json"
+arken_resolve_external_packages(ROOT_MANIFEST "${root_manifest}"
     MODULE_MANIFESTS ${manifests} WORKSPACE_ROOT "${ARKEN_SOURCE_ROOT}")
 arken_add_resolved_module_targets(BINARY_ROOT "${CMAKE_CURRENT_BINARY_DIR}/capsules")
 foreach(forbidden arken_file_conversion_v1 arken_convert_collection_v1 arken_canvas_operation_kernel_v1
         arken_canvas_execution_v1 arken_player_v1 arken_pdf_v1 arken_mcp_suggestions_v1
-        arken_clang_browser_v1 arken_mcp_protocol_native_v1)
+        arken_clang_browser_v1 arken_mcp_protocol_native_v1 arken_cloudflare_client_v1
+        arken_paid_mcp_cloudflare_v1 arken-conversion-cloudflare)
     if(TARGET ${forbidden})
         message(FATAL_ERROR "Convert MCP must not configure unrelated target ${forbidden}")
     endif()
@@ -37,6 +42,8 @@ add_library(arken::convert_mcp ALIAS arken_file_conversion_service_v1)
 if(ARKEN_CONVERT_MCP_CHECKS AND NOT ARKEN_BROWSER_CPP)
     include("${ARKEN_SOURCE_ROOT}/capsule/arken_file_conversion_service_v1/cmake/PaymentChecks.cmake")
     arken_add_conversion_payment_checks()
+    include("${ARKEN_SOURCE_ROOT}/capsule/arken_file_conversion_service_v1/cmake/OfflinePaymentChecks.cmake")
+    arken_add_conversion_offline_payment_checks()
     include("${ARKEN_SOURCE_ROOT}/capsule/arken_file_conversion_v1/cmake/ArkenFileConversionImages.cmake")
     arken_add_file_conversion_image_tests()
     arken_add_browser_image_tests()

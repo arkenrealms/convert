@@ -160,7 +160,11 @@ int main(int argc,char** argv){
   if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-x402-tests r4407\n";return 0;}
   try{const bool probe=argc==3&&std::string_view(argv[1])=="--probe-rejection";const bool write=argc==3&&std::string_view(argv[1])=="--write-fixtures";
     Check(argc==1||probe||write,"arguments");const auto fixture=Fixture();const auto mainnetFixture=Fixture(true);
+#ifdef ARKEN_CONVERT_OFFLINE_QUALIFICATION
+    Check(!probe,"live probe excluded from offline qualification");
+#endif
     if(write){const std::filesystem::path root(argv[2]);std::filesystem::create_directories(root);std::ofstream out(root/"x402-fixtures.json");out<<Json{{"fixture",fixture},{"mainnetFixture",mainnetFixture},{"vectors",vectors},{"paidVectors",paidVectors}}.dump();Check(bool(out),"fixture write");}
+#ifndef ARKEN_CONVERT_OFFLINE_QUALIFICATION
     if(probe){namespace C=arken::conversion::cloudflare;const auto now=std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
       const auto quote=P::detail::WriteQuote(Quote(now));auto prep=Wire({{"kind","prepare"},{"quote",quote},{"payment",nullptr},{"now",std::to_string(now)}});
       prep=Wire({{"kind","prepare"},{"quote",quote},{"payment",Payment(prep,now).dump()},{"now",std::to_string(now)}});Ledger ledger;
@@ -170,6 +174,7 @@ int main(int argc,char** argv){
       const auto json=Json::parse(response.body);Check(response.status==200&&json.at("isValid")==false,"invalid signature was not rejected");
       const Json proof={{"status","passed"},{"httpStatus",response.status},{"isValid",false},{"invalidReason",json.value("invalidReason","")},{"settlementCalls",0}};
       C::Write(std::filesystem::path(argv[2])/"proof.json",proof.dump(2)+"\n");std::cout<<proof.dump(2)<<'\n';}
+#endif
     std::cout<<checks<<" x402 checks passed\n";return 0;
   }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

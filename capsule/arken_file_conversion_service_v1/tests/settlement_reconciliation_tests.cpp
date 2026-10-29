@@ -153,6 +153,7 @@ void DirectTests(bool mainnet){
     Check(run(bad).at("kind")=="pending","direct bad expectation verified");
   }
 }
+#ifndef ARKEN_CONVERT_OFFLINE_QUALIFICATION
 void Probe(const C::fs::path& state,const C::fs::path& clientKeyFile={}){C::PrivateDirectory(state);C::Lock lock(state/"probe.lock");C::Require(!C::fs::exists(state/"proof.json"),"probe_already_recorded");
   const bool mainnet=!clientKeyFile.empty();auto input=Fixture(mainnet);
   if(mainnet){const auto configuration=P::detail::Parse(C::Read(clientKeyFile,2048,true));P::detail::Fields(configuration,{"rpcClientKey"});input["rpcClientKey"]=configuration.at("rpcClientKey");}
@@ -170,11 +171,17 @@ void Probe(const C::fs::path& state,const C::fs::path& clientKeyFile={}){C::Priv
   }
   throw std::runtime_error("chain_probe_step_limit");
 }
+#endif
 }
 int main(int argc,char** argv){if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-conversion-reconciliation-tests r4389\n";return 0;}
+#ifndef ARKEN_CONVERT_OFFLINE_QUALIFICATION
   if(argc>1&&std::string_view(argv[1])=="--help"){std::cout<<"--write-fixtures OUTPUT | --probe-chain UNUSED_OUTPUT | --probe-mainnet CLIENT_KEY_JSON UNUSED_OUTPUT\nClient key file: owner-only JSON with rpcClientKey. Probe is read-only, never a recovered-payment proof.\n";return 0;}
-  try{if(argc==3&&std::string_view(argv[1])=="--probe-chain"){Probe(C::fs::absolute(argv[2]));return 0;}
+#endif
+  try{
+#ifndef ARKEN_CONVERT_OFFLINE_QUALIFICATION
+    if(argc==3&&std::string_view(argv[1])=="--probe-chain"){Probe(C::fs::absolute(argv[2]));return 0;}
     if(argc==4&&std::string_view(argv[1])=="--probe-mainnet"){Probe(C::fs::absolute(argv[3]),C::fs::absolute(argv[2]));return 0;}
+#endif
     Check(argc==1||(argc==3&&std::string_view(argv[1])=="--write-fixtures"),"invalid arguments");Tests();Tests(true);DirectTests(false);DirectTests(true);
     if(argc==3){const auto path=C::fs::absolute(argv[2]);C::PrivateDirectory(path);C::Write(path/"reconciliation-fixtures.json",Json{{"fixture",Fixture()},{"scenario",Scenario()},{"mainnetFixture",Fixture(true)},{"mainnetScenario",Scenario(true)},{"vectors",vectors}}.dump()+"\n");
       C::Write(path/"direct-receipt-fixtures.json",Json{{"sandbox",DirectFixture()},{"production",DirectFixture(true)}}.dump()+"\n");
