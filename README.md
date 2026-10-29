@@ -23,7 +23,31 @@ Link `arken::convert_mcp`. The native checks cover service contracts, image outp
 payment transitions, recovery, and journal policy. They do not contact a payment
 provider or spend funds.
 
-Worker packaging and runtime qualification remain separate from native library
-acceptance. A source package or successful native build is not deployment
-authorization. No credentials are included, and no new first-party license is
-granted by this repository.
+## Worker modules
+
+Resolve the pinned native WASI toolchain, then build the service and journal
+report modules. This does not require Node.js or Python.
+
+```sh
+cmake -S sdk/arken_sdk_dev/cmake/native_browser_cpp -B build-toolchain -DBUILD_TESTING=OFF
+cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/build-toolchain/toolchain.cmake" -DARKEN_CONVERT_MCP_CHECKS=OFF
+cmake --build build-wasm --parallel 2 --target \
+  arken-file-conversion-service-module arken-conversion-journal-report-module
+```
+
+After the native checks have generated `build/payment-packets.json`, run the
+network-denied Worker protocol check:
+
+```sh
+cmake -S capsule/arken_file_conversion_service_v1/tests/driver -B build-worker \
+  -DCONVERSION_WASM="$PWD/build-wasm/capsules/arken_file_conversion_service_v1/arken-file-conversion-service-module.wasm" \
+  -DCONVERSION_PAYMENT_PACKETS="$PWD/build/payment-packets.json"
+ctest --test-dir build-worker --output-on-failure
+```
+
+This checks protocol and payment-state parity with fixture storage. Full Durable
+Object journal/restart and production release qualification remain separate.
+Nothing is deployed. No credentials are included, and this repository does not
+grant a new license to first-party code. Preserve the existing runtime notice and
+the pinned dependencies' license files when distributing modules.
