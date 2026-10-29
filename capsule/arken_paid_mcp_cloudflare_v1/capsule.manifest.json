@@ -1,0 +1,41 @@
+{
+  "key": "arken_paid_mcp_cloudflare_v1",
+  "name": "Arken Paid MCP Cloudflare",
+  "version": "1.0.0",
+  "description": "Native shared paid-MCP launch composition over the receipt-fenced Cloudflare client; never a Worker/core dependency.",
+  "public_dependencies": [
+    "arken_cloudflare_client_v1",
+    "arken_mcp_purchase_v1"
+  ],
+  "private_dependencies": [
+    "arken_paid_json_mcp_v1",
+    "arken_paid_operation_v1",
+    "arken_cdp_transport_v1",
+    "arken_file_conversion_service_v1",
+    "arken_mcp_protocol_v1",
+    "arken_mcp_economics_cloudflare_v1"
+  ],
+  "test_dependencies": [],
+  "external_dependencies": [
+    {
+      "recipe": "openssl-3-system-crypto-v1",
+      "scope": "private",
+      "components": [
+        "crypto"
+      ],
+      "platforms": [
+        "macos"
+      ],
+      "reason": "Native provider authentication and private-buffer cleanup for paid MCP deployment."
+    }
+  ],
+  "components": {
+    "source_package": {
+      "cmake": "cmake/SourcePackage.cmake",
+      "public_dependencies": [
+        "arken_cloudflare_client_v1"
+      ],
+      "private_dependencies": []
+    }
+  }
+}

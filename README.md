@@ -52,22 +52,28 @@ cmake -S capsule/arken_file_conversion_service_v1/tests/driver -B build-worker \
   -DCONVERSION_RECONCILIATION_FIXTURES="$PWD/build/paid-fixtures/reconciliation-fixtures.json" \
   -DCONVERSION_PUBLIC_ADMISSION_FIXTURES="$PWD/build/paid-fixtures/public-admission-fixtures.json" \
   -DCONVERSION_PROVIDER_FIXTURES="$PWD/build/paid-fixtures/provider-fixtures.json" \
-  -DCONVERSION_STARTUP_FIXTURES="$PWD/build/paid-fixtures/startup-fixtures.json"
+  -DCONVERSION_STARTUP_FIXTURES="$PWD/build/paid-fixtures/startup-fixtures.json" \
+  -DCONVERSION_SOURCE_PACKAGE_TOOL="$PWD/build/arken-convert-source-package" \
+  -DCONVERSION_REPORT_MODULE="$PWD/build-wasm/capsules/arken_file_conversion_service_v1/arken-conversion-journal-report-module.wasm" \
+  -DCONVERSION_PAYMENT_TESTS="$PWD/build/arken-conversion-payment-tests"
 ctest --test-dir build-worker --output-on-failure
 ```
 
 This checks native/Wasm protocol parity and paid-flow persistence across two
 Workerd processes using real local Durable Object storage. Facilitator, chain
 and object-store effects use fixtures; this is not proof of a real purchase.
-Current-source report-journal packaging and the production budget wrapper remain
-separate release requirements.
+The current-source journal check also exercises protected reporting, pagination,
+revocation, quota actors and unchanged ledger storage across restart. Its package
+and read-only report evidence are separate from predecessor-backed deployment
+qualification. The production budget wrapper remains a release requirement.
 Nothing is deployed. No credentials are included, and this repository does not
 grant a new license to first-party code. Preserve the existing runtime notice and
 the pinned dependencies' license files when distributing modules.
 
 ## Updating this repository
 
-Waygate generates the file inventory from actual build dependencies. Do not edit
+Waygate generates the file inventory from actual build dependencies and the
+native package writer's runtime input report. Do not edit
 the generated file lists or copy the whole monorepo into this package.
 
 The separately built native `arken-waygate-refresh` tool uses the monorepo's

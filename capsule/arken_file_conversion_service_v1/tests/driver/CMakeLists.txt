@@ -16,6 +16,12 @@ set(CONVERSION_RECONCILIATION_FIXTURES "" CACHE FILEPATH "Native reconciliation-
 set(CONVERSION_PUBLIC_ADMISSION_FIXTURES "" CACHE FILEPATH "Native public-admission-fixtures.json output")
 set(CONVERSION_PROVIDER_FIXTURES "" CACHE FILEPATH "Native provider self-test provider-fixtures.json output")
 set(CONVERSION_STARTUP_FIXTURES "" CACHE FILEPATH "Native startup-fixtures.json output")
+set(CONVERSION_SOURCE_PACKAGE_TOOL "" CACHE FILEPATH "Native Convert immutable source package tool")
+set(CONVERSION_REPORT_MODULE "" CACHE FILEPATH "Current-source journal report module")
+set(CONVERSION_PAYMENT_TESTS "" CACHE FILEPATH "Native journal fixture generator")
+if(CONVERSION_SOURCE_PACKAGE_TOOL AND NOT CONVERSION_WASM)
+    message(FATAL_ERROR "Source journal qualification requires CONVERSION_WASM")
+endif()
 if(CONVERSION_WASM)
     if(NOT EXISTS "${CONVERSION_WASM}")
         message(FATAL_ERROR "CONVERSION_WASM does not exist")
@@ -31,6 +37,20 @@ if(CONVERSION_WASM)
         "-DOBSERVED_PACKAGE=${CONVERSION_OBSERVED_PACKAGE}"
         -P "${CMAKE_CURRENT_LIST_DIR}/../run_workerd.cmake")
     set_tests_properties(FileConversionWorker.Protocol PROPERTIES TIMEOUT 30)
+    if(CONVERSION_SOURCE_PACKAGE_TOOL)
+        foreach(input CONVERSION_SOURCE_PACKAGE_TOOL CONVERSION_REPORT_MODULE CONVERSION_PAYMENT_TESTS)
+            if(NOT EXISTS "${${input}}")
+                message(FATAL_ERROR "Source journal qualification requires ${input}")
+            endif()
+        endforeach()
+        add_test(NAME FileConversionWorker.SourceJournal COMMAND "${CMAKE_COMMAND}"
+            "-DSOURCE_PACKAGE_TOOL=${CONVERSION_SOURCE_PACKAGE_TOOL}" "-DSOURCE_ROOT=${workspace}"
+            "-DWASM=${CONVERSION_WASM}" "-DREPORT_MODULE=${CONVERSION_REPORT_MODULE}"
+            "-DPAYMENT_TESTS=${CONVERSION_PAYMENT_TESTS}" "-DWORKERD=${workerd}"
+            "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/source-journal-proof"
+            -P "${CMAKE_CURRENT_LIST_DIR}/../run_source_journal.cmake")
+        set_tests_properties(FileConversionWorker.SourceJournal PROPERTIES TIMEOUT 100)
+    endif()
     if(CONVERSION_PAYMENT_ACTORS)
         if(NOT EXISTS "${CONVERSION_PAYMENT_ACTORS}")
             message(FATAL_ERROR "CONVERSION_PAYMENT_ACTORS does not exist")
