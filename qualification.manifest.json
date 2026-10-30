@@ -2,16 +2,17 @@
   "key": "arken_convert_mcp_qualification",
   "name": "Arken Convert offline paid qualification",
   "version": "1.0.0",
-  "public_dependencies": ["arken_file_conversion_service_v1", "arken_cloudflare_client_v1", "arken_paid_mcp_cloudflare_v1", "arken_mcp_economics_cloudflare_v1"],
+  "public_dependencies": ["arken_file_conversion_service_v1", "arken_cloudflare_client_v1", "arken_paid_mcp_cloudflare_v1", "arken_mcp_economics_cloudflare_v1", "arken_codecast_v1"],
   "private_dependencies": [],
   "module_components": {
     "arken_file_conversion_v1": "images",
     "arken_mcp_protocol_v1": "core",
     "arken_schema_cpp_v1": "runtime",
-    "arken_cloudflare_client_v1": "qualification",
+    "arken_cloudflare_client_v1": "resources",
     "arken_paid_mcp_cloudflare_v1": "source_package",
     "arken_mcp_economics_cloudflare_v1": "attempt_guard",
-    "arken_mcp_family_v1": "inventory"
+    "arken_mcp_family_v1": "inventory",
+    "arken_codecast_v1": "workerd_profiler"
   },
   "external_dependencies": [{
     "recipe": "openssl-3-system-crypto-v1",

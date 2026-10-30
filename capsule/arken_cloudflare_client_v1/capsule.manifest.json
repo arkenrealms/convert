@@ -3,6 +3,11 @@
   "name": "Arken Cloudflare Native Client",
   "version": "1.0.0",
   "components": {
+    "resources": {
+      "cmake": "cmake/Resources.cmake",
+      "public_dependencies": ["arken_digest_v1"],
+      "private_dependencies": []
+    },
     "qualification": {
       "cmake": "cmake/Qualification.cmake",
       "public_dependencies": ["arken_digest_v1"],

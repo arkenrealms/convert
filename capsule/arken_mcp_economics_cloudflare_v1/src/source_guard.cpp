@@ -1,10 +1,10 @@
 #include "guard_execution.hpp"
 #include "package_internal.hpp"
+#include "resource_builder.hpp"
 #include <regex>
 #include <set>
 namespace arken::mcp::economics::cloudflare::v1 {
-Json QualifySourceGuard(const SourceGuardPackage& package,const SourceGuardConfiguration& config,
- std::string_view endpoint,const path& source,const path& workerd,const path& output){
+detail::ExecutionContext detail::SourceContext(const SourceGuardPackage& package,const SourceGuardConfiguration& config){
  detail::validateService(package.service);
  C::Require(std::regex_match(config.compatibilityDate,std::regex("[0-9]{4}-[0-9]{2}-[0-9]{2}"))&&
   config.compatibilityFlags.size()<=32&&config.textBindings.size()<=32&&config.unavailableBindings.size()<=32,
@@ -26,8 +26,20 @@ Json QualifySourceGuard(const SourceGuardPackage& package,const SourceGuardConfi
  context.currentSource=true;context.authoritySha256=package.ordinaryModulesSha256;
  context.compatibilityDate=config.compatibilityDate;context.flags=config.compatibilityFlags;
  context.bindings=config.textBindings;context.unavailableBindings=config.unavailableBindings;
+ return context;
+}
+Json QualifySourceGuard(const SourceGuardPackage& package,const SourceGuardConfiguration& config,
+ std::string_view endpoint,const path& source,const path& workerd,const path& output){
+ const auto context=detail::SourceContext(package,config);
  auto result=detail::RunGuard(package.service,package.mainModule,package.modules,context,endpoint,source,workerd,output);
  result["scope"]="local-qualification-only";result["deploymentAuthorized"]=false;result["releaseQualified"]=false;
  return result;
+}
+Json PrepareSourceGuardResources(const SourceGuardPackage& package,const SourceGuardConfiguration& config,
+ const path& guardProof,const path& source,const MaintenanceResources& profile,const path& output){
+ const auto context=detail::SourceContext(package,config);
+ C::Require(profile.state==MaintenanceState::financialJournal||profile.state==MaintenanceState::stateless,"source_resource_state_invalid");
+ return detail::PrepareResourceModules(package.modules,package.service,package.mainModule,context,
+  "arken.mcp.source-stateless.v1",guardProof,source,profile,output,[]{});
 }
 }

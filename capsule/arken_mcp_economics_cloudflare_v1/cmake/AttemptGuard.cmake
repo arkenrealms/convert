@@ -7,6 +7,7 @@ add_library(arken_mcp_attempt_guard_v1 STATIC
     "${_guard_owner}/src/guard_composition.cpp"
     "${_guard_owner}/src/guard_execution.cpp"
     "${_guard_owner}/src/source_guard.cpp")
+target_sources(arken_mcp_attempt_guard_v1 PRIVATE "${_guard_owner}/src/resource_builder.cpp")
 target_include_directories(arken_mcp_attempt_guard_v1 PUBLIC "${_guard_owner}/..")
 target_compile_features(arken_mcp_attempt_guard_v1 PUBLIC cxx_std_20)
 target_compile_options(arken_mcp_attempt_guard_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror)
