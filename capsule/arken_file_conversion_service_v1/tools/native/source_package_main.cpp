@@ -1,15 +1,17 @@
 #include "arken_paid_mcp_cloudflare_v1/source_package_files.hpp"
 #include "arken_mcp_economics_cloudflare_v1/source_guard.hpp"
+#include "source_resources.hpp"
 #include <iostream>
 namespace C=arken::cloudflare::v1;
 namespace P=arken::paid::cloudflare::v1;
 namespace E=arken::mcp::economics::cloudflare::v1;
 int main(int argc,char** argv){
     for(int i=1;i<argc;++i)if(std::string_view(argv[i])=="--version"){
-        std::cout<<"arken-convert-source-package-r6251\n";return 0;
+        std::cout<<"arken-convert-source-package-r6252\n";return 0;
     }
     try {
-        const bool guard=argc==7&&std::string_view(argv[1])=="--qualify-source-guard";
+        const bool resources=argc==10&&std::string_view(argv[1])=="--qualify-source-resources";
+        const bool guard=resources||(argc==7&&std::string_view(argv[1])=="--qualify-source-guard");
         C::Require(guard||(argc==6&&std::string_view(argv[1])=="--source-package"),"source_package_arguments_invalid");
         const auto root=C::fs::canonical(argv[2]);
         const auto family=root/"capsule/arken_file_conversion_service_v1/platform/cloudflare";
@@ -24,7 +26,7 @@ int main(int argc,char** argv){
         modules.push_back({"conversion-journal-report.wasm","application/wasm",C::fs::canonical(argv[4])});
         modules.push_back({"NOTICE.txt","text/plain",family/"NOTICE.txt",false});
         if(!guard){std::cout<<P::PrepareSourcePackageFiles("convert","journal_entry.js",root,modules,C::fs::absolute(argv[5])).dump(2)<<'\n';return 0;}
-        const auto output=C::fs::absolute(argv[6]);
+        const auto output=C::fs::absolute(argv[resources?9:6]);
         C::Require(output.is_absolute()&&output==output.lexically_normal()&&!C::fs::exists(C::fs::symlink_status(output)),"source_guard_new_output_required");
         for(const auto& part:output)C::Require(part!=".tmp"&&part!="tmp","guard_durable_output_required");
         C::PrivateDirectory(output);
@@ -50,6 +52,11 @@ int main(int argc,char** argv){
         for(const auto& file:{adapter,recipe})C::Require(file.string().find_first_of("|\r\n")==std::string::npos,"source_guard_mapping_path_invalid");
         mappings+=adapter.string()+"|"+(output/"guard/mcp_attempt_gate.js").string()+"\n";
         mappings+=recipe.string()+"|"+(output/"guard/guard_package.js").string()+"\n";
+        if(resources){
+            result["resources"]=arken::conversion::source_package::QualifyResources(wrapped,config,root,C::fs::canonical(argv[7]),
+                C::fs::canonical(argv[8]),C::fs::canonical(argv[5]),C::fs::canonical(argv[6]),output);
+            mappings+=C::Read(output/"resources/source-inputs.txt",1048576);
+        }
         C::Write(output/"source-inputs.txt",mappings,true);
         result["sourcePackageSha256"]=package.at("packageSha256");
         C::Write(output/"result.json",result.dump(2)+"\n",true);

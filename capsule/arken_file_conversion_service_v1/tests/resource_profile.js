@@ -6,7 +6,7 @@ import {createResourceWorker,resourceGuardEvidence} from './resource_subject.js'
 import fixtureText from './startup-fixtures.json';
 import maximumPng from './maximum-input.png';
 import resourceFixtureText from './resource-fixture.json';
-export {ConversionPaymentLedger as Ledger} from './production_worker.js';
+export {ConversionPaymentLedger as Ledger} from './resource_subject.js';
 export {JournalLedger} from './payment_journal_http.js';
 const fixture=JSON.parse(fixtureText),resourceFixture=JSON.parse(resourceFixtureText),retained=[];
 let calibrationArray,calibrationWasm,production=false,journal=false,maximum,conversions=0;

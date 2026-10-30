@@ -8,7 +8,7 @@ file(MAKE_DIRECTORY "${OUTPUT}")
 string(RANDOM LENGTH 16 ALPHABET 0123456789abcdef run_id)
 set(run "${OUTPUT}/run-${run_id}")
 execute_process(COMMAND "${SOURCE_PACKAGE_TOOL}" --invalid --version RESULT_VARIABLE status OUTPUT_VARIABLE version TIMEOUT 5)
-if(NOT status EQUAL 0 OR NOT version MATCHES "^arken-convert-source-package-r6251")
+if(NOT status EQUAL 0 OR NOT version MATCHES "^arken-convert-source-package-r6252")
  message(FATAL_ERROR "Incorrect source guard tool")
 endif()
 execute_process(COMMAND "${SOURCE_PACKAGE_TOOL}" --qualify-source-guard "${SOURCE_ROOT}" "${WASM}" "${REPORT_MODULE}" "${WORKERD}" "${run}"

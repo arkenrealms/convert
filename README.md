@@ -55,7 +55,9 @@ cmake -S capsule/arken_file_conversion_service_v1/tests/driver -B build-worker \
   -DCONVERSION_STARTUP_FIXTURES="$PWD/build/paid-fixtures/startup-fixtures.json" \
   -DCONVERSION_SOURCE_PACKAGE_TOOL="$PWD/build/arken-convert-source-package" \
   -DCONVERSION_REPORT_MODULE="$PWD/build-wasm/capsules/arken_file_conversion_service_v1/arken-conversion-journal-report-module.wasm" \
-  -DCONVERSION_PAYMENT_TESTS="$PWD/build/arken-conversion-payment-tests"
+  -DCONVERSION_PAYMENT_TESTS="$PWD/build/arken-conversion-payment-tests" \
+  -DCONVERSION_RESOURCE_PROFILER="$PWD/build/arken-codecast-workerd-profile" \
+  -DCONVERSION_REQUIRE_RESOURCE_PROOF=ON
 ctest --test-dir build-worker --output-on-failure
 ```
 
@@ -70,8 +72,12 @@ budgets before body consumption, preserves named exports and responses, and
 reserves admitted requests once, including invalid calls. Native financial-policy
 checks run too. The shared budget service remains a required external binding.
 Local checks do not grant deployment authority or verify live policy, resource
-costs or profit. Guard evidence must be outside temporary directories; set
-`CONVERSION_GUARD_EVIDENCE_ROOT` to a durable directory if your build is temporary.
+costs or profit. The calibrated resource check exercises the 8 MiB input limit,
+protected reports and completed-result replay under the unchanged 96 MiB
+accounted-memory ceiling. It compares uninstrumented and instrumented results.
+Guard/resource evidence must be outside temporary directories; set
+`CONVERSION_GUARD_EVIDENCE_ROOT` and `CONVERSION_RESOURCE_EVIDENCE_ROOT` to durable
+directories if your build is temporary.
 Nothing is deployed. No credentials are included, and this repository does not
 grant a new license to first-party code. Preserve the existing runtime notice and
 the pinned dependencies' license files when distributing modules.

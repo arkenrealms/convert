@@ -1,5 +1,5 @@
 // Resource proof measures only the candidate, not a second predecessor engine.
-export {ConversionPaymentLedger as SubjectLedger} from './production_worker.js';
+export {ConversionPaymentLedger as SubjectLedger} from './resource_subject.js';
 import {createResourceWorker,createDefaultResourceWorker} from './resource_subject.js';
 export const createReportSubject=clock=>createResourceWorker({clock});
 export async function provePublicPassthrough(worker,env){
@@ -10,5 +10,5 @@ export async function provePublicPassthrough(worker,env){
   const response=await app.fetch(request(),env),body=await response.json();
   if(response.status!==200||body.result.tools.length!==8)throw Error('Production resource discovery changed');
  }
- return {passed:true,productionEntry:true,defaultExport:true,toolCount:8,checks:2};
+ return {passed:true,productionEntry:env.SOURCE_KIND!=='current-source',currentSourceEntry:env.SOURCE_KIND==='current-source',defaultExport:true,toolCount:8,checks:2};
 }

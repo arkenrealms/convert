@@ -1,0 +1,7 @@
+include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/Qualification.cmake")
+get_filename_component(owner "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+add_library(arken_cloudflare_resources_v1 STATIC "${owner}/src/resource_qualification.cpp")
+target_link_libraries(arken_cloudflare_resources_v1 PUBLIC arken_cloudflare_qualification_v1)
+target_compile_features(arken_cloudflare_resources_v1 PUBLIC cxx_std_20)
+target_compile_options(arken_cloudflare_resources_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror)
