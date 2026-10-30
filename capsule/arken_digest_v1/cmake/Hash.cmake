@@ -1,0 +1,5 @@
+if(NOT TARGET arken_ao_schema_types_v1)
+    message(FATAL_ERROR "Digest hash requires the AO schema types component")
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/Native.cmake")
+target_link_libraries(arken_digest_v1 PUBLIC arken_ao_schema_types_v1)

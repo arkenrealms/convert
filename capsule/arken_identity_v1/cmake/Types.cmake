@@ -1,0 +1,5 @@
+get_filename_component(_arken_identity_types_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+add_library(arken_identity_types_v1 INTERFACE)
+add_library(arken::identity_types_v1 ALIAS arken_identity_types_v1)
+target_compile_features(arken_identity_types_v1 INTERFACE cxx_std_20)
+target_include_directories(arken_identity_types_v1 INTERFACE "${_arken_identity_types_root}/include")

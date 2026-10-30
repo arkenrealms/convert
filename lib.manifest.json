@@ -1,14 +1,7 @@
 {
-  "key": "arken_convert_mcp",
-  "name": "Arken Convert paid MCP",
-  "version": "1.0.0",
-  "public_dependencies": [
-    "arken_file_conversion_service_v1"
-  ],
-  "private_dependencies": [],
-  "module_components": {
-    "arken_file_conversion_v1": "images",
-    "arken_mcp_protocol_v1": "core",
-    "arken_schema_cpp_v1": "runtime"
-  }
+ "key":"arken_convert_portable_mcp",
+ "public_dependencies":["arken_file_conversion_commands_v1"],
+ "private_dependencies":[],
+ "module_components":{"arken_file_conversion_v1":"images","arken_file_workspace_v1":"native_files",
+  "arken_mcp_protocol_v1":"stdio","arken_digest_v1":"hash","arken_ao_schema_v1":"types","arken_identity_v1":"types"}
 }

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "key": "arken_file_workspace_v1",
+  "capsuleId": "arken_file_workspace_v1",
+  "name": "Arken File Workspace",
+  "version": "1.0.0",
+  "displayName": "File Workspace Policy",
+  "summary": "Shared Prism workspace layout, bounded asset inventory, conflict-safe checkpoints and verified browser-to-directory transfer policy.",
+  "description": "Owns shared local-folder policy and native filesystem capabilities for independently authorized roots. The native directory transport provides metadata, bounded immutable file snapshots and conflict-safe writers; platform pickers grant permission. Native root binding associates an authorized physical root with a captured browser connection without replacing the app-wide Open Folder workflow.",
+  "license": "Proprietary",
+  "owners": [
+    "Arken UI Platform"
+  ],
+  "capabilities": [
+    "files.workspace.transfer.v1",
+    "files.workspace.layout.v1",
+    "files.workspace.checkpoint.v1",
+    "files.workspace.native-root-binding.v1",
+    "files.workspace.native-directory.v1"
+  ],
+  "platforms": [
+    "native",
+    "wasm"
+  ],
+  "entrypoints": {
+    "cpp": "arken/files/workspace/v1/command.hpp"
+  },
+  "public_dependencies": [],
+  "private_dependencies": [
+    "arken_digest_v1",
+    "arken_live_machine_v1",
+    "arken_clang_browser_v1",
+    "arken_zip_v1"
+  ],
+  "test_dependencies": [],
+  "components": {
+    "native_files": {
+      "cmake": "cmake/NativeFiles.cmake",
+      "public_dependencies": [],
+      "private_dependencies": []
+    }
+  }
+}

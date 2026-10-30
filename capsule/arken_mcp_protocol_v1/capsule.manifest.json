@@ -9,6 +9,16 @@
   "test_dependencies": [],
   "description": "Bounded MCP lifecycle and generated tool discovery; no domain execution, authentication or billing.",
   "components": {
+    "rpc": {
+      "cmake": "cmake/Rpc.cmake",
+      "public_dependencies": ["arken_schema_cpp_v1"],
+      "private_dependencies": []
+    },
+    "stdio": {
+      "cmake": "cmake/Stdio.cmake",
+      "public_dependencies": ["arken_schema_cpp_v1"],
+      "private_dependencies": []
+    },
     "core": {
       "cmake": "cmake/Core.cmake",
       "public_dependencies": [

@@ -1,0 +1,61 @@
+edition 1;
+schema conversion_files v1;
+owner arken_file_conversion_commands_v1;
+wire_type u32 @wire_type_id(4) { bit_width 32; fixed_size 4; byte_order big_endian; }
+wire_type utf8 @wire_type_id(12) { bit_width 0; fixed_size 0; byte_order none; }
+wire_type bool @wire_type_id(1) { bit_width 1; fixed_size 1; byte_order none; }
+storage_codec sqlite_integer @storage_codec_id(1) { storage_class integer; fixed_size 0; exact true; order_preserving true; }
+storage_codec sqlite_text @storage_codec_id(3) { storage_class text; fixed_size 0; exact true; order_preserving true; }
+semantic_type text @semantic_type_id(1) { kind text; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+semantic_type count @semantic_type_id(2) { kind u32; wire u32; storage sqlite_integer; fixed_size 4; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+semantic_type boolean @semantic_type_id(3) { kind bool; wire bool; storage sqlite_integer; fixed_size 1; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+enum input_kind @enum_id(1) { value dds @value_id(5); value tga @value_id(6); value png @value_id(7); value bmp @value_id(8); value jpeg @value_id(9); }
+enum output_kind @enum_id(2) { value tga @value_id(6); value png @value_id(7); value bmp @value_id(8); value jpeg @value_id(9); }
+enum alpha_kind @enum_id(3) { value preserve @value_id(1); value flatten_white @value_id(2); }
+semantic_type input_format @semantic_type_id(4) { kind enum; enum input_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+semantic_type output_format @semantic_type_id(5) { kind enum; enum output_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+semantic_type alpha_policy @semantic_type_id(6) { kind enum; enum alpha_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+model conversion_request @type_id(1) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field input_format: input_format @field_id(3);
+ field output_format: output_format @field_id(4);
+ field jpeg_quality: count @field_id(5) @optional { check minimum { kind minimum_integer; value "1"; } check maximum { kind maximum_integer; value "100"; } }
+ field alpha_policy: alpha_policy @field_id(6) @optional;
+ key identity { kind primary; fields source_path; }
+}
+model pair_request @type_id(2) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field jpeg_quality: count @field_id(5) @optional { check minimum { kind minimum_integer; value "1"; } check maximum { kind maximum_integer; value "100"; } }
+ field alpha_policy: alpha_policy @field_id(6) @optional;
+ key identity { kind primary; fields source_path; }
+}
+model conversion_result @type_id(3) {
+ field output_path: text @field_id(1) { immutable true; }
+ field media_type: text @field_id(2);
+ field width: count @field_id(3);
+ field height: count @field_id(4);
+ field output_bytes: count @field_id(5);
+ field sha256: text @field_id(6);
+ field alpha_flattened: boolean @field_id(7);
+ field durable: boolean @field_id(8);
+ key identity { kind primary; fields output_path; }
+}
+model command_error @type_id(4) {
+ field code: text @field_id(1) { immutable true; }
+ field message: text @field_id(2);
+ key identity { kind primary; fields code; }
+}
+model file_request @type_id(5) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ key identity { kind primary; fields source_path; }
+}
+command convert_image @command_id(2) { request conversion_request; response conversion_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command png_to_jpeg @command_id(3) { request pair_request; response conversion_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command jpeg_to_png @command_id(4) { request file_request; response conversion_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command bmp_to_png @command_id(5) { request file_request; response conversion_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command bmp_to_jpeg @command_id(6) { request pair_request; response conversion_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command tga_to_png @command_id(7) { request file_request; response conversion_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command dds_to_png @command_id(8) { request file_request; response conversion_result; errors command_error; idempotency none; streaming unary; targets cpp; }

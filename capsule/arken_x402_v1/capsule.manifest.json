@@ -1,1 +1,0 @@
-{"key":"arken_x402_v1","name":"Arken x402 Protocol","version":"1.0.0","description":"Memory-only exact-EVM MCP payment offers and unverified submission inspection shared by product owners; no signing, transport, storage or settlement.","public_dependencies":[],"private_dependencies":["arken_mcp_protocol_v1","arken_digest_v1","arken_schema_cpp_v1"],"test_dependencies":[]}

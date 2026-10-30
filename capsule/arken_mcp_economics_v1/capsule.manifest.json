@@ -1,1 +1,0 @@
-{"key":"arken_mcp_economics_v1","name":"Arken MCP Economics","version":"1.0.0","public_dependencies":[],"private_dependencies":["arken_schema_cpp_v1","arken_digest_v1"],"test_dependencies":[],"capabilities":["mcp_marginal_cost_projection","mcp_attempt_reservation","mcp_price_floor"]}

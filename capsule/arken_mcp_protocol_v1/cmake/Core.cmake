@@ -1,7 +1,0 @@
-include_guard(GLOBAL)
-get_filename_component(_arken_protocol_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
-add_library(arken_mcp_protocol_v1 STATIC "${_arken_protocol_root}/src/server.cpp" "${_arken_protocol_root}/src/call_summary.cpp")
-target_compile_features(arken_mcp_protocol_v1 PUBLIC cxx_std_20)
-target_include_directories(arken_mcp_protocol_v1 PUBLIC "${_arken_protocol_root}/..")
-target_link_libraries(arken_mcp_protocol_v1 PUBLIC arken_schema_cpp_v1_tool_json)
-target_compile_options(arken_mcp_protocol_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror)
