@@ -1,0 +1,9 @@
+{
+  "key":"arken_file_conversion_commands_v1",
+  "name":"Arken File Conversion Commands",
+  "version":"1.0.0",
+  "description":"File-oriented conversion commands over existing codecs and explicitly authorized native files.",
+  "public_dependencies":["arken_mcp_protocol_v1"],
+  "private_dependencies":["arken_file_conversion_v1","arken_file_workspace_v1","arken_schema_cpp_v1","arken_digest_v1"],
+  "test_dependencies":[]
+}
