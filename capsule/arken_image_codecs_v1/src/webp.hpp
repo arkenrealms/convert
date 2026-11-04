@@ -3,5 +3,5 @@
 
 namespace arken::image::v1::detail {
 DecodeResult DecodeWebp(std::span<const std::byte>,const DecodeOptions&);
-EncodeResult EncodeWebp(std::uint32_t,std::uint32_t,std::span<const std::uint8_t>,std::uint64_t);
+EncodeResult EncodeWebp(std::uint32_t,std::uint32_t,std::span<const std::uint8_t>,const EncodeOptions&);
 }
