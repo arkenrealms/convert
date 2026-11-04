@@ -174,12 +174,12 @@ notices remain with their owners; this package grants no new first-party licence
 HEIC/HEIF and AVIF are compiled for development qualification only. They are not
 admitted: no tool, format value or conversion profile accepts them.
 
-The root build compiles the memory-only HEIC decoder wrapper
-(`ARKEN_IMAGE_CODECS_V1_HEIF`) against one combined libheif 1.23.7 instance with
-libde265 1.1.3 (HEVC) and libaom 3.15.3 (AV1), and runs its native qualification
-(`ArkenImageCodecsV1.Heif`). No AVIF decoder wrapper exists yet; the AV1 codec is
-present only through that instance. The single-codec dependency qualifications
-remain separate projects:
+The root build compiles the memory-only HEIC decoder wrapper and the still-AVIF
+decode/encode wrapper (`ARKEN_IMAGE_CODECS_V1_HEIF`) against one combined libheif
+1.23.7 instance with libde265 1.1.3 (HEVC) and libaom 3.15.3 (AV1), and runs their
+native qualifications (`ArkenImageCodecsV1.Heif`, `ArkenImageCodecsV1.Avif`). They
+are reachable only in-process through the codec library. The single-codec
+dependency qualifications remain separate projects:
 
 ```sh
 cmake -S capsule/arken_image_codecs_v1/tests/heif_dependencies -B build-heif -DCMAKE_BUILD_TYPE=Release

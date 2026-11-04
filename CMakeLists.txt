@@ -6,8 +6,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(BUILD_TESTING OFF)
 set(ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY OFF)
 set(ARKEN_IMAGE_CODECS_V1_RASTER_TESTS ON)
-# Development qualification of the HEIC decoder (handoff: native wrapper before any admission).
-# The decoder is reachable only through DecodeImage(Format::heif); no MCP tool admits HEIF yet.
+# Development qualification of the HEIC and still-AVIF wrappers (handoff: native wrapper before any admission).
+# They are reachable only through DecodeImage/EncodeImage(Format::heif/avif); no MCP tool admits them.
 set(ARKEN_IMAGE_CODECS_V1_HEIF ON)
 include("${ARKEN_SOURCE_ROOT}/capsule/cmake/arken_native_defaults.cmake")
 include("${ARKEN_SOURCE_ROOT}/sdk/arken_sdk_dev/cmake/ArkenPinnedNlohmannJson.cmake")

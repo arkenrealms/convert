@@ -50,6 +50,7 @@ struct DecodeResult {
 // JPEG: Exif orientation, ICC and Adobe CMYK/YCCK applied; arithmetic, lossless and
 // 12-bit JPEG reject. PNG: sRGB, iCCP, cHRM/gAMA applied.
 // BMP: OS/2 and V1-V5 headers, RLE4/RLE8, bitfields, calibrated or embedded colour.
+// HEIF and AVIF: see HEIF_NOTES.md and AVIF_NOTES.md (compiled-in qualification only).
 // Unsupported variants are typed rejections, never partial images.
 [[nodiscard]] DecodeResult DecodeImage(Format format,std::span<const std::byte> bytes,
     const DecodeOptions& options={}) noexcept;
