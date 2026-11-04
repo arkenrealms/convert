@@ -325,11 +325,14 @@ void prepare(const fs::path& root){
  const auto lossyOptions=[](auto set){A::LossyOptions o;set(o);return o;};
  const auto vbr0=lossyOptions([](auto& o){o.mp3RateControl=A::Mp3RateControl::vbr;o.mp3VbrQuality=0;});
  const auto cbr128=lossyOptions([](auto& o){o.mp3BitrateKbps=128;});
+ // 64 kbps is the lowest CBR bitrate whose frames hold the gapless tag at 44.1 kHz stereo.
+ const auto cbr64=lossyOptions([](auto& o){o.mp3BitrateKbps=64;});
  const auto opus64=lossyOptions([](auto& o){o.opusBitrateKbps=64;});
  const auto vorbis20=lossyOptions([](auto& o){o.vorbisQuality=20;});
  const LossyCase lossyCases[]={
   {"wav_to_mp3","inputs/cd.wav",A::Container::wav,A::Container::mp3,{},"outputs/cd.mp3",Json::object()},
   {"wav_to_mp3","inputs/cd.wav",A::Container::wav,A::Container::mp3,vbr0,"outputs/cd-v0.mp3",{{"mp3_rate_control","vbr"},{"mp3_vbr_quality",0}}},
+  {"wav_to_mp3","inputs/cd.wav",A::Container::wav,A::Container::mp3,cbr64,"outputs/cd-64.mp3",{{"mp3_bitrate_kbps",64}}},
   {"wav_to_mp3","inputs/wide.wav",A::Container::wav,A::Container::mp3,cbr128,"outputs/wide-128.mp3",{{"mp3_rate_control","cbr"},{"mp3_bitrate_kbps",128}}},
   {"mp3_to_wav","inputs/wide.mp3",A::Container::mp3,A::Container::wav,{},"outputs/from-mp3.wav",Json::object()},
   {"wav_to_opus","inputs/wide.wav",A::Container::wav,A::Container::opus,{},"outputs/wide.opus",Json::object()},
@@ -488,13 +491,17 @@ void prepare(const fs::path& root){
  call("convert_audio",{{"source_path","inputs/wide.wav"},{"output_path","outputs/l13.opus"},{"input_format","wav"},{"output_format","opus"},{"mp3_bitrate_kbps",128}},"rpcError");
  call("convert_audio",{{"source_path","inputs/wide.mp3"},{"output_path","outputs/l14.ogg"},{"input_format","mp3"},{"output_format","vorbis"},{"opus_bitrate_kbps",64}},"rpcError");
  // Rejections the codec owner names: no resampling (44.1 kHz to Opus, 44.1 kHz to Opus through
- // convert_audio), an MP3 bitrate the rate does not define, a CBR frame too small for the gapless
- // tag, more than two channels, a chained Ogg file and an Ogg Vorbis file passed as Opus.
+ // convert_audio), an MP3 bitrate the rate does not define, CBR bitrates below the gapless-tag
+ // floor (typed, naming this source's minimum; 56 kbps is just below it at 44.1 kHz stereo and
+ // 64 converts above), more than two channels, a chained Ogg file and Ogg Vorbis passed as Opus.
  call("wav_to_opus",{{"source_path","inputs/cd.wav"},{"output_path","outputs/cd.opus"}},"toolError",std::string(A::ErrorMessage(A::Error::resampling_required)));
  call("convert_audio",{{"source_path","inputs/cd.wav"},{"output_path","outputs/cd-generic.opus"},{"input_format","wav"},{"output_format","opus"},{"opus_bitrate_kbps",96}},
   "toolError",std::string(A::ErrorMessage(A::Error::resampling_required)));
  call("wav_to_mp3",{{"source_path","inputs/cd.wav"},{"output_path","outputs/cd-200.mp3"},{"mp3_bitrate_kbps",200}},"toolError",std::string(A::ErrorMessage(A::Error::invalid_option)));
- call("wav_to_mp3",{{"source_path","inputs/cd.wav"},{"output_path","outputs/cd-32.mp3"},{"mp3_bitrate_kbps",32}},"toolError",std::string(A::ErrorMessage(A::Error::codec_failed)));
+ call("wav_to_mp3",{{"source_path","inputs/cd.wav"},{"output_path","outputs/cd-56.mp3"},{"mp3_bitrate_kbps",56}},"toolError",
+  std::string(A::ErrorMessage(A::Error::bitrate_too_low_for_gapless_tag))+". This source (44100 Hz, 2 channels) needs mp3_bitrate_kbps of at least 64 or mp3_rate_control=vbr");
+ call("wav_to_mp3",{{"source_path","inputs/cd.wav"},{"output_path","outputs/cd-32.mp3"},{"mp3_bitrate_kbps",32}},"toolError",
+  std::string(A::ErrorMessage(A::Error::bitrate_too_low_for_gapless_tag))+". This source (44100 Hz, 2 channels) needs mp3_bitrate_kbps of at least 64 or mp3_rate_control=vbr");
  call("flac_to_mp3",{{"source_path","inputs/surround.flac"},{"output_path","outputs/surround.mp3"}},"toolError",std::string(A::ErrorMessage(A::Error::channel_limit)));
  call("opus_to_wav",{{"source_path","inputs/chained.opus"},{"output_path","outputs/chained.wav"}},"toolError",std::string(A::ErrorMessage(A::Error::chained_stream)));
  call("opus_to_wav",{{"source_path","inputs/wide.ogg"},{"output_path","outputs/vorbis-as-opus.wav"}},"toolError",std::string(A::ErrorMessage(A::Error::wrong_magic)));

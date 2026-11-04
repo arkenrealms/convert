@@ -614,6 +614,56 @@ void Malformed() {
     }
 }
 
+// MP3 CBR floor: a legal bitrate whose frame cannot hold the Info/LAME tag is rejected before
+// encoding with bitrate_too_low_for_gapless_tag (never encoded without the tag); the lowest
+// bitrate that fits encodes with the tag and decodes to the exact length. Every legal bitrate
+// is checked on both sides of the boundary for all nine rates and both channel counts.
+void Mp3GaplessFloor() {
+    struct Floor { std::uint32_t rate, mono, stereo; };
+    const Floor floors[] = {{48000, 64, 64}, {44100, 56, 64}, {32000, 40, 48}, {24000, 64, 64}, {22050, 56, 56},
+                            {16000, 40, 40}, {12000, 32, 32}, {11025, 32, 32}, {8000, 24, 24}};
+    const std::uint32_t mpeg1[] = {32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320};
+    const std::uint32_t mpeg2[] = {8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160};
+    Check(Name(Error::bitrate_too_low_for_gapless_tag).find("minimum CBR kbps") != std::string::npos
+        && Name(Error::bitrate_too_low_for_gapless_tag).find("44.1 kHz 56/64") != std::string::npos, "floor message names the minimums");
+    for (const auto& f : floors) {
+        for (std::uint32_t channels : {1u, 2u}) {
+            const std::uint32_t minimum = channels == 1 ? f.mono : f.stereo;
+            const auto where = std::to_string(f.rate) + " Hz " + std::to_string(channels) + " ch";
+            Check(audio::Mp3MinimumCbrBitrateKbps(f.rate, channels) == minimum, where + ": Mp3MinimumCbrBitrateKbps");
+            const auto source = Render(Material::music, f.rate, channels, 0.25);
+            const auto& legal = f.rate >= 32000 ? mpeg1 : mpeg2;
+            std::uint32_t highestRejected = 0;
+            for (const auto kbps : legal) {
+                audio::LossyOptions o; o.mp3BitrateKbps = kbps;
+                const auto out = audio::EncodeMp3(source, o);
+                if (kbps < minimum) {
+                    ExpectError(out.error, Error::bitrate_too_low_for_gapless_tag, where + " " + std::to_string(kbps) + " kbps");
+                    Check(out.bytes.empty(), where + ": rejected encode leaks bytes");
+                    highestRejected = kbps;
+                } else {
+                    ExpectError(out.error, Error::none, where + " " + std::to_string(kbps) + " kbps");
+                    const auto d = audio::DecodeMp3(out.bytes);
+                    Check(d && d.audio.frames == source.frames && d.report.encoderDelayTrimmed && !d.report.encoderDelayUnknown,
+                        where + " " + std::to_string(kbps) + " kbps: gapless tag missing or length changed");
+                }
+            }
+            if (verbose)
+                std::cout << where << ": highest rejected " << highestRejected << " kbps, lowest accepted " << minimum << " kbps\n";
+            Check(highestRejected != 0, where + ": the boundary has a failing side");
+            // Through Convert too, and VBR is unaffected.
+            audio::LossyOptions below; below.mp3BitrateKbps = highestRejected;
+            ExpectError(audio::Convert(Container::wav, Container::mp3, audio::EncodeWav(source).bytes, below).encodeError,
+                Error::bitrate_too_low_for_gapless_tag, where + " via Convert");
+            audio::LossyOptions vbr; vbr.mp3RateControl = audio::Mp3RateControl::vbr; vbr.mp3VbrQuality = 9;
+            ExpectError(audio::EncodeMp3(source, vbr).error, Error::none, where + " VBR 9");
+        }
+    }
+    Check(audio::Mp3MinimumCbrBitrateKbps(96000, 2) == 0 && audio::Mp3MinimumCbrBitrateKbps(48000, 3) == 0, "non-MP3 rate or channel count");
+    // An illegal bitrate stays invalid_option, decided before the floor.
+    audio::LossyOptions illegal; illegal.mp3BitrateKbps = 20;
+    ExpectError(audio::EncodeMp3(Render(Material::music, 48000, 2, 0.1), illegal).error, Error::invalid_option, "illegal bitrate");
+}
 void Limits() {
     const auto source = Render(Material::music, 48000, 2, 1.0);
     for (Container c : {Container::vorbis, Container::opus, Container::mp3}) {
@@ -824,7 +874,7 @@ int main(int argc, char** argv) {
     }
     const std::pair<std::string_view, std::function<void()>> checks[] = {
         {"Quality", Quality}, {"Gapless", Gapless}, {"Determinism", Determinism}, {"Reports", Reports},
-        {"OggStructure", OggStructure}, {"Malformed", Malformed}, {"Limits", Limits}};
+        {"OggStructure", OggStructure}, {"Malformed", Malformed}, {"Limits", Limits}, {"Mp3GaplessFloor", Mp3GaplessFloor}};
     std::string_view selected;
     for (int i = 1; i < argc; ++i) {
         const std::string_view a = argv[i];
