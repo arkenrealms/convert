@@ -82,6 +82,9 @@ void Sample(const fs::path& path) {
     const auto notHeif=I::EncodeImage(I::Format::png,2,2,std::vector<std::uint8_t>(16,255));
     Check(bool(notHeif),"png fixture");
     r=Decode(notHeif.bytes);Failed(r,"png as heif");Check(r.issue.code==I::DecodeError::wrong_magic,"PNG bytes not rejected by magic");
+    // The shared libheif instance can decode AV1, but AVIF is not this wrapper's format.
+    r=Decode(Read(path.parent_path()/"example.avif"));Failed(r,"example.avif as heif");
+    Check(r.issue.code==I::DecodeError::unsupported_content,"AVIF decoded through the HEIC wrapper");
     Bytes tiny{std::byte{0},std::byte{0},std::byte{0},std::byte{8},std::byte{'f'},std::byte{'t'},std::byte{'y'},std::byte{'p'}};
     Failed(Decode(tiny),"bare ftyp");
 }

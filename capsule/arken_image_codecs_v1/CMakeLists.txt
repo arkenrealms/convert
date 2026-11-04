@@ -106,19 +106,21 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(arken_image_codecs_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror -ffp-contract=off)
 endif()
 # Memory-only HEIC/HEIF (HEVC) still-image import over the pinned libheif + libde265 recipes.
-# Off by default: the consumer that compiles it in must also resolve the libheif-1.23.7-hevc-v1
-# recipe in its own manifest and handle the LGPL distribution obligations. Nothing here admits
-# HEIF to the public source catalogue or to any conversion profile.
+# Off by default: the consumer that compiles it in must also resolve the combined
+# libheif-1.23.7-hevc-av1-v1 recipe (one libheif instance with libde265 and libaom; two libheif
+# instances cannot share a CMake graph) in its own manifest and handle the LGPL distribution
+# obligations. Nothing here admits HEIF to the public source catalogue or to any conversion
+# profile. tests/heif_dependencies and tests/avif_dependencies keep their single-codec recipes.
 option(ARKEN_IMAGE_CODECS_V1_HEIF "Compile the HEIC/HEIF decoder into arken_image_codecs_v1" OFF)
 if(ARKEN_IMAGE_CODECS_V1_HEIF)
-    if(NOT TARGET arken::external_heif_hevc_v1)
-        message(FATAL_ERROR "ARKEN_IMAGE_CODECS_V1_HEIF requires the libheif-1.23.7-hevc-v1 recipe to be resolved by the consuming manifest")
+    if(NOT TARGET arken::external_heif_v1)
+        message(FATAL_ERROR "ARKEN_IMAGE_CODECS_V1_HEIF requires the libheif-1.23.7-hevc-av1-v1 recipe to be resolved by the consuming manifest")
     endif()
     target_sources(arken_image_codecs_v1 PRIVATE src/heif.cpp)
     target_compile_definitions(arken_image_codecs_v1 PRIVATE ARKEN_IMAGE_HEIF_DECODER=1)
-    target_link_libraries(arken_image_codecs_v1 PRIVATE arken::external_heif_hevc_v1)
+    target_link_libraries(arken_image_codecs_v1 PRIVATE arken::external_heif_v1)
     if(BUILD_TESTING OR ARKEN_IMAGE_CODECS_V1_RASTER_TESTS)
-        get_target_property(heif_source arken::external_heif_hevc_v1 ARKEN_EXTERNAL_PACKAGE_SOURCE_ROOT)
+        get_target_property(heif_source arken::external_heif_v1 ARKEN_EXTERNAL_PACKAGE_SOURCE_ROOT)
         add_executable(arken-heif-codec-tests tests/heif_tests.cpp)
         target_link_libraries(arken-heif-codec-tests PRIVATE arken::image_codecs_v1)
         target_compile_options(arken-heif-codec-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
