@@ -20,7 +20,10 @@ instance depends on `libde265-1.1.3-v2`: the v1 recipe plus a root `CMakeLists.t
 that defines `dist` only in a top-level libde265 build (no compiled source changes). The
 dependency milestones `tests/heif_dependencies` and `tests/avif_dependencies` keep their
 single-codec recipes. Because the shared instance can decode AV1, this wrapper admits items by
-codec explicitly (`hvc1`, or a grid whose tiles are all `hvc1`); AVIF belongs to its own wrapper.
+codec explicitly (`hvc1`, or a grid whose tiles are all `hvc1`); AVIF belongs to its own wrapper
+(`src/avif.cpp`, see AVIF_NOTES.md). The container, limit, colour, alpha and transform logic
+described below lives in `src/heif_common.cpp` and is shared verbatim by both wrappers; only the
+admitted coded item type differs.
 The accepted HEIC fingerprint is unchanged with the AV1-enabled instance.
 
 Any in-process caller of `DecodeImage` can reach the HEIC decoder in this build; the conversion
