@@ -2,7 +2,7 @@
   "key": "arken_audio_codecs_v1",
   "name": "Arken Audio Codecs v1",
   "version": "1.0.0",
-  "description": "Portable bounded memory-only WAV, FLAC and AIFF/AIFF-C codecs over a canonical lossless integer PCM model. Integer PCM is preserved exactly; floating-point and compressed WAV/AIFF-C are rejected rather than quantized. The codec never opens files, reads stdio or starts threads.",
+  "description": "Portable bounded memory-only audio codecs over a canonical integer PCM model: lossless WAV, FLAC and AIFF/AIFF-C (integer PCM preserved exactly; float and compressed WAV/AIFF-C rejected rather than quantized) and lossy Ogg Vorbis, Ogg Opus and MP3 (decoded at 16 bits with encoder delay and padding trimmed from container data; encoded with explicit, documented quality controls). The codec never opens files, reads stdio or starts threads.",
   "public_dependencies": [],
   "private_dependencies": [],
   "test_dependencies": [],
@@ -14,6 +14,46 @@
         "codec"
       ],
       "reason": "Pinned BSD-3-Clause libFLAC library only (no GPL programs, no Ogg, no SIMD) for memory-only FLAC decoding and deterministic encoding."
+    },
+    {
+      "recipe": "libogg-1.3.6-v1",
+      "scope": "private",
+      "components": [
+        "codec"
+      ],
+      "reason": "Pinned BSD-3-Clause libogg page sync, CRC and packet framing for the bounded Ogg demuxer and the Vorbis/Opus muxers."
+    },
+    {
+      "recipe": "libvorbis-1.3.7-v1",
+      "scope": "private",
+      "components": [
+        "codec"
+      ],
+      "reason": "Pinned BSD-3-Clause libvorbis/libvorbisenc (no vorbisfile, no tools) for Vorbis decoding and deterministic VBR encoding."
+    },
+    {
+      "recipe": "opus-1.5.2-v1",
+      "scope": "private",
+      "components": [
+        "codec"
+      ],
+      "reason": "Pinned BSD-3-Clause libopus float build without intrinsics, RTCD or DNN features for Opus decoding and deterministic encoding."
+    },
+    {
+      "recipe": "minimp3-ea99364-v1",
+      "scope": "private",
+      "components": [
+        "decoder"
+      ],
+      "reason": "Pinned CC0 minimp3 header (Layer III only, no SIMD) for bounded MP3 decoding."
+    },
+    {
+      "recipe": "lame-3.100-v1",
+      "scope": "private",
+      "components": [
+        "encoder"
+      ],
+      "reason": "Pinned LGPL-2.0-or-later libmp3lame (no frontend, no mpglib decoder, no SIMD/NASM) for MP3 encoding with a LAME gapless tag."
     }
   ],
   "capabilities": [
@@ -25,6 +65,14 @@
     "bounded_aiff_integer_pcm_encode",
     "exact_aiff_extended_sample_rate",
     "lossless_integer_pcm_canonical_samples",
-    "wave_extensible_channel_mask_preservation"
+    "wave_extensible_channel_mask_preservation",
+    "bounded_ogg_demux_single_logical_stream",
+    "bounded_ogg_vorbis_decode",
+    "bounded_ogg_opus_decode",
+    "bounded_mp3_layer3_decode",
+    "gapless_encoder_delay_trimming",
+    "deterministic_ogg_vorbis_encode",
+    "deterministic_ogg_opus_encode",
+    "deterministic_mp3_encode"
   ]
 }
