@@ -6,7 +6,5 @@ target_compile_options(arken-convert-command-tests PRIVATE -Wall -Wextra -Wpedan
 add_test(NAME ConvertFiles.Version COMMAND arken-convert-commands --stdio --root /nonexistent --version)
 add_test(NAME ConvertFiles.TestsVersion COMMAND arken-convert-command-tests --invalid --version)
 set_tests_properties(ConvertFiles.Version ConvertFiles.TestsVersion PROPERTIES TIMEOUT 5 PASS_REGULAR_EXPRESSION "r6262")
-add_test(NAME ConvertFiles.Stdio COMMAND ${CMAKE_COMMAND}
- "-DSERVER=$<TARGET_FILE:arken-convert-commands>" "-DFIXTURES=$<TARGET_FILE:arken-convert-command-tests>"
- "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/stdio-proof" -P "${CMAKE_CURRENT_LIST_DIR}/stdio.cmake")
-set_tests_properties(ConvertFiles.Stdio PROPERTIES TIMEOUT 90)
+include("${CMAKE_CURRENT_LIST_DIR}/../../arken_mcp_protocol_v1/cmake/RootedProof.cmake")
+arken_add_rooted_mcp_proof(ConvertFiles arken-convert-commands arken-convert-command-tests)

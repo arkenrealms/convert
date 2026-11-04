@@ -3,7 +3,7 @@
 #include <string_view>
 
 namespace arken::image::v1 {
-enum class Format : std::uint32_t {pcx=1, cel=2, dc6=3, blp=4, dds=5, tga=6, png=7, bmp=8, jpeg=9, gif=10};
+enum class Format : std::uint32_t {pcx=1, cel=2, dc6=3, blp=4, dds=5, tga=6, png=7, bmp=8, jpeg=9, gif=10, ico=11, tiff=12, webp=13};
 enum class RasterProfile : std::uint32_t {bounded, largeRaster};
 struct DecodeOptions {
     std::uint32_t frameIndex=0, directionIndex=0, mipIndex=0;
@@ -34,6 +34,9 @@ struct DecodeResult {
     Image image;
     explicit operator bool() const noexcept {return issue.code==DecodeError::none;}
 };
+// TIFF: one classic top-left chunky image, unsigned8 RGB/straight RGBA/gray,
+// uncompressed, PackBits or Deflate strips. Unsupported semantics reject.
+// WebP: complete still VP8/VP8L, straight RGBA8; animation, ICC and Exif reject.
 [[nodiscard]] DecodeResult DecodeImage(Format format,std::span<const std::byte> bytes,
     const DecodeOptions& options={}) noexcept;
 [[nodiscard]] std::string_view ErrorMessage(DecodeError error) noexcept;

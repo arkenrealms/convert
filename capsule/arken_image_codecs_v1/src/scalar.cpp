@@ -1,47 +1,15 @@
-#include "reader.hpp"
-#include <map>
-#include <stdexcept>
+#include "tiff_directory.hpp"
 
 namespace arken::image::v1::detail {
 namespace {
 void require(bool value,DecodeError error){if(!value)throw error;}
-struct Tiff {
-    Bytes bytes;bool little;
-    std::uint16_t u16(std::size_t p)const{
-        require(Range(bytes,p,2),DecodeError::truncated);
-        return little?U16(bytes,p):std::uint16_t((std::uint16_t(U8(bytes,p))<<8)|U8(bytes,p+1));
-    }
-    std::uint32_t u32(std::size_t p)const{
-        require(Range(bytes,p,4),DecodeError::truncated);
-        return little?U32(bytes,p):(std::uint32_t(u16(p))<<16)|u16(p+2);
-    }
-};
-struct Entry {std::uint16_t type;std::uint32_t count;std::size_t position;};
 }
 ScalarDecodeResult DecodeScalarTiff16(Bytes bytes,const DecodeOptions& options){
-    require(bytes.size()>=8,DecodeError::truncated);
-    const bool little=U8(bytes,0)==73&&U8(bytes,1)==73,big=U8(bytes,0)==77&&U8(bytes,1)==77;
-    require(little||big,DecodeError::wrong_magic);Tiff f{bytes,little};
-    require(f.u16(2)==42,DecodeError::unsupported_content);
-    const auto directory=f.u32(4);require(directory>=8,DecodeError::invalid_layout);
-    const auto count=f.u16(directory);require(count&&count<=256,DecodeError::resource_limit);
-    require(Range(bytes,std::uint64_t(directory)+2,std::uint64_t(count)*12+4),DecodeError::truncated);
-    require(f.u32(std::size_t(directory)+2+count*12)==0,DecodeError::unsupported_content);
-    std::map<std::uint16_t,Entry> entries;
-    for(unsigned i=0;i<count;++i){const auto p=std::size_t(directory)+2+i*12;
-        require(entries.emplace(f.u16(p),Entry{f.u16(p+2),f.u32(p+4),p+8}).second,DecodeError::invalid_layout);}
-    const auto values=[&](unsigned tag){
-        const auto it=entries.find(tag);require(it!=entries.end(),DecodeError::invalid_layout);
-        const auto e=it->second;require((e.type==3||e.type==4)&&e.count>0&&e.count<=8192,DecodeError::unsupported_content);
-        const std::size_t size=e.type==3?2:4,extent=size*e.count;
-        const std::size_t p=extent<=4?e.position:f.u32(e.position);require(Range(bytes,p,extent),DecodeError::truncated);
-        std::vector<std::uint32_t> out;out.reserve(e.count);
-        for(unsigned i=0;i<e.count;++i)out.push_back(size==2?f.u16(p+i*size):f.u32(p+i*size));return out;
-    };
-    const auto scalar=[&](unsigned tag,std::uint32_t fallback){
-        if(!entries.contains(tag))return fallback;auto v=values(tag);
-        require(v.size()==1,DecodeError::invalid_layout);return v.front();
-    };
+    const TiffDirectory f(bytes);const auto& entries=f.entries;
+    const bool little=f.file.little;
+    require(!f.next,DecodeError::unsupported_content);
+    const auto values=[&](unsigned tag){return f.values(tag);};
+    const auto scalar=[&](unsigned tag,std::uint32_t fallback){return f.scalar(tag,fallback);};
     const auto width=scalar(256,0),height=scalar(257,0);
     require(Dimensions(width,height,options),DecodeError::invalid_dimensions);
     const auto compression=scalar(259,1),predictor=scalar(317,1);
@@ -60,9 +28,9 @@ ScalarDecodeResult DecodeScalarTiff16(Bytes bytes,const DecodeOptions& options){
         require(sizes[s]&&Range(bytes,offsets[s],sizes[s]),DecodeError::truncated);
         const auto encoded=bytes.subspan(offsets[s],sizes[s]);std::vector<std::byte> inflated;
         Bytes data=encoded;
-        if(compression!=1){inflated.resize(extent);require(InflateScalarStrip(encoded,inflated),DecodeError::invalid_layout);data=inflated;}
+        if(compression!=1){inflated.resize(extent);require(InflateTiffStrip(encoded,inflated),DecodeError::invalid_layout);data=inflated;}
         else require(encoded.size()==extent,DecodeError::invalid_layout);
-        Tiff pixels{data,little};
+        TiffBytes pixels{data,little};
         for(std::size_t y=0;y<n;++y){std::uint16_t previous=0;
             for(std::size_t x=0;x<width;++x){auto sample=pixels.u16((y*width+x)*2);
                 if(predictor==2)sample=std::uint16_t(sample+previous);previous=sample;

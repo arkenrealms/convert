@@ -1,5 +1,7 @@
 #include "reader.hpp"
 #include "resource_profile.hpp"
+#include "tiff.hpp"
+#include "webp.hpp"
 #include <new>
 
 namespace arken::image::v1 {
@@ -18,6 +20,9 @@ DecodeResult DecodeImage(Format format,std::span<const std::byte> bytes,const De
             case Format::blp:return detail::DecodeBlp(bytes,options);
             case Format::dds:return detail::DecodeDds(bytes,options);
             case Format::tga:return detail::DecodeTga(bytes,options);
+            case Format::ico:return detail::DecodeIco(bytes,options);
+            case Format::tiff:return detail::DecodeTiff(bytes,options);
+            case Format::webp:return detail::DecodeWebp(bytes,options);
             case Format::png:case Format::bmp:case Format::jpeg:case Format::gif:return detail::DecodeRaster(format,bytes,options);
         }
         return detail::Failure(DecodeError::unsupported_content);
@@ -28,7 +33,7 @@ std::string_view ErrorMessage(DecodeError e) noexcept {
     switch(e){
         case DecodeError::none:return "Decoded locally.";
         case DecodeError::palette_required:return "This indexed image needs its external 768-byte palette (.pal for CEL; BGR .dat for DC6).";
-        case DecodeError::invalid_palette:return "The palette must contain exactly 256 RGB/BGR colors (768 bytes).";
+        case DecodeError::invalid_palette:return "The image palette is invalid or incomplete.";
         case DecodeError::width_required:return "Diablo CEL does not store image width. Enter its frame width to import it.";
         case DecodeError::selection_out_of_range:return "The selected frame, direction or mip level does not exist.";
         case DecodeError::invalid_dimensions:return "Image dimensions are invalid or exceed the local pixel limit.";

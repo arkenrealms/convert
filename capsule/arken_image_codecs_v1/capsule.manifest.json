@@ -11,9 +11,37 @@
   },
   "description": "Portable bounded image and indexed-sprite decoding for browser-local editors and native asset import. Callers supply external palettes and sprite geometry where the original format does not encode them; the codec never guesses game colors or opens files.",
   "public_dependencies": [],
-  "private_dependencies": ["arken_ao_core_v1", "arken_digest_v1"],
+  "private_dependencies": [
+    "arken_ao_core_v1",
+    "arken_digest_v1"
+  ],
   "test_dependencies": [],
-  "external_dependencies":[{"recipe":"stb-image-2.30-v1","scope":"private","components":["image"],"reason":"Pinned memory-only PNG/BMP/JPEG decoding and bounded PNG/BMP/JPEG/TGA encoding."},{"recipe":"skcms-f0bbebb-v1","scope":"private","components":["colour"],"reason":"Pinned portable RGB ICC to sRGB conversion; identical native and browser implementation."}],
+  "external_dependencies": [
+    {
+      "recipe": "stb-image-2.30-v1",
+      "scope": "private",
+      "components": [
+        "image"
+      ],
+      "reason": "Pinned memory-only PNG/BMP/JPEG decoding and bounded PNG/BMP/JPEG/TGA encoding."
+    },
+    {
+      "recipe": "skcms-f0bbebb-v1",
+      "scope": "private",
+      "components": [
+        "colour"
+      ],
+      "reason": "Pinned portable RGB ICC to sRGB conversion; identical native and browser implementation."
+    },
+    {
+      "recipe": "libwebp-1.6.0-v1",
+      "scope": "private",
+      "components": [
+        "codec"
+      ],
+      "reason": "Pinned WebP still-image decoding and exact lossless RGBA encoding."
+    }
+  ],
   "capabilities": [
     "bounded_blp1_blp2_decode",
     "bounded_pcx_decode",
@@ -27,6 +55,8 @@
     "bounded_gif_first_frame_rgba8_decode",
     "bounded_deterministic_png_rgba8_encode",
     "validated_aotm_v1_sourcefree_runtime_profile",
-    "bounded_png_bmp_jpeg_rgba8_encode"
+    "bounded_png_bmp_jpeg_rgba8_encode",
+    "bounded_still_webp_rgba8_decode",
+    "bounded_lossless_webp_rgba8_encode"
   ]
 }

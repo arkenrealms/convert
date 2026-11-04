@@ -1,5 +1,8 @@
 #include "arken_image_codecs_v1/encode.hpp"
+#include "tiff.hpp"
+#include "webp.hpp"
 #include "resource_profile.hpp"
+#include <algorithm>
 #include <new>
 // JPEG's floating-point DCT must round the same way on native CPUs and
 // WebAssembly. Fusing multiply-adds changes coefficients near quantization ties.
@@ -22,10 +25,30 @@ void append(void* context,void* data,int count) noexcept {
     catch(const std::bad_alloc&){output.error=EncodeError::allocation_failed;}
     catch(...){output.error=EncodeError::encoding_failed;}
 }
+EncodeResult encodeIcon(std::uint32_t width,std::uint32_t height,
+    std::span<const std::uint8_t> rgba,const EncodeOptions& options) {
+    constexpr std::uint32_t directoryBytes=22;
+    if(options.maximumOutputBytes<=directoryBytes)return failure(EncodeError::output_limit);
+    auto pngOptions=options;pngOptions.maximumOutputBytes-=directoryBytes;
+    auto png=EncodeImage(Format::png,width,height,rgba,pngOptions);
+    if(!png)return png;
+    if(png.bytes.size()>UINT32_MAX)return failure(EncodeError::output_limit);
+    std::vector<std::byte> bytes(directoryBytes+png.bytes.size());
+    const auto put=[&](std::size_t offset,std::uint32_t value,unsigned count){
+        for(unsigned i=0;i<count;++i)bytes[offset+i]=std::byte((value>>(8*i))&255u);
+    };
+    put(2,1,2);put(4,1,2); // ICONDIR: one icon, not a cursor.
+    bytes[6]=std::byte(width==maximumIconDimension?0:width);
+    bytes[7]=std::byte(height==maximumIconDimension?0:height);
+    put(10,1,2);put(12,32,2);
+    put(14,static_cast<std::uint32_t>(png.bytes.size()),4);put(18,directoryBytes,4);
+    std::copy(png.bytes.begin(),png.bytes.end(),bytes.begin()+directoryBytes);
+    return {EncodeError::none,false,std::move(bytes)};
+}
 }
 EncodeResult EncodeImage(Format format,std::uint32_t width,std::uint32_t height,
     std::span<const std::uint8_t> rgba,const EncodeOptions& options) noexcept {
-    if(format!=Format::png&&format!=Format::bmp&&format!=Format::jpeg&&format!=Format::tga)return failure(EncodeError::unsupported_format);
+    if(format!=Format::png&&format!=Format::bmp&&format!=Format::jpeg&&format!=Format::tga&&format!=Format::ico&&format!=Format::tiff&&format!=Format::webp)return failure(EncodeError::unsupported_format);
     if(!detail::ValidProfile(options.resourceProfile,format)
         ||!options.maximumOutputBytes||options.maximumOutputBytes>detail::EncodeByteCeiling(options.resourceProfile)
         ||!options.maximumPixels||options.maximumPixels>detail::EncodePixelCeiling(options.resourceProfile,format)
@@ -35,10 +58,14 @@ EncodeResult EncodeImage(Format format,std::uint32_t width,std::uint32_t height,
         ||(format!=Format::jpeg&&options.alphaPolicy!=AlphaPolicy::preserve))return failure(EncodeError::invalid_options);
     const auto pixels=std::uint64_t(width)*height;
     if(!width||!height||width>options.maximumDimension||height>options.maximumDimension||pixels>options.maximumPixels)return failure(EncodeError::invalid_dimensions);
+    if(format==Format::ico&&(width>maximumIconDimension||height>maximumIconDimension))return failure(EncodeError::invalid_dimensions);
     if(rgba.size()!=pixels*4)return failure(EncodeError::invalid_extent);
     bool alpha=false;for(std::size_t i=3;i<rgba.size();i+=4)if(rgba[i]!=255){alpha=true;break;}
     if(format==Format::jpeg&&alpha&&options.alphaPolicy!=AlphaPolicy::flatten_white)return failure(EncodeError::alpha_requires_matte);
     try{
+        if(format==Format::ico)return encodeIcon(width,height,rgba,options);
+        if(format==Format::tiff)return detail::EncodeTiff(width,height,rgba,options.maximumOutputBytes);
+        if(format==Format::webp)return detail::EncodeWebp(width,height,rgba,options.maximumOutputBytes);
         Output output{{},options.maximumOutputBytes};const auto w=int(width),h=int(height);int accepted=0;
         if(format==Format::png)accepted=stbi_write_png_to_func(append,&output,w,h,4,rgba.data(),w*4);
         else if(format==Format::bmp)accepted=stbi_write_bmp_to_func(append,&output,w,h,4,rgba.data());
