@@ -15,12 +15,24 @@ enum alpha_kind @enum_id(3) { value preserve @value_id(1); value flatten_white @
 semantic_type input_format @semantic_type_id(4) { kind enum; enum input_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
 semantic_type output_format @semantic_type_id(5) { kind enum; enum output_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
 semantic_type alpha_policy @semantic_type_id(6) { kind enum; enum alpha_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
-enum audio_kind @enum_id(4) { value wav @value_id(1); value flac @value_id(2); }
-enum document_input_kind @enum_id(5) { value docx @value_id(1); value rtf @value_id(2); }
+enum audio_kind @enum_id(4) { value wav @value_id(1); value flac @value_id(2); value aiff @value_id(3); }
+enum document_input_kind @enum_id(5) { value docx @value_id(1); value rtf @value_id(2); value pptx @value_id(3); value odt @value_id(4); value odp @value_id(5); value epub @value_id(6); }
 enum document_output_kind @enum_id(6) { value txt @value_id(1); value markdown @value_id(2); }
 semantic_type audio_format @semantic_type_id(7) { kind enum; enum audio_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
 semantic_type document_input_format @semantic_type_id(8) { kind enum; enum document_input_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
 semantic_type document_output_format @semantic_type_id(9) { kind enum; enum document_output_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+enum table_input_kind @enum_id(7) { value csv @value_id(1); value tsv @value_id(2); value json @value_id(3); value xlsx @value_id(4); value ods @value_id(5); }
+enum table_output_kind @enum_id(8) { value csv @value_id(1); value tsv @value_id(2); value json @value_id(3); }
+enum delimiter_kind @enum_id(9) { value comma @value_id(1); value semicolon @value_id(2); value tab @value_id(3); }
+enum json_shape_kind @enum_id(10) { value arrays @value_id(1); value objects @value_id(2); }
+enum markup_input_kind @enum_id(11) { value html @value_id(1); value markdown @value_id(2); value srt @value_id(3); value vtt @value_id(4); }
+enum markup_output_kind @enum_id(12) { value html @value_id(1); value markdown @value_id(2); value srt @value_id(3); value vtt @value_id(4); }
+semantic_type table_input_format @semantic_type_id(10) { kind enum; enum table_input_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+semantic_type table_output_format @semantic_type_id(11) { kind enum; enum table_output_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+semantic_type delimiter @semantic_type_id(12) { kind enum; enum delimiter_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+semantic_type json_shape @semantic_type_id(13) { kind enum; enum json_shape_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+semantic_type markup_input_format @semantic_type_id(14) { kind enum; enum markup_input_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+semantic_type markup_output_format @semantic_type_id(15) { kind enum; enum markup_output_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
 model conversion_request @type_id(1) {
  field source_path: text @field_id(1) { immutable true; }
  field output_path: text @field_id(2);
@@ -85,6 +97,7 @@ model audio_result @type_id(7) {
  field durable: boolean @field_id(9);
  field skipped_metadata: count @field_id(10);
  field comments_dropped: boolean @field_id(11);
+ field channel_mask_dropped: boolean @field_id(12);
  key identity { kind primary; fields output_path; }
 }
 model document_request @type_id(8) {
@@ -92,6 +105,7 @@ model document_request @type_id(8) {
  field output_path: text @field_id(2);
  field input_format: document_input_format @field_id(3);
  field output_format: document_output_format @field_id(4);
+ field include_notes: boolean @field_id(5) @optional;
  key identity { kind primary; fields source_path; }
 }
 model document_result @type_id(9) {
@@ -105,6 +119,137 @@ model document_result @type_id(9) {
  field list_items: count @field_id(8);
  field tables: count @field_id(9);
  field table_rows: count @field_id(10);
+ field block_quotes: count @field_id(11);
+ field code_blocks: count @field_id(12);
+ field thematic_breaks: count @field_id(13);
+ field slides: count @field_id(14);
+ field chapters: count @field_id(15);
+ field notes_included: count @field_id(16);
+ field toc_headings: count @field_id(17);
+ field excluded_images: count @field_id(18);
+ field excluded_graphics: count @field_id(19);
+ field excluded_notes: count @field_id(20);
+ field excluded_annotations: count @field_id(21);
+ field excluded_deletions: count @field_id(22);
+ field excluded_placeholders: count @field_id(23);
+ field excluded_scripts: count @field_id(24);
+ field excluded_navigation: count @field_id(25);
+ field excluded_non_linear: count @field_id(26);
+ field excluded_unsupported_items: count @field_id(27);
+ key identity { kind primary; fields output_path; }
+}
+model table_request @type_id(10) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field input_format: table_input_format @field_id(3);
+ field output_format: table_output_format @field_id(4);
+ field delimiter: delimiter @field_id(5) @optional;
+ field json_shape: json_shape @field_id(6) @optional;
+ field sheet_index: count @field_id(7) @optional;
+ field sheet_name: text @field_id(8) @optional;
+ key identity { kind primary; fields source_path; }
+}
+model sheet_csv_request @type_id(11) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field delimiter: delimiter @field_id(5) @optional;
+ field sheet_index: count @field_id(7) @optional;
+ field sheet_name: text @field_id(8) @optional;
+ key identity { kind primary; fields source_path; }
+}
+model sheet_json_request @type_id(12) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field json_shape: json_shape @field_id(6) @optional;
+ field sheet_index: count @field_id(7) @optional;
+ field sheet_name: text @field_id(8) @optional;
+ key identity { kind primary; fields source_path; }
+}
+model csv_json_request @type_id(13) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field delimiter: delimiter @field_id(5) @optional;
+ field json_shape: json_shape @field_id(6) @optional;
+ key identity { kind primary; fields source_path; }
+}
+model delimited_request @type_id(14) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field delimiter: delimiter @field_id(5) @optional;
+ key identity { kind primary; fields source_path; }
+}
+model table_result @type_id(15) {
+ field output_path: text @field_id(1) { immutable true; }
+ field media_type: text @field_id(2);
+ field output_bytes: count @field_id(3);
+ field sha256: text @field_id(4);
+ field durable: boolean @field_id(5);
+ field rows: count @field_id(6);
+ field columns: count @field_id(7);
+ field sheet_count: count @field_id(8);
+ field sheet_names: text @field_id(9) @max_items(4096);
+ field selected_sheet: count @field_id(10);
+ field ragged_rows: count @field_id(11);
+ field merged_ranges: count @field_id(12);
+ field formulas: count @field_id(13);
+ field formulas_without_value: count @field_id(14);
+ field trimmed_repeated_rows: count @field_id(15);
+ field trimmed_repeated_cells: count @field_id(16);
+ field renamed_keys: count @field_id(17);
+ field byte_order_mark: boolean @field_id(18);
+ key identity { kind primary; fields output_path; }
+}
+model presentation_request @type_id(16) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field include_notes: boolean @field_id(5) @optional;
+ key identity { kind primary; fields source_path; }
+}
+model markup_request @type_id(17) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field input_format: markup_input_format @field_id(3);
+ field output_format: markup_output_format @field_id(4);
+ field drop_navigation: boolean @field_id(5) @optional;
+ field full_document: boolean @field_id(6) @optional;
+ key identity { kind primary; fields source_path; }
+}
+model html_markdown_request @type_id(18) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field drop_navigation: boolean @field_id(5) @optional;
+ key identity { kind primary; fields source_path; }
+}
+model markdown_html_request @type_id(19) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field full_document: boolean @field_id(6) @optional;
+ key identity { kind primary; fields source_path; }
+}
+model markup_result @type_id(20) {
+ field output_path: text @field_id(1) { immutable true; }
+ field media_type: text @field_id(2);
+ field output_bytes: count @field_id(3);
+ field sha256: text @field_id(4);
+ field durable: boolean @field_id(5);
+ field dropped_elements: count @field_id(6);
+ field links_as_text: count @field_id(7);
+ field images_as_text: count @field_id(8);
+ field images_dropped: count @field_id(9);
+ field tables_as_paragraphs: count @field_id(10);
+ field comments_skipped: count @field_id(11);
+ field links: count @field_id(12);
+ field images: count @field_id(13);
+ field unsafe_links: count @field_id(14);
+ field unsafe_images: count @field_id(15);
+ field html_escaped: count @field_id(16);
+ field unknown_entities: count @field_id(17);
+ field cues: count @field_id(18);
+ field missing_indices: count @field_id(19);
+ field dropped_identifiers: count @field_id(20);
+ field dropped_cue_settings: count @field_id(21);
+ field dropped_blocks: count @field_id(22);
+ field stripped_tags: count @field_id(23);
  key identity { kind primary; fields output_path; }
 }
 command convert_image @command_id(2) { request conversion_request; response conversion_result; errors command_error; idempotency none; streaming unary; targets cpp; }
@@ -130,3 +275,27 @@ command docx_to_txt @command_id(21) { request file_request; response document_re
 command docx_to_markdown @command_id(22) { request file_request; response document_result; errors command_error; idempotency none; streaming unary; targets cpp; }
 command rtf_to_txt @command_id(23) { request file_request; response document_result; errors command_error; idempotency none; streaming unary; targets cpp; }
 command rtf_to_markdown @command_id(24) { request file_request; response document_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command convert_table @command_id(25) { request table_request; response table_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command xlsx_to_csv @command_id(26) { request sheet_csv_request; response table_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command xlsx_to_json @command_id(27) { request sheet_json_request; response table_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command ods_to_csv @command_id(28) { request sheet_csv_request; response table_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command csv_to_json @command_id(29) { request csv_json_request; response table_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command json_to_csv @command_id(30) { request delimited_request; response table_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command csv_to_tsv @command_id(31) { request delimited_request; response table_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command pptx_to_txt @command_id(32) { request presentation_request; response document_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command pptx_to_markdown @command_id(33) { request presentation_request; response document_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command odt_to_txt @command_id(34) { request file_request; response document_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command odt_to_markdown @command_id(35) { request file_request; response document_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command odp_to_txt @command_id(36) { request presentation_request; response document_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command odp_to_markdown @command_id(37) { request presentation_request; response document_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command epub_to_txt @command_id(38) { request file_request; response document_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command epub_to_markdown @command_id(39) { request file_request; response document_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command convert_markup @command_id(40) { request markup_request; response markup_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command html_to_markdown @command_id(41) { request html_markdown_request; response markup_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command markdown_to_html @command_id(42) { request markdown_html_request; response markup_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command srt_to_vtt @command_id(43) { request file_request; response markup_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command vtt_to_srt @command_id(44) { request file_request; response markup_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command aiff_to_wav @command_id(45) { request file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command aiff_to_flac @command_id(46) { request file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command wav_to_aiff @command_id(47) { request file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command flac_to_aiff @command_id(48) { request file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }
