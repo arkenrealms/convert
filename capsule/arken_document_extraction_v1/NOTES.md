@@ -13,11 +13,17 @@ failure never returns an empty document that looks like a success. A
 genuinely empty Word document is the only empty success.
 
 Surface status: exposed through the standalone MCP only, as `convert_document`,
-`docx_to_txt`, `docx_to_markdown`, `rtf_to_txt` and `rtf_to_markdown`, via
-`ConvertStandaloneDocument` in `arken_file_conversion_v1` (component
-`standalone`): 32 MiB source, 16 MiB per ZIP member, 32 MiB output. "Remaining
-steps" below is kept as the integration record; the commands use ids 20-24 and
-the result also reports block counts. Not exposed through the browser converter
+`docx_to_txt`, `docx_to_markdown`, `rtf_to_txt` and `rtf_to_markdown` (ids
+20-24), `pptx_to_txt`, `pptx_to_markdown`, `odt_to_txt`, `odt_to_markdown`,
+`odp_to_txt`, `odp_to_markdown`, `epub_to_txt` and `epub_to_markdown` (ids
+32-39), via `ConvertStandaloneDocument` in `arken_file_conversion_v1` (component
+`standalone`): 32 MiB source, 16 MiB per ZIP member, 32 MiB output, notes off by
+default (`include_notes` for PPTX/ODP). Tabular conversion is exposed as
+`convert_table`, `xlsx_to_csv`, `xlsx_to_json`, `ods_to_csv`, `csv_to_json`,
+`json_to_csv` and `csv_to_tsv` (ids 25-31) via `ConvertStandaloneTable`: 32 MiB
+source, 16 MiB per member, 64 MiB output, the capsule's row/column/cell caps.
+The "Remaining steps" sections below are kept as the integration record; the
+results also report block counts, exclusions and the table report. Not exposed through the browser converter
 or the hosted MCP. The real-document corpus requested below is still outstanding. The browser and hosted surfaces need their
 own admission decisions (handoff sections 3 and 13). Nothing here authorizes them.
 

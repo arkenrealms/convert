@@ -15,10 +15,13 @@ is deterministic: the same bytes and options give the same bytes and report.
 Nothing iterates an unordered container, and nothing depends on the locale,
 time or addresses.
 
-Surface status: **not exposed anywhere yet.** It is a library with a standalone
-qualification project (`tests/`). "Remaining steps" below lists the exact work
-needed to expose `html_to_markdown`, `markdown_to_html`, `srt_to_vtt` and
-`vtt_to_srt` through the standalone MCP. Nothing here authorizes the browser
+Surface status: exposed through the standalone MCP only, as `convert_markup`,
+`html_to_markdown`, `markdown_to_html`, `srt_to_vtt` and `vtt_to_srt` (ids
+40-44), via `ConvertStandaloneMarkup` in `arken_file_conversion_v1` (component
+`standalone`): 8 MiB source and 8 MiB output for every pair (smaller outputs than
+the capsule defaults), `drop_navigation` and `full_document` as options, the
+subtitle options at their defaults. "Remaining steps" below is kept as the
+integration record (its suggested ids 25-28 and 32 MiB output were not used). Nothing here authorizes the browser
 converter or the hosted MCP surfaces.
 
 ## Public API (`api.hpp`)
