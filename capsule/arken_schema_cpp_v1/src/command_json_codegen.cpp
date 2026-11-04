@@ -124,7 +124,7 @@ GenerateCommandJsonCodecs(const idl::v1::SemanticManifest &manifest,
         out << nlohmann::json(f.name).dump() << ",";
       out << "};\nfor(auto "
              "it=input.begin();it!=input.end();++it)require(std::find(keys."
-             "begin(),keys.end(),it.key())!=keys.end(),\"unknown field\"); T "
+             "begin(),keys.end(),it.key())!=keys.end(),\"unknown field\");\nT "
              "value;\n";
       for (const auto &f : m.fields) {
         const auto member = f.cppName.value_or(f.name),

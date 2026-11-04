@@ -33,7 +33,8 @@ ScalarDecodeResult DecodeScalarTiff16(Bytes bytes,const DecodeOptions& options){
         TiffBytes pixels{data,little};
         for(std::size_t y=0;y<n;++y){std::uint16_t previous=0;
             for(std::size_t x=0;x<width;++x){auto sample=pixels.u16((y*width+x)*2);
-                if(predictor==2)sample=std::uint16_t(sample+previous);previous=sample;
+                if(predictor==2)sample=std::uint16_t(sample+previous);
+                previous=sample;
                 out.samples[(y0+y)*width+x]=sample;}}
     }
     return out;
