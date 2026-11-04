@@ -41,12 +41,54 @@ void RunIcoTests(){
     bad=alphaBytes;f::Put32(bad,54,1);Reject(bad,"ICO unexpected truecolor palette");
     const auto legacy=f::Dib(24,false);
     bad=f::Container({legacy.entry});bad[22+40+(legacy.entry.height-1)*28]=std::byte{255};
-    Require(image::DecodeImage(image::Format::ico,bad).issue.code==image::DecodeError::unsupported_content,"ICO screen-XOR silently approximated");
+    {
+        // A non-black XOR colour under a set AND bit (screen inversion) becomes
+        // fully transparent; its stored colour is kept but carries no weight.
+        const auto inverted=image::DecodeImage(image::Format::ico,bad);
+        auto expected=legacy.pixels;expected[2]=255;
+        Require(inverted&&inverted.image.rgba8==expected&&inverted.image.rgba8[3]==0,"ICO screen-XOR pixel not transparent");
+        auto all=f::Container({legacy.entry});
+        const auto pixelBytes=28*legacy.entry.height;
+        for(std::size_t i=22+40;i<22+40+pixelBytes;++i)all[i]=std::byte{0x5a};
+        const auto masked=image::DecodeImage(image::Format::ico,all);
+        Require(bool(masked),"ICO non-black masked pixels rejected");
+        for(std::size_t i=0;i<legacy.pixels.size();i+=4)
+            Require(masked.image.rgba8[i+3]==legacy.pixels[i+3]&&(legacy.pixels[i+3]==0||masked.image.rgba8[i]==0x5a),"ICO AND mask alpha changed");
+    }
     auto png=f::Png();const auto small=f::Png(2,2);
     const auto multiple=f::Container({small,png});
     auto result=image::DecodeImage(image::Format::ico,multiple);
-    Require(result&&result.image.width==png.width&&result.image.height==png.height&&result.image.frameCount==1,"ICO largest rendition selection");
+    Require(result&&result.image.width==png.width&&result.image.height==png.height&&result.image.frameCount==2,"ICO largest rendition selection and rendition count");
     Require(result.image.rgba8==image::DecodeImage(image::Format::png,png.bytes).image.rgba8,"ICO embedded PNG altered pixels");
+    {
+        // frameIndex walks renditions largest first (then deeper, then directory order).
+        image::DecodeOptions pick;pick.frameIndex=1;
+        const auto second=image::DecodeImage(image::Format::ico,multiple,pick);
+        Require(second&&second.image.width==2&&second.image.height==2&&second.image.frameCount==2
+            &&second.image.rgba8==image::DecodeImage(image::Format::png,small.bytes).image.rgba8,"ICO frameIndex rendition selection");
+        pick.frameIndex=2;
+        Require(image::DecodeImage(image::Format::ico,multiple,pick).issue.code==image::DecodeError::selection_out_of_range,"ICO rendition index bound");
+        const auto three=f::Container({f::Dib(8,false,4,4).entry,png,small});
+        pick.frameIndex=0;Require(image::DecodeImage(image::Format::ico,three,pick).image.width==32,"ICO preferred rendition");
+        pick.frameIndex=1;Require(image::DecodeImage(image::Format::ico,three,pick).image.width==4,"ICO second rendition");
+        pick.frameIndex=2;Require(image::DecodeImage(image::Format::ico,three,pick).image.width==2,"ICO third rendition");
+        auto damagedLargest=f::Png();damagedLargest.bytes[0]=std::byte{0};
+        pick.frameIndex=1;
+        Require(bool(image::DecodeImage(image::Format::ico,f::Container({small,damagedLargest}),pick)),"ICO explicit rendition depends on unselected payload");
+        pick.directionIndex=1;pick.frameIndex=0;
+        Require(image::DecodeImage(image::Format::ico,multiple,pick).issue.code==image::DecodeError::selection_out_of_range,"ICO direction selection");
+    }
+    {
+        // CUR: same directory, hotspot in place of planes/bit count, ignored.
+        const auto cursor=image::DecodeImage(image::Format::ico,f::Cursor(multiple,5,9));
+        Require(cursor&&cursor.image.rgba8==result.image.rgba8&&cursor.image.frameCount==2,"CUR PNG rendition");
+        const auto dibCursor=image::DecodeImage(image::Format::ico,f::Cursor(alphaBytes,3,4));
+        Require(dibCursor&&dibCursor.image.rgba8==alpha.pixels,"CUR DIB rendition");
+        const auto legacyCursor=image::DecodeImage(image::Format::ico,f::Cursor(f::Container({legacy.entry}),300,2));
+        Require(legacyCursor&&legacyCursor.image.rgba8==legacy.pixels,"CUR masked DIB rendition");
+        auto reserved=f::Cursor(alphaBytes,3,4);reserved[9]=std::byte{1};Reject(reserved,"CUR reserved entry byte");
+        auto truncatedCursor=f::Cursor(alphaBytes,3,4);truncatedCursor.pop_back();Reject(truncatedCursor,"CUR truncated mask");
+    }
     auto alternate=f::Png();alternate.bits=0;
     auto deep=f::Dib(32,true,png.width,png.height);
     result=image::DecodeImage(image::Format::ico,f::Container({alternate,deep.entry}));
@@ -58,7 +100,8 @@ void RunIcoTests(){
     const auto full=image::DecodeImage(image::Format::ico,f::Container({f::Png(256,256)}));
     Require(full&&full.image.width==256&&full.image.height==256,"ICO zero dimension means 256");
     for(std::size_t length=0;length<22;++length)Reject(f::Bytes(alphaBytes.begin(),alphaBytes.begin()+length),"ICO truncated directory");
-    bad=alphaBytes;f::Put16(bad,2,2);Reject(bad,"ICO cursor admitted");
+    bad=alphaBytes;f::Put16(bad,2,3);Require(image::DecodeImage(image::Format::ico,bad).issue.code==image::DecodeError::wrong_magic,"ICO unknown resource type admitted");
+    bad=alphaBytes;f::Put16(bad,0,1);Require(image::DecodeImage(image::Format::ico,bad).issue.code==image::DecodeError::wrong_magic,"ICO reserved header word admitted");
     bad=alphaBytes;f::Put16(bad,4,0);Reject(bad,"ICO empty directory");
     bad=alphaBytes;f::Put16(bad,4,257);Reject(bad,"ICO directory budget");
     bad=alphaBytes;f::Put32(bad,18,0xfffffff0);Reject(bad,"ICO range overflow");
@@ -71,6 +114,16 @@ void RunIcoTests(){
     limit={};limit.maximumSourceBytes=alphaBytes.size()-1;Require(!image::DecodeImage(image::Format::ico,alphaBytes,limit),"ICO source limit");
     limit={};limit.frameIndex=1;Require(!image::DecodeImage(image::Format::ico,alphaBytes,limit),"ICO alternatives treated as animation");
     limit={};limit.resourceProfile=image::RasterProfile::largeRaster;Require(!image::DecodeImage(image::Format::ico,alphaBytes,limit),"ICO widened large-raster admission");
+    // Corruption sweep: every truncation fails; every single-byte change either
+    // fails or yields an image of the declared extent (never a crash or overrun).
+    for(const auto& sample:{alphaBytes,multiple,f::Cursor(f::Container({legacy.entry,f::Dib(4,false,5,3).entry}),1,1)}){
+        for(std::size_t length=0;length<sample.size();++length)Reject(f::Bytes(sample.begin(),sample.begin()+length),"ICO truncation admitted");
+        for(std::size_t i=0;i<sample.size();++i)for(unsigned flip:{0x01u,0x80u,0xffu}){
+            auto damaged=sample;damaged[i]^=std::byte(flip);
+            const auto decoded=image::DecodeImage(image::Format::ico,damaged);
+            Require(!decoded||decoded.image.rgba8.size()==std::size_t(decoded.image.width)*decoded.image.height*4,"ICO corruption produced a bad extent");
+        }
+    }
     std::cout<<"ICO PNG/DIB selection, exact alpha/mask pixels and malformed-input bounds passed\n";
 }
 void PrepareIcoFixtures(const std::filesystem::path& directory){
