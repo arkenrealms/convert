@@ -12,6 +12,7 @@
 #include "arken_document_extraction_v1/test_support/docx_fixtures.hpp"
 #include "arken_document_extraction_v1/test_support/package_fixtures.hpp"
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -298,6 +299,87 @@ void prepare(const fs::path& root){
   &&!C::ConvertStandaloneAudio(A::Container::wav,A::Container::aiff,wav.bytes).channelMaskDropped,"AIFF mask report");
  check(A::DecodeAiff(C::ConvertStandaloneAudio(A::Container::flac,A::Container::aiff,flac.bytes).bytes).audio.samples==surround.samples
   &&C::ConvertStandaloneAudio(A::Container::aiff,A::Container::wav,aiff.bytes).bytes==wav.bytes,"reference AIFF is not lossless");
+ // Lossy audio: a 1 s two-tone programme at 44.1 kHz (CD rate: MP3 and Vorbis, rejected by Opus)
+ // and at 48 kHz (every lossy format), plus Vorbis, Opus and MP3 sources from the codec owner.
+ const auto tone=[](std::uint32_t rate,std::uint32_t channels,std::uint64_t frames){
+  A::Audio value{rate,channels,16,std::nullopt,frames,{}};
+  for(std::uint64_t i=0;i<frames;++i)for(std::uint32_t c=0;c<channels;++c){const double t=double(i)/rate;
+   value.samples.push_back(std::int32_t(9000.0*std::sin(6.283185307179586*(440.0+110.0*c)*t)+3000.0*std::sin(6.283185307179586*1250.0*t)));}
+  return value;
+ };
+ const auto cdWav=A::EncodeWav(tone(44100,2,44100));const auto wideWav=A::EncodeWav(tone(48000,2,48000));const auto wideFlac=A::EncodeFlac(tone(48000,2,48000));
+ check(cdWav&&wideWav&&wideFlac,"lossy fixtures");
+ write(root/"files/inputs/cd.wav",cdWav.bytes);write(root/"files/inputs/wide.wav",wideWav.bytes);write(root/"files/inputs/wide.flac",wideFlac.bytes);
+ std::map<std::string,std::vector<std::byte>> lossySources{{"inputs/cd.wav",cdWav.bytes},{"inputs/wide.wav",wideWav.bytes},
+  {"inputs/wide.flac",wideFlac.bytes},{"inputs/stereo.aiff",aiff.bytes}};
+ for(const auto& [name,format]:std::initializer_list<std::pair<const char*,A::Container>>{{"inputs/wide.mp3",A::Container::mp3},
+   {"inputs/wide.opus",A::Container::opus},{"inputs/wide.ogg",A::Container::vorbis}}){
+  const auto encoded=C::ConvertStandaloneAudio(A::Container::wav,format,wideWav.bytes);check(bool(encoded),"lossy source fixture");
+  write(root/"files"/name,encoded.bytes);lossySources[name]=encoded.bytes;
+ }
+ const auto audioMedia=[](A::Container format)->std::string{
+  switch(format){case A::Container::wav:return "audio/wav";case A::Container::flac:return "audio/flac";case A::Container::aiff:return "audio/aiff";
+   case A::Container::vorbis:return "audio/ogg; codecs=vorbis";case A::Container::opus:return "audio/ogg; codecs=opus";case A::Container::mp3:return "audio/mpeg";}
+  throw std::runtime_error("audio media");};
+ struct LossyCase{const char* name;const char* source;A::Container input,output;A::LossyOptions options;const char* outputPath;Json args;};
+ const auto lossyOptions=[](auto set){A::LossyOptions o;set(o);return o;};
+ const auto vbr0=lossyOptions([](auto& o){o.mp3RateControl=A::Mp3RateControl::vbr;o.mp3VbrQuality=0;});
+ const auto cbr128=lossyOptions([](auto& o){o.mp3BitrateKbps=128;});
+ const auto opus64=lossyOptions([](auto& o){o.opusBitrateKbps=64;});
+ const auto vorbis20=lossyOptions([](auto& o){o.vorbisQuality=20;});
+ const LossyCase lossyCases[]={
+  {"wav_to_mp3","inputs/cd.wav",A::Container::wav,A::Container::mp3,{},"outputs/cd.mp3",Json::object()},
+  {"wav_to_mp3","inputs/cd.wav",A::Container::wav,A::Container::mp3,vbr0,"outputs/cd-v0.mp3",{{"mp3_rate_control","vbr"},{"mp3_vbr_quality",0}}},
+  {"wav_to_mp3","inputs/wide.wav",A::Container::wav,A::Container::mp3,cbr128,"outputs/wide-128.mp3",{{"mp3_rate_control","cbr"},{"mp3_bitrate_kbps",128}}},
+  {"mp3_to_wav","inputs/wide.mp3",A::Container::mp3,A::Container::wav,{},"outputs/from-mp3.wav",Json::object()},
+  {"wav_to_opus","inputs/wide.wav",A::Container::wav,A::Container::opus,{},"outputs/wide.opus",Json::object()},
+  {"wav_to_opus","inputs/wide.wav",A::Container::wav,A::Container::opus,opus64,"outputs/wide-64.opus",{{"opus_bitrate_kbps",64}}},
+  {"opus_to_wav","inputs/wide.opus",A::Container::opus,A::Container::wav,{},"outputs/from-opus.wav",Json::object()},
+  {"wav_to_vorbis","inputs/cd.wav",A::Container::wav,A::Container::vorbis,{},"outputs/cd.ogg",Json::object()},
+  {"wav_to_vorbis","inputs/wide.wav",A::Container::wav,A::Container::vorbis,vorbis20,"outputs/wide-q20.ogg",{{"vorbis_quality",20}}},
+  {"vorbis_to_wav","inputs/wide.ogg",A::Container::vorbis,A::Container::wav,{},"outputs/from-vorbis.wav",Json::object()},
+  {"flac_to_mp3","inputs/wide.flac",A::Container::flac,A::Container::mp3,{},"outputs/wide.mp3",Json::object()},
+  {"flac_to_mp3","inputs/wide.flac",A::Container::flac,A::Container::mp3,vbr0,"outputs/wide-v0.mp3",{{"mp3_rate_control","vbr"},{"mp3_vbr_quality",0}}},
+  // convert_audio: lossy to lossy (generation loss), lossy to lossless, lossless to lossy with controls.
+  {"convert_audio","inputs/wide.opus",A::Container::opus,A::Container::mp3,{},"outputs/opus-to.mp3",{{"input_format","opus"},{"output_format","mp3"}}},
+  {"convert_audio","inputs/wide.ogg",A::Container::vorbis,A::Container::opus,opus64,"outputs/vorbis-to.opus",{{"input_format","vorbis"},{"output_format","opus"},{"opus_bitrate_kbps",64}}},
+  {"convert_audio","inputs/wide.mp3",A::Container::mp3,A::Container::vorbis,vorbis20,"outputs/mp3-to.ogg",{{"input_format","mp3"},{"output_format","vorbis"},{"vorbis_quality",20}}},
+  {"convert_audio","inputs/wide.mp3",A::Container::mp3,A::Container::flac,{},"outputs/mp3-to.flac",{{"input_format","mp3"},{"output_format","flac"}}},
+  {"convert_audio","inputs/wide.opus",A::Container::opus,A::Container::aiff,{},"outputs/opus-to.aiff",{{"input_format","opus"},{"output_format","aiff"}}},
+  {"convert_audio","inputs/stereo.aiff",A::Container::aiff,A::Container::vorbis,{},"outputs/aiff-to.ogg",{{"input_format","aiff"},{"output_format","vorbis"}}},
+  {"convert_audio","inputs/cd.wav",A::Container::wav,A::Container::mp3,vbr0,"outputs/generic-v0.mp3",{{"input_format","wav"},{"output_format","mp3"},{"mp3_rate_control","vbr"},{"mp3_vbr_quality",0}}}};
+ for(const auto& test:lossyCases){
+  const auto result=C::ConvertStandaloneAudio(test.input,test.output,lossySources.at(test.source),test.options);check(bool(result),std::string("lossy reference: ")+test.outputPath);
+  Json args=test.args;args["source_path"]=test.source;
+  converted(test.name,args,test.outputPath,result.bytes,
+   {{"media_type",audioMedia(test.output)},{"sample_rate",result.sampleRate},{"channels",result.channels},{"bits_per_sample",result.bitsPerSample},
+    {"frames",result.frames},{"lossy_source",result.lossySource},{"lossy_output",result.lossyOutput},{"generation_loss",result.generationLoss},
+    {"encoder_delay_trimmed",result.encoderDelayTrimmed},{"encoder_delay_unknown",result.encoderDelayUnknown},
+    {"trimmed_leading_frames",result.trimmedLeadingFrames},{"trimmed_trailing_frames",result.trimmedTrailingFrames},
+    {"original_sample_rate",result.originalSampleRate},{"comments_dropped_count",result.commentsDropped},{"tags_skipped",result.tagsSkipped},
+    {"streams_skipped",result.streamsSkipped},{"skipped_metadata",result.skippedMetadata},{"comments_dropped",result.ignoredComments}});
+ }
+ // The references themselves keep the contract: exact length back from each lossy format,
+ // labels, the trimmed delay, Opus at 48 kHz, controls that change the bytes.
+ const auto cdMp3=C::ConvertStandaloneAudio(A::Container::wav,A::Container::mp3,cdWav.bytes);
+ const auto cdBack=C::ConvertStandaloneAudio(A::Container::mp3,A::Container::wav,cdMp3.bytes);
+ check(cdMp3.lossyOutput&&!cdMp3.lossySource&&cdBack.lossySource&&!cdBack.lossyOutput&&cdBack.frames==44100&&cdBack.sampleRate==44100
+  &&cdBack.encoderDelayTrimmed&&cdBack.trimmedLeadingFrames==1105&&A::DecodeWav(cdBack.bytes).audio.frames==44100,"wav_to_mp3 then mp3_to_wav must keep 44100 frames");
+ for(const auto* name:{"inputs/wide.mp3","inputs/wide.opus","inputs/wide.ogg"}){
+  const auto format=std::string_view(name).ends_with("mp3")?A::Container::mp3:std::string_view(name).ends_with("opus")?A::Container::opus:A::Container::vorbis;
+  const auto back=C::ConvertStandaloneAudio(format,A::Container::wav,lossySources.at(name));
+  check(back&&back.frames==48000&&back.sampleRate==48000&&back.bitsPerSample==16&&back.lossySource,"lossy source does not decode to 48000 frames");
+  check(C::ConvertStandaloneAudio(format,A::Container::mp3,lossySources.at(name)).generationLoss,"generation loss not labelled");
+ }
+ check(C::ConvertStandaloneAudio(A::Container::opus,A::Container::wav,lossySources.at("inputs/wide.opus")).originalSampleRate==48000,"Opus original rate");
+ check(C::ConvertStandaloneAudio(A::Container::wav,A::Container::mp3,cdWav.bytes,vbr0).bytes!=cdMp3.bytes
+  &&C::ConvertStandaloneAudio(A::Container::wav,A::Container::opus,wideWav.bytes,opus64).bytes!=lossySources.at("inputs/wide.opus")
+  &&C::ConvertStandaloneAudio(A::Container::wav,A::Container::vorbis,wideWav.bytes,vorbis20).bytes!=lossySources.at("inputs/wide.ogg"),"lossy controls do not change the output");
+ // Chained Ogg (two complete Opus streams back to back) and a mislabelled Ogg file.
+ auto chainedOpus=lossySources.at("inputs/wide.opus");chainedOpus.insert(chainedOpus.end(),lossySources.at("inputs/wide.opus").begin(),lossySources.at("inputs/wide.opus").end());
+ write(root/"files/inputs/chained.opus",chainedOpus);
+ check(C::ConvertStandaloneAudio(A::Container::opus,A::Container::wav,chainedOpus).codecError==A::Error::chained_stream,"chained fixture");
+ check(C::ConvertStandaloneAudio(A::Container::wav,A::Container::opus,cdWav.bytes).codecError==A::Error::resampling_required,"44.1 kHz Opus fixture");
  const auto call=[&](const char* name,Json args,std::string kind="toolError",std::string reason={}){
   send({{"method","tools/call"},{"params",{{"name",name},{"arguments",std::move(args)}}}},kind,
    reason.empty()?Json::object():Json{{"reason",reason}});
@@ -319,7 +401,7 @@ void prepare(const fs::path& root){
  call("png_to_webp",{{"source_path","inputs/png.bin"},{"output_path","outputs/opt4.webp"},{"tiff_deflate",true}},"rpcError");
  call("png_to_tiff",{{"source_path","inputs/png.bin"},{"output_path","outputs/opt5.tif"},{"webp_lossless",true}},"rpcError");
  call("convert_image",{{"source_path","inputs/png.bin"},{"output_path","outputs/opt6.png"},{"input_format","png"},{"output_format","png"},{"tiff_deflate",true}},"rpcError");
- call("convert_audio",{{"source_path","inputs/stereo.wav"},{"output_path","outputs/x.mp3"},{"input_format","wav"},{"output_format","mp3"}},"rpcError");
+ call("convert_audio",{{"source_path","inputs/stereo.wav"},{"output_path","outputs/x.m4a"},{"input_format","wav"},{"output_format","aac"}},"rpcError");
  call("convert_document",{{"source_path","inputs/plan.docx"},{"output_path","outputs/x.html"},{"input_format","docx"},{"output_format","html"}},"rpcError");
  call("wav_to_flac",{{"source_path","inputs/stereo.wav"},{"output_path","outputs/x.flac"},{"jpeg_quality",90}},"rpcError");
  // Rejections the codec owner names: an icon source above 256 pixels and an animated WebP without frames.
@@ -387,8 +469,37 @@ void prepare(const fs::path& root){
  call("srt_to_vtt",{{"source_path","inputs/subs.srt"},{"output_path","outputs/o16.vtt"},{"drop_navigation",false}},"rpcError");
  call("convert_document",{{"source_path","inputs/body.odt"},{"output_path","outputs/o17.txt"},{"input_format","odt"},{"output_format","txt"},{"include_notes",false}},"rpcError");
  call("odt_to_txt",{{"source_path","inputs/body.odt"},{"output_path","outputs/o18.txt"},{"include_notes",true}},"rpcError");
- call("convert_audio",{{"source_path","inputs/stereo.aiff"},{"output_path","outputs/o19.ogg"},{"input_format","aiff"},{"output_format","vorbis"}},"rpcError");
+ call("convert_audio",{{"source_path","inputs/stereo.aiff"},{"output_path","outputs/o19.ogg"},{"input_format","aiff"},{"output_format","ogg"}},"rpcError");
  call("wav_to_aiff",{{"source_path","inputs/stereo.wav"},{"output_path","outputs/o20.aiff"},{"channel_mask_dropped",true}},"rpcError");
+ // Lossy controls: out of the schema range, for another output, or for the other MP3 rate control
+ // are protocol rejections; a decoder tool takes no control at all.
+ call("wav_to_vorbis",{{"source_path","inputs/wide.wav"},{"output_path","outputs/l1.ogg"},{"vorbis_quality",101}},"rpcError");
+ call("wav_to_opus",{{"source_path","inputs/wide.wav"},{"output_path","outputs/l2.opus"},{"opus_bitrate_kbps",5}},"rpcError");
+ call("wav_to_opus",{{"source_path","inputs/wide.wav"},{"output_path","outputs/l3.opus"},{"opus_bitrate_kbps",511}},"rpcError");
+ call("wav_to_mp3",{{"source_path","inputs/cd.wav"},{"output_path","outputs/l4.mp3"},{"mp3_rate_control","vbr"},{"mp3_vbr_quality",10}},"rpcError");
+ call("wav_to_mp3",{{"source_path","inputs/cd.wav"},{"output_path","outputs/l5.mp3"},{"mp3_rate_control","vbr"},{"mp3_bitrate_kbps",128}},"rpcError");
+ call("wav_to_mp3",{{"source_path","inputs/cd.wav"},{"output_path","outputs/l6.mp3"},{"mp3_vbr_quality",4}},"rpcError");
+ call("wav_to_mp3",{{"source_path","inputs/cd.wav"},{"output_path","outputs/l7.mp3"},{"mp3_rate_control","abr"}},"rpcError");
+ call("wav_to_mp3",{{"source_path","inputs/cd.wav"},{"output_path","outputs/l8.mp3"},{"opus_bitrate_kbps",64}},"rpcError");
+ call("flac_to_mp3",{{"source_path","inputs/wide.flac"},{"output_path","outputs/l9.mp3"},{"vorbis_quality",50}},"rpcError");
+ call("mp3_to_wav",{{"source_path","inputs/wide.mp3"},{"output_path","outputs/l10.wav"},{"mp3_bitrate_kbps",128}},"rpcError");
+ call("wav_to_flac",{{"source_path","inputs/wide.wav"},{"output_path","outputs/l11.flac"},{"vorbis_quality",50}},"rpcError");
+ call("convert_audio",{{"source_path","inputs/wide.wav"},{"output_path","outputs/l12.flac"},{"input_format","wav"},{"output_format","flac"},{"vorbis_quality",50}},"rpcError");
+ call("convert_audio",{{"source_path","inputs/wide.wav"},{"output_path","outputs/l13.opus"},{"input_format","wav"},{"output_format","opus"},{"mp3_bitrate_kbps",128}},"rpcError");
+ call("convert_audio",{{"source_path","inputs/wide.mp3"},{"output_path","outputs/l14.ogg"},{"input_format","mp3"},{"output_format","vorbis"},{"opus_bitrate_kbps",64}},"rpcError");
+ // Rejections the codec owner names: no resampling (44.1 kHz to Opus, 44.1 kHz to Opus through
+ // convert_audio), an MP3 bitrate the rate does not define, a CBR frame too small for the gapless
+ // tag, more than two channels, a chained Ogg file and an Ogg Vorbis file passed as Opus.
+ call("wav_to_opus",{{"source_path","inputs/cd.wav"},{"output_path","outputs/cd.opus"}},"toolError",std::string(A::ErrorMessage(A::Error::resampling_required)));
+ call("convert_audio",{{"source_path","inputs/cd.wav"},{"output_path","outputs/cd-generic.opus"},{"input_format","wav"},{"output_format","opus"},{"opus_bitrate_kbps",96}},
+  "toolError",std::string(A::ErrorMessage(A::Error::resampling_required)));
+ call("wav_to_mp3",{{"source_path","inputs/cd.wav"},{"output_path","outputs/cd-200.mp3"},{"mp3_bitrate_kbps",200}},"toolError",std::string(A::ErrorMessage(A::Error::invalid_option)));
+ call("wav_to_mp3",{{"source_path","inputs/cd.wav"},{"output_path","outputs/cd-32.mp3"},{"mp3_bitrate_kbps",32}},"toolError",std::string(A::ErrorMessage(A::Error::codec_failed)));
+ call("flac_to_mp3",{{"source_path","inputs/surround.flac"},{"output_path","outputs/surround.mp3"}},"toolError",std::string(A::ErrorMessage(A::Error::channel_limit)));
+ call("opus_to_wav",{{"source_path","inputs/chained.opus"},{"output_path","outputs/chained.wav"}},"toolError",std::string(A::ErrorMessage(A::Error::chained_stream)));
+ call("opus_to_wav",{{"source_path","inputs/wide.ogg"},{"output_path","outputs/vorbis-as-opus.wav"}},"toolError",std::string(A::ErrorMessage(A::Error::wrong_magic)));
+ call("mp3_to_wav",{{"source_path","inputs/wide.wav"},{"output_path","outputs/wav-as-mp3.wav"}},"toolError");
+ call("wav_to_mp3",{{"source_path","inputs/cd.wav"},{"output_path","outputs/cd.mp3"}});
  // Existing outputs are never replaced, and sources outside the folder are never read, for every family.
  call("wav_to_flac",{{"source_path","inputs/stereo.wav"},{"output_path","outputs/stereo.flac"}});
  call("docx_to_markdown",{{"source_path","inputs/plan.docx"},{"output_path","outputs/plan.md"}});
@@ -450,6 +561,19 @@ void verify(const fs::path& root){
     only("json_shape",{"convert_table","xlsx_to_json","csv_to_json"});
     only("drop_navigation",{"convert_markup","html_to_markdown"});
     only("full_document",{"convert_markup","markdown_to_html"});
+    only("vorbis_quality",{"convert_audio","wav_to_vorbis"});
+    only("opus_bitrate_kbps",{"convert_audio","wav_to_opus"});
+    for(const auto* option:{"mp3_rate_control","mp3_bitrate_kbps","mp3_vbr_quality"})only(option,{"convert_audio","wav_to_mp3","flac_to_mp3"});
+    // "Ogg" alone is never offered: Vorbis and Opus are named as codecs.
+    if(name=="convert_audio")check(properties.at("output_format").at("enum")==Json{"wav","flac","aiff","vorbis","opus","mp3"},"audio kinds");
+    // Every lossy tool states its quality contract.
+    if(name.find("mp3")!=std::string::npos||name.find("opus")!=std::string::npos||name.find("vorbis")!=std::string::npos||name=="convert_audio"){
+     const auto description=tool.at("description").get<std::string>();
+     for(const auto* term:{"ossy","album art","6 min"})check(description.find(term)!=std::string::npos,name+": description lacks the lossy contract ("+term+")");
+     if(name.starts_with("wav_to_")||name.starts_with("flac_to_"))
+      for(const auto* term:{"never reversible","default","resampled","1 or 2 channels","duration","album art"})
+       check(description.find(term)!=std::string::npos,name+": encoder description lacks "+term);
+    }
     const auto dump=tool.dump();
     for(const auto* term:{"\"heif\"","\"heic\"","\"avif\"","heic","avif"})
      check(dump.find(term)==std::string::npos,"HEIF/AVIF must not be admitted: "+name);
@@ -460,9 +584,10 @@ void verify(const fs::path& root){
     "convert_table","xlsx_to_csv","xlsx_to_json","ods_to_csv","csv_to_json","json_to_csv","csv_to_tsv",
     "pptx_to_txt","pptx_to_markdown","odt_to_txt","odt_to_markdown","odp_to_txt","odp_to_markdown","epub_to_txt","epub_to_markdown",
     "convert_markup","html_to_markdown","markdown_to_html","srt_to_vtt","vtt_to_srt",
-    "aiff_to_wav","aiff_to_flac","wav_to_aiff","flac_to_aiff"},
-    "exactly forty-seven tools required");
-   check(names.size()==47,"tool count");
+    "aiff_to_wav","aiff_to_flac","wav_to_aiff","flac_to_aiff",
+    "wav_to_mp3","mp3_to_wav","wav_to_opus","opus_to_wav","wav_to_vorbis","vorbis_to_wav","flac_to_mp3"},
+    "exactly fifty-four tools required");
+   check(names.size()==54,"tool count");
   }
   if(kind=="converted"){
    const auto& data=test.at("data");const auto& value=result.at("structuredContent");const auto output=data.at("output").get<std::string>();
@@ -481,7 +606,7 @@ void verify(const fs::path& root){
  std::size_t outputs=0;for(const auto& entry:fs::directory_iterator(root/"files/outputs")){(void)entry;++outputs;}
  check(outputs==conversions,"failed request created an output");
  for(const auto& entry:fs::recursive_directory_iterator(root/"files"))check(!entry.path().filename().string().starts_with(".arken-write-"),"temporary stage leaked");
- std::cout<<"PASS "<<index<<" real stdio responses; all 47 tools, "<<converted
+ std::cout<<"PASS "<<index<<" real stdio responses; all 54 tools,"<<converted
   <<" conversions with exact files, hashes and reported metadata; codec-owner reasons; no overwrite or escape\n";
 }
 int main(int argc,char** argv){
