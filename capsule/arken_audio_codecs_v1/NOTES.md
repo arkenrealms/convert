@@ -3,22 +3,36 @@
 Status: native codec milestone (handoff sections 9 and 10, plan-task d85e2c6cc4a2f945).
 It covers the WAV, FLAC and AIFF/AIFF-C codec owner, the lossy Ogg Vorbis,
 Ogg Opus and MP3 codecs, and their native qualification.
-The lossy formats (`Container::vorbis/opus/mp3`) are implemented and qualified
-in the capsule but not yet exposed through the MCP server; see "Remaining
-steps to expose the lossy formats" at the end. The lossy contract is in
-"Lossy codecs" below.
+The lossy contract is in "Lossy codecs" below.
 
-Standalone MCP: exposed as `convert_audio` (`wav`, `flac`, `aiff`),
-`wav_to_flac`, `flac_to_wav`, `aiff_to_wav`, `aiff_to_flac`, `wav_to_aiff` and
-`flac_to_aiff` through `ConvertStandaloneAudio` in `arken_file_conversion_v1` (component
+Standalone MCP: exposed as `convert_audio` (`wav`, `flac`, `aiff`, `vorbis`,
+`opus`, `mp3`), `wav_to_flac`, `flac_to_wav`, `aiff_to_wav`, `aiff_to_flac`,
+`wav_to_aiff`, `flac_to_aiff` and (commands 49-55, `audio_kind` vorbis=4,
+opus=5, mp3=6) `wav_to_mp3`, `mp3_to_wav`, `wav_to_opus`, `opus_to_wav`,
+`wav_to_vorbis`, `vorbis_to_wav` and `flac_to_mp3`, with the `LossyOptions`
+controls as `vorbis_quality`, `opus_bitrate_kbps`, `mp3_rate_control`,
+`mp3_bitrate_kbps` and `mp3_vbr_quality` (defaults unchanged), through
+`ConvertStandaloneAudio` in `arken_file_conversion_v1` (component
 `standalone`) with its own profile: 64 MiB source and output, 32 Mi samples,
 1-8 channels, up to 384 kHz, 8 MiB / 256 metadata blocks. The "remaining steps"
 section at the end is kept as the integration record; the integrated profile
 differs from its suggested 8 MiB figures. AIFF uses the same profile; the
 result reports `channel_mask_dropped` and counts skipped AIFF chunks in
-`skipped_metadata` (commands 45-48; `audio_kind` aiff=3, with 4-6 left for
-Vorbis, Opus and MP3). Browser execution, a UI and a
-streaming file path are still not provided and need separate qualification.
+`skipped_metadata` (commands 45-48; `audio_kind` aiff=3). The lossy formats use
+the same profile, where the 32 Mi sample budget is the binding limit (about
+6 min 20 s of 44.1 kHz stereo); the integration differs from the steps below
+in two ways: each encoder tool has its own request model carrying only its
+format's controls (`vorbis_file_request`, `opus_file_request`,
+`mp3_file_request`) instead of one `lossy_file_request`, and the result also
+reports `trimmed_leading_frames`, `trimmed_trailing_frames` and
+`silenced_frames`. Integration finding: LAME writes its Info/LAME tag only into
+a frame of at least 4 + side information + 156 bytes; for smaller CBR frames
+`EncodeMp3` returns `codec_failed` (from the empty `lame_get_lametag_frame`)
+rather than a typed option error. The usable CBR floors (mono/stereo kbps: 48
+kHz 64/64, 44.1 kHz 56/64, 32 kHz 40/48, 24 kHz 64/64, 22.05 kHz 56/56, 16 kHz
+40/40, 12 and 11.025 kHz 32/32, 8 kHz 24/24) are pinned by the conversion
+owner's tests and stated in the tool descriptions. Browser execution, a UI and
+a streaming file path are still not provided and need separate qualification.
 
 ## Supported profile
 
@@ -737,7 +751,7 @@ changed. To expose it:
    `media_type` `audio/aiff`, float AIFC rejection, existing-output refusal,
    limit rejection), then a fresh Waygate prepare/qualify.
 
-## Remaining steps to expose the lossy formats in the standalone MCP
+## Remaining steps to expose the lossy formats in the standalone MCP (done; integration record)
 
 The codec side is complete: `Container::vorbis = 4`, `opus = 5`, `mp3 = 6`,
 `DecodeVorbis/Opus/Mp3`, `EncodeVorbis/Opus/Mp3`, `LossyOptions`,

@@ -1,7 +1,8 @@
 # Arken Convert
 
-Forty-seven MCP tools for image, audio, document, table and markup conversion:
-images between common formats; WAV, FLAC and AIFF losslessly; DOCX, RTF, PPTX,
+Fifty-four MCP tools for image, audio, document, table and markup conversion:
+images between common formats; WAV, FLAC and AIFF losslessly; Ogg Vorbis, Ogg
+Opus and MP3 as explicitly lossy formats; DOCX, RTF, PPTX,
 ODT, ODP and EPUB to text or Markdown; CSV, TSV, JSON, XLSX and ODS to CSV, TSV or
 JSON; HTML to Markdown, Markdown to HTML, and SRT to and from WebVTT.
 No account, wallet or cloud service required. Files stay on the machine running the server.
@@ -65,9 +66,13 @@ Images:
 
 Audio:
 
-- `convert_audio`: WAV, FLAC or AIFF to WAV, FLAC or AIFF (`input_format`,
-  `output_format`: `wav`, `flac` or `aiff`; AIFF-C is read as `aiff`).
+- `convert_audio`: any of WAV, FLAC, AIFF, Vorbis, Opus or MP3 to any other
+  (`input_format`, `output_format`: `wav`, `flac`, `aiff`, `vorbis`, `opus` or
+  `mp3`; AIFF-C is read as `aiff`); the lossy controls below for a lossy output.
 - `wav_to_flac`, `flac_to_wav`, `aiff_to_wav`, `aiff_to_flac`, `wav_to_aiff`, `flac_to_aiff`.
+- `wav_to_mp3`, `flac_to_mp3` (`mp3_rate_control`, `mp3_bitrate_kbps`,
+  `mp3_vbr_quality`), `wav_to_opus` (`opus_bitrate_kbps`), `wav_to_vorbis`
+  (`vorbis_quality`), `mp3_to_wav`, `opus_to_wav`, `vorbis_to_wav`.
 
 Documents:
 
@@ -160,13 +165,86 @@ COMT, NAME, AUTH, ANNO, APPL, ID3 and other chunks are not carried and count in
 source is not written and `channel_mask_dropped` is true; channel order is kept,
 and AIFF read into WAV or FLAC carries no mask.
 
+### Lossy formats: Vorbis, Opus and MP3
+
+"OGG" is a container, not a codec, so no tool offers a bare Ogg choice: `vorbis`
+is Vorbis I in Ogg (`.ogg`, `audio/ogg; codecs=vorbis`), `opus` is Opus in Ogg
+per RFC 7845 (`.opus`, `audio/ogg; codecs=opus`) and `mp3` is an MPEG-1/2/2.5
+Layer III stream (`audio/mpeg`).
+
+Quality contract:
+
+- Lossy output is an approximation and is never reversible. `lossy_output` labels
+  every conversion into Vorbis, Opus or MP3, `lossy_source` every conversion from
+  one, and `generation_loss` every lossy-to-lossy conversion: a second generation
+  of coding loss on top of the first. Quality is never restored, and WAV or FLAC
+  made from an MP3 is still the MP3's audio.
+- Controls, each accepted only for its own output (otherwise an invalid request):
+
+  | Output | Control | Default |
+  | --- | --- | --- |
+  | Vorbis (libvorbis 1.3.7) | `vorbis_quality` 0–100 = libvorbis VBR quality −0.1…1.0 | 50 (0.45) |
+  | Opus (libopus 1.5.2) | `opus_bitrate_kbps` 6–510, unconstrained VBR, 20 ms frames | 128 |
+  | MP3 (LAME 3.100) | `mp3_rate_control` `cbr` with `mp3_bitrate_kbps`, or `vbr` with `mp3_vbr_quality` 0 (best)–9 (LAME `-V`) | CBR 192 kbps; VBR quality 2 |
+
+  `mp3_bitrate_kbps` must be a Layer III bitrate of the sample rate's MPEG version
+  (32–320 kbps at 32, 44.1 and 48 kHz; 8–160 kbps at 8–24 kHz) and the frame must
+  be large enough to hold the gapless LAME tag. The lowest usable CBR bitrates
+  are therefore 64 kbps at 48 kHz, 56 (mono) or 64 (stereo) at 44.1 kHz, 40 or 48
+  at 32 kHz, 64 at 24 kHz, 56 at 22.05 kHz, 40 at 16 kHz, 32 at 12 and 11.025 kHz
+  and 24 at 8 kHz; lower bitrates fail with the codec's error. VBR works at every
+  quality and rate.
+- No resampling. Opus encodes only 8, 12, 16, 24 or 48 kHz sources (44.1 kHz is
+  rejected with `resampling_required`); MP3 only the standard rates 8, 11.025, 12,
+  16, 22.05, 24, 32, 44.1 and 48 kHz; Vorbis keeps the source rate.
+- Encoding takes 1 or 2 channels (more is rejected, never downmixed). Decoding
+  accepts Vorbis and Opus (mapping family 0 and 1) with up to 8 channels, written
+  in WAV order with the standard channel mask.
+- Decoding yields 16-bit PCM. Encoder delay and padding are removed from container
+  data and reported (`encoder_delay_trimmed`, `trimmed_leading_frames`,
+  `trimmed_trailing_frames`): Vorbis granule positions, Opus pre-skip and final
+  granule, and for MP3 only a LAME/Info (or FFmpeg Lavc) gapless tag. An MP3
+  without one is decoded untrimmed and `encoder_delay_unknown` is true: the output
+  keeps the encoder and decoder delay and the final padding. Opus always decodes at
+  48 kHz; `original_sample_rate` reports the input rate the stream declares, and
+  nothing is resampled back to it.
+- Duration a decoder reports for our output: exactly the source length for Vorbis;
+  exactly the source length at 48 kHz for Opus (frames × 48000 / source rate); for
+  MP3 exactly the source length in decoders that honour the LAME tag (FFmpeg, and
+  `mp3_to_wav`), otherwise about 1105 extra leading samples plus trailing padding.
+- Metadata and album art are not carried in either direction. Encoders write no
+  tags (only the libvorbis or libopus vendor string the format requires); decoders
+  count and skip Vorbis comments and OpusTags entries including
+  `METADATA_BLOCK_PICTURE` (`comments_dropped_count`), ID3v2, ID3v1 and APEv2 tags
+  including pictures (`tags_skipped`) and other multiplexed Ogg streams
+  (`streams_skipped`).
+- Rejected: chained Ogg files, Opus mapping families other than 0 and 1, MP3 free
+  format and Layer I/II, sample-rate or channel-mode changes inside an MP3, corrupt
+  pages or frames and trailing bytes.
+- Output is deterministic for a given build; identical bytes across compilers,
+  CPUs or platforms are not promised. Quality was qualified by waveform SNR floors,
+  frame-exact lengths and FFmpeg 6.1.1 as an independent decoder
+  (`capsule/arken_audio_codecs_v1/NOTES.md`); no listening test or perceptual
+  quality level is claimed.
+
 Results report `sample_rate`, `channels`, `bits_per_sample`, `frames`,
-`skipped_metadata`, `comments_dropped` and `channel_mask_dropped`.
+`skipped_metadata`, `comments_dropped` and `channel_mask_dropped`, and
+`lossy_source`, `lossy_output`, `generation_loss`, `encoder_delay_trimmed`,
+`encoder_delay_unknown`, `trimmed_leading_frames`, `trimmed_trailing_frames`,
+`comments_dropped_count`, `tags_skipped`, `streams_skipped`,
+`original_sample_rate` and `silenced_frames` (MP3 leading frames whose bit
+reservoir lies before a cut file's start, emitted as silence). For a lossy output
+the sample fields describe the PCM that was encoded.
 
 Limits: 64 MiB input and output, 33,554,432 samples (frames × channels), 1–8
 channels, up to 384 kHz, 8 MiB per metadata block. That is about 6 min 20 s of
-16-bit 44.1 kHz stereo. Conversion is resident, not streaming: one call holds the
-source, the samples as 32-bit integers and the output (about 256 MiB at the limits).
+16-bit 44.1 kHz stereo. For lossy sources the sample budget, not the file size, is
+the binding limit: lossy decoding is bounded to about 6 min 20 s of 44.1 kHz stereo
+or 5 min 49 s of 48 kHz stereo (every Opus file decodes at 48 kHz), checked against
+the container's declared length before decoding; a longer file is rejected, never
+decoded in part, although a 64 MiB MP3 can hold hours. Conversion is resident, not
+streaming: one call holds the source, the samples as 32-bit integers and the output
+(about 256 MiB at the limits).
 
 ## Document profile
 
@@ -416,6 +494,16 @@ and its declared licence files. Their licences apply to their code:
 - skcms (BSD-3-Clause): ICC colour conversion.
 - libwebp 1.6.0 (BSD-3-Clause): WebP decode and encode.
 - libFLAC 1.5.0 (BSD-3-Clause; library only, no GPL programs or LGPL helpers).
+- libogg 1.3.6, libvorbis 1.3.7 (libvorbis and libvorbisenc) and Opus 1.5.2
+  (libopus, float build) (BSD-3-Clause): Ogg Vorbis and Ogg Opus decode and encode.
+- minimp3 (CC0-1.0), vendored in `sdk/arken_sdk_dev/third_party/minimp3` from
+  upstream commit `ea99364`: MP3 decoding.
+- LAME 3.100 (libmp3lame only, LGPL-2.0-or-later): MP3 encoding. It is statically
+  linked into the server binary. Distributing that binary carries the LGPL
+  obligations (LAME's notices, its corresponding source and the ability to relink
+  with a modified LAME, for example from this repository's sources or object
+  files); this repository does not claim they are settled. MP3 patents have
+  expired.
 - nlohmann/json 3.12.0 (MIT), vendored in `sdk/arken_sdk_dev/third_party/`.
 - Development qualification only, not admitted: libheif 1.23.7
   (LGPL-3.0-or-later), libde265 1.1.3 (LGPL-3.0-or-later) and libaom 3.15.3
