@@ -3,7 +3,6 @@
 #include <webp/decode.h>
 #include <webp/encode.h>
 #include <skcms_public.h>
-#include <array>
 #include <cstring>
 #include <new>
 
@@ -13,16 +12,24 @@
 // - ICCP: the profile (at most 4 MiB, RGB, 3 input channels) is parsed with
 //   skcms and the decoded straight-alpha RGBA8 is converted to sRGB, exactly
 //   as the PNG iCCP path does. Alpha is never altered. Non-RGB profiles reject.
-// - EXIF and XMP are validated structurally and then ignored: metadata is not
-//   carried into outputs and Exif orientation is NOT applied (WebP has no
-//   normative orientation rule and browsers ignore it as well).
-// - Animation (ANIM/ANMF): the first frame is composited onto the VP8X canvas
-//   filled with the ANIM background colour (straight RGBA, alpha as declared),
-//   honouring the frame's offset and blending method, and returned as the still
-//   image. Image::frameCount reports the number of ANMF frames. Every frame is
-//   checked structurally and its bitstream header must match its rectangle, but
-//   only the first is decoded. An animation declaring no frame has no
-//   presentable image and is unsupported content. frameIndex must be zero.
+//   ICCP must precede the image data/ANIM and appear at most once.
+// - EXIF and XMP are ignored (at most one of each): metadata is not carried
+//   into outputs and Exif orientation is NOT applied (WebP has no normative
+//   orientation rule and browsers ignore it as well).
+// - VP8X metadata flags are hints, as in libwebp's demuxer and browsers: an
+//   ICC/EXIF/XMP flag without its chunk is ignored, and an ICCP chunk without
+//   the flag is still applied. An animation flag on a file holding a plain
+//   VP8/VP8L image and no ANIM/ANMF decodes as that still image.
+// - Animation (ANIM/ANMF, requiring the animation flag): the first frame is
+//   composited onto a transparent black (0,0,0,0) canvas of the VP8X size,
+//   honouring its offset and blending method, as WebPAnimDecoder and browsers
+//   do (the ANIM background colour is only a hint and is not used). The result
+//   is returned as the still image; Image::frameCount reports the number of
+//   ANMF frames. Every frame is checked structurally and its bitstream header
+//   must match its rectangle, but only the first is decoded. An animation
+//   without frames has no presentable image and is unsupported content.
+//   Contradictory structure rejects: ANMF without ANIM, duplicate ANIM, or a
+//   top-level image alongside ANIM/ANMF. frameIndex must be zero.
 // - Unknown chunks are skipped wherever the RIFF structure stays valid, except
 //   between ALPH and its VP8 chunk, where libwebp requires adjacency.
 // - Limits: the canvas obeys maximumDimension/maximumPixels; frames must lie
@@ -30,7 +37,7 @@
 //   subchunks included). Failures never return partial pixels.
 namespace arken::image::v1::detail {
 namespace {
-constexpr std::uint8_t animationFlag=0x02,xmpFlag=0x04,exifFlag=0x08,alphaFlag=0x10,iccFlag=0x20;
+constexpr std::uint8_t animationFlag=0x02,alphaFlag=0x10; // ICC/EXIF/XMP flags are hints only.
 constexpr unsigned maximumChunks=16384,maximumFrames=4096;
 constexpr std::size_t maximumIccBytes=4*1024*1024;
 bool Is(Bytes b,std::size_t offset,const char* id) {return std::memcmp(b.data()+offset,id,4)==0;}
@@ -77,7 +84,6 @@ struct Container {
     std::uint32_t width=0,height=0,frames=0;
     bool extended=false,alpha=false,animated=false,icc=false;
     Frame image; // The still payload, or the first animation frame.
-    std::array<std::uint8_t,4> background{}; // RGBA
     Bytes profile;
 };
 DecodeError DecodeStatus(VP8StatusCode status) {
@@ -117,37 +123,36 @@ Container Inspect(Bytes bytes) {
     if(extent>bytes.size())return fail(DecodeError::truncated);
     if(extent!=bytes.size()||(extent&1))return fail(DecodeError::invalid_layout);
     Container result;Payload still;
-    bool anim=false,icc=false,exif=false,xmp=false;unsigned chunks=0;std::uint8_t flags=0;
+    bool icc=false,exif=false,xmp=false;unsigned chunks=0;std::uint8_t flags=0;
     const auto error=Walk(bytes,12,bytes.size(),chunks,[&](std::size_t p,std::uint32_t size,std::size_t body) {
         const bool seen=still.present||result.frames;
         if(Is(bytes,p,"VP8X")) {
             if(p!=12||size!=10)return DecodeError::invalid_layout;
             flags=U8(bytes,body);
             if((flags&0xc1)||U24(bytes,body+1))return DecodeError::invalid_layout;
-            result.extended=true;result.alpha=(flags&alphaFlag)!=0;result.animated=(flags&animationFlag)!=0;
+            result.extended=true;result.alpha=(flags&alphaFlag)!=0;
             result.width=U24(bytes,body+4)+1;result.height=U24(bytes,body+7)+1;
             return DecodeError::none;
         }
         if(still.alpha&&!still.present&&!Is(bytes,p,"VP8 "))return DecodeError::invalid_layout;
         if(Is(bytes,p,"ICCP")) {
-            if(!(flags&iccFlag)||icc||seen||anim)return DecodeError::invalid_layout;
+            if(icc||seen||result.animated)return DecodeError::invalid_layout; // Flag not required.
             if(size>maximumIccBytes)return DecodeError::resource_limit;
             icc=true;result.icc=true;result.profile=bytes.subspan(body,size);
         } else if(Is(bytes,p,"ANIM")) {
-            if(!result.animated||anim||size!=6)return DecodeError::invalid_layout;
-            anim=true; // Stored as B,G,R,A; loop count ignored.
-            result.background={U8(bytes,body+2),U8(bytes,body+1),U8(bytes,body),U8(bytes,body+3)};
+            if(!(flags&animationFlag)||result.animated||still.present||size!=6)return DecodeError::invalid_layout;
+            result.animated=true; // Background colour (a hint) and loop count are not used.
         } else if(Is(bytes,p,"ANMF")) {
-            if(!result.animated||!anim)return DecodeError::invalid_layout;
+            if(!result.animated)return DecodeError::invalid_layout;
             if(result.frames==maximumFrames)return DecodeError::resource_limit;
             Frame frame;
             if(const auto e=ParseFrame(bytes,body,size,result,chunks,frame);e!=DecodeError::none)return e;
             if(!result.frames++)result.image=frame;
         } else if(Is(bytes,p,"EXIF")) {
-            if(!(flags&exifFlag)||exif)return DecodeError::invalid_layout;
+            if(exif)return DecodeError::invalid_layout; // Flag not required.
             exif=true; // Ignored: never carried into outputs, orientation not applied.
         } else if(Is(bytes,p,"XMP ")) {
-            if(!(flags&xmpFlag)||xmp)return DecodeError::invalid_layout;
+            if(xmp)return DecodeError::invalid_layout; // Flag not required.
             xmp=true; // Ignored: never carried into outputs.
         } else if(still.Image(bytes,p)) {
             if(result.animated)return DecodeError::invalid_layout;
@@ -158,13 +163,14 @@ Container Inspect(Bytes bytes) {
         return DecodeError::none;
     });
     if(error!=DecodeError::none)return fail(error);
-    if(result.animated) {
-        if(!result.frames)return fail(DecodeError::unsupported_content); // No presentable frame.
+    // An animation (or an animation flag with no image at all) without frames
+    // has nothing presentable. A plain image under an animation flag is a still.
+    if(result.animated||(!still.present&&(flags&animationFlag))) {
+        if(!result.frames)return fail(DecodeError::unsupported_content);
     } else {
         if(!still.present)return fail(DecodeError::invalid_layout);
         result.image.begin=still.begin;result.image.end=still.end;
     }
-    if(bool(flags&iccFlag)!=icc||bool(flags&exifFlag)!=exif||bool(flags&xmpFlag)!=xmp)return fail(DecodeError::invalid_layout);
     return result;
 }
 struct Profile {
@@ -259,7 +265,7 @@ DecodeResult DecodeWebp(Bytes bytes,const DecodeOptions& options) {
         result.image.width=container.width;result.image.height=container.height;
         result.image.frameCount=container.frames;
         result.image.rgba8.resize(std::size_t(container.width)*container.height*4);
-        for(std::size_t i=0;i<result.image.rgba8.size();i+=4)std::memcpy(result.image.rgba8.data()+i,container.background.data(),4);
+        // resize() zero-fills: the canvas starts as transparent black (0,0,0,0).
         Composite(frame,pixels,result.image);
     } else {
         if(container.extended&&(container.width!=width||container.height!=height||container.alpha!=bool(features.has_alpha)))
