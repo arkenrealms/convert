@@ -48,7 +48,8 @@ DecodeResult DecodePcx(Bytes b,const DecodeOptions& o){
             if(cursor>=end)return Failure(DecodeError::truncated,cursor);
             auto value=U8(b,cursor++);std::size_t count=1;
             if(encoding==1&&(value&0xc0)==0xc0){count=value&63;if(!count)return Failure(DecodeError::invalid_run,cursor-1);
-                if(cursor>=end)return Failure(DecodeError::truncated,cursor);value=U8(b,cursor++);}
+                if(cursor>=end)return Failure(DecodeError::truncated,cursor);
+                value=U8(b,cursor++);}
             if(count>rowSize-x)return Failure(DecodeError::invalid_run,cursor);
             std::fill_n(row.begin()+x,count,value);x+=count;
         }
