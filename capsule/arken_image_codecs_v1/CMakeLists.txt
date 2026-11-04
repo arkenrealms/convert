@@ -102,5 +102,6 @@ target_compile_features(arken_image_codecs_v1 PUBLIC cxx_std_20)
 target_include_directories(arken_image_codecs_v1 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(arken_image_codecs_v1 PUBLIC arken_image_codecs_contract_v1 PRIVATE arken::external_stb_image_v1 arken::external_skcms_v1 arken::external_webp_v1 arken::ao_core_v1 arken_digest_v1)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(arken_image_codecs_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    # JPEG DCT and skcms must round identically on native CPUs and WebAssembly: never fuse multiply-adds.
+    target_compile_options(arken_image_codecs_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror -ffp-contract=off)
 endif()

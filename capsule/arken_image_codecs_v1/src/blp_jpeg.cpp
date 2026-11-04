@@ -28,7 +28,16 @@ void* jpeg_allocate(std::size_t size){return size<=maximum_jpeg_allocation?std::
 #define STBI_FREE(pointer) std::free(pointer)
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
+#if defined(__GNUC__) && !defined(__clang__)
+// GCC reports a false maybe-uninitialized read of stbi__context fields when it inlines
+// stbi__refill_buffer into memory-only loads; the context is fully assigned by stbi__start_mem.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
 #include <stb_image.h>
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace arken::image::v1::detail {
 DecodeResult DecodeBlpJpegWithAlpha(

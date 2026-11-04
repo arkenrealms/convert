@@ -6,6 +6,7 @@
   "dependencyClass": "source-package",
   "supportedPlatforms": [
     "macos",
+    "linux",
     "web"
   ],
   "source": {
@@ -708,15 +709,15 @@
   },
   "patches": [
     {
-      "path": "patches/libwebp-1.6.0-cpp-enum.patch",
-      "sha256": "e11424ccc29a869923fcf5e57d42031d5a0688d9c962b30daee1b38ac57a190b",
-      "strip": 1
+      "path": "patches/libwebp-1.6.0-histogram_enc.c",
+      "sha256": "a14d6f26a7b6cc85c4e42728214d14000d9e7af4545f50a1bc3a0026fb0a917a",
+      "replacementPath": "src/enc/histogram_enc.c",
+      "expectedSourceSha256": "b29e6185aeb75de958bfc53fc0cd638b471b2060e50b50d1c52ea060d4472d18"
     }
   ],
   "adapter": {
     "kind": "selected-sources",
-    "version": 1,
-    "patchToolTarget": "arken::external_patch_v1"
+    "version": 1
   },
   "license": {
     "spdx": "BSD-3-Clause",
@@ -874,7 +875,5 @@
       ]
     }
   ],
-  "dependencies": [
-    "apple-patch-2.0-12u11-macos-v1"
-  ]
+  "dependencies": []
 }

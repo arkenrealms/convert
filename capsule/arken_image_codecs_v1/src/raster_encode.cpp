@@ -6,7 +6,9 @@
 #include <new>
 // JPEG's floating-point DCT must round the same way on native CPUs and
 // WebAssembly. Fusing multiply-adds changes coefficients near quantization ties.
+#if defined(__clang__)
 #pragma STDC FP_CONTRACT OFF
+#endif
 #define STBI_WRITE_NO_STDIO
 #define STB_IMAGE_WRITE_STATIC
 #define STB_IMAGE_WRITE_IMPLEMENTATION
