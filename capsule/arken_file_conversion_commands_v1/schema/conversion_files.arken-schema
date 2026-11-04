@@ -15,7 +15,7 @@ enum alpha_kind @enum_id(3) { value preserve @value_id(1); value flatten_white @
 semantic_type input_format @semantic_type_id(4) { kind enum; enum input_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
 semantic_type output_format @semantic_type_id(5) { kind enum; enum output_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
 semantic_type alpha_policy @semantic_type_id(6) { kind enum; enum alpha_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
-enum audio_kind @enum_id(4) { value wav @value_id(1); value flac @value_id(2); value aiff @value_id(3); }
+enum audio_kind @enum_id(4) { value wav @value_id(1); value flac @value_id(2); value aiff @value_id(3); value vorbis @value_id(4); value opus @value_id(5); value mp3 @value_id(6); }
 enum document_input_kind @enum_id(5) { value docx @value_id(1); value rtf @value_id(2); value pptx @value_id(3); value odt @value_id(4); value odp @value_id(5); value epub @value_id(6); }
 enum document_output_kind @enum_id(6) { value txt @value_id(1); value markdown @value_id(2); }
 semantic_type audio_format @semantic_type_id(7) { kind enum; enum audio_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
@@ -33,6 +33,8 @@ semantic_type delimiter @semantic_type_id(12) { kind enum; enum delimiter_kind; 
 semantic_type json_shape @semantic_type_id(13) { kind enum; enum json_shape_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
 semantic_type markup_input_format @semantic_type_id(14) { kind enum; enum markup_input_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
 semantic_type markup_output_format @semantic_type_id(15) { kind enum; enum markup_output_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
+enum mp3_rate_control_kind @enum_id(13) { value cbr @value_id(1); value vbr @value_id(2); }
+semantic_type mp3_rate_control @semantic_type_id(16) { kind enum; enum mp3_rate_control_kind; wire utf8; storage sqlite_text; fixed_size 0; precision 0; scale 0; normalization none; presence explicit; default none; narrowing reject; targets cpp, javascript, fabric, http_json; }
 model conversion_request @type_id(1) {
  field source_path: text @field_id(1) { immutable true; }
  field output_path: text @field_id(2);
@@ -83,6 +85,11 @@ model audio_request @type_id(6) {
  field output_path: text @field_id(2);
  field input_format: audio_format @field_id(3);
  field output_format: audio_format @field_id(4);
+ field vorbis_quality: count @field_id(5) @optional { check minimum { kind minimum_integer; value "0"; } check maximum { kind maximum_integer; value "100"; } }
+ field opus_bitrate_kbps: count @field_id(6) @optional { check minimum { kind minimum_integer; value "6"; } check maximum { kind maximum_integer; value "510"; } }
+ field mp3_rate_control: mp3_rate_control @field_id(7) @optional;
+ field mp3_bitrate_kbps: count @field_id(8) @optional { check minimum { kind minimum_integer; value "8"; } check maximum { kind maximum_integer; value "320"; } }
+ field mp3_vbr_quality: count @field_id(9) @optional { check minimum { kind minimum_integer; value "0"; } check maximum { kind maximum_integer; value "9"; } }
  key identity { kind primary; fields source_path; }
 }
 model audio_result @type_id(7) {
@@ -98,6 +105,18 @@ model audio_result @type_id(7) {
  field skipped_metadata: count @field_id(10);
  field comments_dropped: boolean @field_id(11);
  field channel_mask_dropped: boolean @field_id(12);
+ field lossy_source: boolean @field_id(13);
+ field lossy_output: boolean @field_id(14);
+ field generation_loss: boolean @field_id(15);
+ field encoder_delay_trimmed: boolean @field_id(16);
+ field encoder_delay_unknown: boolean @field_id(17);
+ field trimmed_leading_frames: count @field_id(18);
+ field trimmed_trailing_frames: count @field_id(19);
+ field comments_dropped_count: count @field_id(20);
+ field tags_skipped: count @field_id(21);
+ field streams_skipped: count @field_id(22);
+ field original_sample_rate: count @field_id(23);
+ field silenced_frames: count @field_id(24);
  key identity { kind primary; fields output_path; }
 }
 model document_request @type_id(8) {
@@ -252,6 +271,26 @@ model markup_result @type_id(20) {
  field stripped_tags: count @field_id(23);
  key identity { kind primary; fields output_path; }
 }
+model vorbis_file_request @type_id(21) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field vorbis_quality: count @field_id(5) @optional { check minimum { kind minimum_integer; value "0"; } check maximum { kind maximum_integer; value "100"; } }
+ key identity { kind primary; fields source_path; }
+}
+model opus_file_request @type_id(22) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field opus_bitrate_kbps: count @field_id(6) @optional { check minimum { kind minimum_integer; value "6"; } check maximum { kind maximum_integer; value "510"; } }
+ key identity { kind primary; fields source_path; }
+}
+model mp3_file_request @type_id(23) {
+ field source_path: text @field_id(1) { immutable true; }
+ field output_path: text @field_id(2);
+ field mp3_rate_control: mp3_rate_control @field_id(7) @optional;
+ field mp3_bitrate_kbps: count @field_id(8) @optional { check minimum { kind minimum_integer; value "8"; } check maximum { kind maximum_integer; value "320"; } }
+ field mp3_vbr_quality: count @field_id(9) @optional { check minimum { kind minimum_integer; value "0"; } check maximum { kind maximum_integer; value "9"; } }
+ key identity { kind primary; fields source_path; }
+}
 command convert_image @command_id(2) { request conversion_request; response conversion_result; errors command_error; idempotency none; streaming unary; targets cpp; }
 command png_to_jpeg @command_id(3) { request pair_request; response conversion_result; errors command_error; idempotency none; streaming unary; targets cpp; }
 command jpeg_to_png @command_id(4) { request file_request; response conversion_result; errors command_error; idempotency none; streaming unary; targets cpp; }
@@ -299,3 +338,10 @@ command aiff_to_wav @command_id(45) { request file_request; response audio_resul
 command aiff_to_flac @command_id(46) { request file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }
 command wav_to_aiff @command_id(47) { request file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }
 command flac_to_aiff @command_id(48) { request file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command wav_to_mp3 @command_id(49) { request mp3_file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command mp3_to_wav @command_id(50) { request file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command wav_to_opus @command_id(51) { request opus_file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command opus_to_wav @command_id(52) { request file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command wav_to_vorbis @command_id(53) { request vorbis_file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command vorbis_to_wav @command_id(54) { request file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }
+command flac_to_mp3 @command_id(55) { request mp3_file_request; response audio_result; errors command_error; idempotency none; streaming unary; targets cpp; }

@@ -49,7 +49,13 @@ constexpr const char* imageDescription=
  "WebP output: lossless by default; webp_lossless=false with webp_quality 1-100 (default 90) for lossy. TIFF output: uncompressed, or tiff_deflate=true. "
  "Options for another output are rejected. Limits: 8 MiB input and output, 1,048,576 pixels, 4096 per dimension, 256 per dimension for ICO output. Existing files are never overwritten.";
 
-// Audio ids 17-19 and 45-48; the compressed-audio track takes the next free ids.
+// Audio ids 17-19, 45-48 (AIFF) and 49-55 (Vorbis, Opus, MP3). The lossy descriptions state the
+// quality contract of arken_audio_codecs_v1 (NOTES.md "Lossy codecs"): lossy and never reversible,
+// the control and its default, the sample rates encoded without resampling, 1-2 channels for
+// encoding, what a decoder reports as duration, and that metadata and album art are not carried.
+#define ARKEN_LOSSY_LIMITS "Limits: 64 MiB input and output and 33,554,432 samples (frames x channels); for lossy sources the sample budget is the binding limit, about 6 min 20 s of 44.1 kHz stereo or 5 min 49 s of 48 kHz stereo, and a longer file is rejected, never decoded in part. Uses relative source_path and a new output_path."
+#define ARKEN_MP3_ENCODE "Lossy: the MP3 is an approximation of the source and is never reversible; decoding it does not restore the original. LAME 3.100, joint stereo. Rate control: CBR at mp3_bitrate_kbps (default 192; 32-320 kbps at 32, 44.1 and 48 kHz, 8-160 kbps at 8-24 kHz, legal Layer III values only) or mp3_rate_control=vbr with mp3_vbr_quality 0 (best) to 9 (smallest), default 2 (LAME -V 2). The lowest usable CBR bitrates are set by the frame having to hold the gapless tag: 64 kbps at 48 kHz, 56 mono or 64 stereo at 44.1 kHz, 40 or 48 at 32 kHz, 64 at 24 kHz, 56 at 22.05 kHz, 40 at 16 kHz, 32 at 12 and 11.025 kHz, 24 at 8 kHz; lower ones fail. The sample rate must already be a standard MP3 rate (8, 11.025, 12, 16, 22.05, 24, 32, 44.1 or 48 kHz): nothing is resampled and other rates are rejected. 1 or 2 channels only: more channels are rejected, never downmixed. A LAME/Info tag records encoder delay and padding, so decoders that honour it (FFmpeg, mp3_to_wav) report exactly the source duration; decoders that ignore it add about 1105 leading samples (576 encoder delay plus the usual 529 decoder delay) and trailing padding. No ID3 tags, metadata or album art are written. "
+#define ARKEN_LOSSY_DECODE "The source is lossy (lossy_source): decoding yields 16-bit PCM and does not restore what the encoder removed. "
 struct AudioPair {std::uint32_t id;A::Container input,output;const char* description;};
 constexpr AudioPair audioPairs[]{
  {18,A::Container::wav,A::Container::flac,"Convert WAV to FLAC losslessly. Integer PCM samples (4-32 bit), sample rate, channel order and any channel mask are preserved exactly. Float, A-law, mu-law, ADPCM and RF64/Wave64 WAV are rejected, never approximated. LIST and other extra chunks are not carried; skipped_metadata counts them. FLAC level 5, verified while encoding, deterministic. Limits: 64 MiB input and output. Uses relative source_path and a new output_path."},
@@ -57,14 +63,40 @@ constexpr AudioPair audioPairs[]{
  {45,A::Container::aiff,A::Container::wav,"Convert AIFF or AIFF-C to WAV losslessly. Reads big-endian AIFF and AIFF-C with NONE, twos, sowt or raw integer PCM (4-32 bit); samples, sample rate, channel count and channel order are preserved exactly. AIFF has no channel mask, so none is written. Float (fl32/fl64), mu-law, A-law, IMA4 and other compressed AIFF-C, and sample rates that are not whole numbers, are rejected, never approximated. MARK, INST, COMT, NAME, AUTH, ANNO, APPL, ID3 and other chunks are not carried; skipped_metadata counts them. Limits: 64 MiB input and output. Uses relative source_path and a new output_path."},
  {46,A::Container::aiff,A::Container::flac,"Convert AIFF or AIFF-C to FLAC losslessly. Reads big-endian AIFF and AIFF-C with NONE, twos, sowt or raw integer PCM (4-32 bit); samples, sample rate, channel count and channel order are preserved exactly. AIFF has no channel mask, so none is written. Float, mu-law, A-law, IMA4 and other compressed AIFF-C, and sample rates that are not whole numbers, are rejected. Chunks other than COMM and SSND are not carried; skipped_metadata counts them. FLAC level 5, verified while encoding, deterministic. Limits: 64 MiB input and output. Uses relative source_path and a new output_path."},
  {47,A::Container::wav,A::Container::aiff,"Convert WAV to AIFF losslessly: big-endian AIFF with COMM and SSND chunks only. Integer PCM samples (4-32 bit), sample rate and channel order are preserved exactly. AIFF has no channel-mask field: a channel mask declared by the WAV is not written and channel_mask_dropped reports it. Float, A-law, mu-law, ADPCM and RF64/Wave64 WAV are rejected. LIST and other extra chunks are not carried; skipped_metadata counts them. Limits: 64 MiB input and output. Uses relative source_path and a new output_path."},
- {48,A::Container::flac,A::Container::aiff,"Convert FLAC to AIFF losslessly: big-endian AIFF with COMM and SSND chunks only. Integer samples, sample rate and channel order are preserved exactly; frame CRCs and the stream MD5 are checked. AIFF has no channel-mask field: a WAVEFORMATEXTENSIBLE_CHANNEL_MASK comment is not written and channel_mask_dropped reports it. Tags, pictures, cue sheets and seek tables are not carried; skipped_metadata counts them. Ogg FLAC is rejected. Limits: 64 MiB input and output. Uses relative source_path and a new output_path."}
+ {48,A::Container::flac,A::Container::aiff,"Convert FLAC to AIFF losslessly: big-endian AIFF with COMM and SSND chunks only. Integer samples, sample rate and channel order are preserved exactly; frame CRCs and the stream MD5 are checked. AIFF has no channel-mask field: a WAVEFORMATEXTENSIBLE_CHANNEL_MASK comment is not written and channel_mask_dropped reports it. Tags, pictures, cue sheets and seek tables are not carried; skipped_metadata counts them. Ogg FLAC is rejected. Limits: 64 MiB input and output. Uses relative source_path and a new output_path."},
+ {49,A::Container::wav,A::Container::mp3,"Encode integer PCM WAV (4-32 bit) to MP3. " ARKEN_MP3_ENCODE "WAV LIST and other chunks are not carried. " ARKEN_LOSSY_LIMITS},
+ {50,A::Container::mp3,A::Container::wav,"Decode MP3 (MPEG-1, 2 or 2.5 Layer III) to 16-bit WAV at the stream's sample rate. " ARKEN_LOSSY_DECODE
+  "Encoder delay and padding are trimmed only when a LAME/Info gapless tag (or FFmpeg's Lavc tag) is present (encoder_delay_trimmed), giving exactly the encoded duration; without one nothing is trimmed, encoder_delay_unknown is true and the WAV keeps the encoder and decoder delay at the start and padding at the end (whole 1152- or 576-sample frames). "
+  "Free-format and Layer I/II streams, rate or channel-mode changes, frame CRC errors and trailing bytes are rejected. ID3v2, ID3v1 and APEv2 tags, including album art, are skipped and counted (tags_skipped), never carried. " ARKEN_LOSSY_LIMITS},
+ {51,A::Container::wav,A::Container::opus,"Encode integer PCM WAV (4-32 bit) to Opus in Ogg (RFC 7845, .opus; libopus 1.5.2). Lossy: the output is an approximation and is never reversible. "
+  "opus_bitrate_kbps 6-510 (default 128), unconstrained VBR, 20 ms frames, complexity 10. The sample rate must already be 8, 12, 16, 24 or 48 kHz: 44.1 kHz and every other rate are rejected, never resampled. 1 or 2 channels only: more are rejected, never downmixed. "
+  "Opus always plays at 48 kHz: the stream records the encoder pre-skip and the exact length, so RFC 7845 decoders report exactly the source duration (frames x 48000 / source rate samples at 48 kHz). Only the libopus vendor string is written; no tags, metadata or album art. " ARKEN_LOSSY_LIMITS},
+ {52,A::Container::opus,A::Container::wav,"Decode Opus in Ogg (RFC 7845) to 16-bit WAV, always at 48 kHz, the Opus decoding rate; original_sample_rate reports the input rate the stream declares and nothing is resampled back to it. " ARKEN_LOSSY_DECODE
+  "Pre-skip, output gain and the final granule position are applied (encoder_delay_trimmed), giving exactly the stream's declared duration. Channel mapping family 0 (1-2 channels) and family 1 (up to 8, written in WAV order with the standard channel mask) are read; other families, chained Ogg files and corrupt pages are rejected. "
+  "OpusTags comments and METADATA_BLOCK_PICTURE album art are counted (comments_dropped_count), never carried; other multiplexed Ogg streams are skipped (streams_skipped). " ARKEN_LOSSY_LIMITS},
+ {53,A::Container::wav,A::Container::vorbis,"Encode integer PCM WAV (4-32 bit) to Vorbis in Ogg (.ogg; libvorbis 1.3.7). Lossy: the output is an approximation and is never reversible. "
+  "vorbis_quality 0-100 (default 50) is libvorbis VBR quality -0.1 to 1.0 (0.45 by default). The source sample rate is kept (any rate libvorbis has a mode for; 8-48 kHz tested), never resampled. 1 or 2 channels only: more are rejected, never downmixed. "
+  "The final granule position records the exact length and Vorbis has no encoder delay, so Vorbis decoders report exactly the source duration. Only the libvorbis vendor string is written; no tags, metadata or album art. " ARKEN_LOSSY_LIMITS},
+ {54,A::Container::vorbis,A::Container::wav,"Decode Vorbis in Ogg to 16-bit WAV at the stream's sample rate. " ARKEN_LOSSY_DECODE
+  "Granule positions trim the end padding (encoder_delay_trimmed), giving exactly the stream's declared duration; Vorbis has no encoder delay. 1-8 channels; 3-8 are written in WAV order with the standard channel mask. Chained Ogg files, Ogg without a Vorbis stream and corrupt pages are rejected. "
+  "Vorbis comments and METADATA_BLOCK_PICTURE album art are counted (comments_dropped_count), never carried; other multiplexed Ogg streams are skipped (streams_skipped). " ARKEN_LOSSY_LIMITS},
+ {55,A::Container::flac,A::Container::mp3,"Encode FLAC (4-32 bit integer samples; frame CRCs and the stream MD5 are checked) to MP3. " ARKEN_MP3_ENCODE "FLAC tags, pictures and cue sheets are not carried. " ARKEN_LOSSY_LIMITS}
 };
+#undef ARKEN_MP3_ENCODE
+#undef ARKEN_LOSSY_DECODE
+#undef ARKEN_LOSSY_LIMITS
 constexpr const char* audioDescription=
- "Convert audio between WAV, FLAC and AIFF (input_format and output_format: wav, flac or aiff; AIFF-C is read as aiff). Lossless: integer PCM samples, sample rate, channel count and channel order are preserved exactly, "
+ "Convert audio between any two of WAV, FLAC, AIFF, Vorbis, Opus and MP3 (input_format and output_format: wav, flac, aiff, vorbis, opus or mp3; AIFF-C is read as aiff; vorbis means Vorbis in Ogg (.ogg) and opus means Opus in Ogg (.opus), never an unspecified Ogg). "
+ "WAV, FLAC and AIFF are lossless: integer PCM samples, sample rate, channel count and channel order are preserved exactly, "
  "and any channel mask too except when writing AIFF, which has no mask field (channel_mask_dropped reports it). "
  "Admits 4-32 bit integer PCM, 1-8 channels, up to 384 kHz. Float, A-law, mu-law and ADPCM WAV, float and compressed AIFF-C, non-integer AIFF sample rates, RF64/Wave64 and Ogg FLAC are rejected, never approximated. "
- "Tags, pictures, cue sheets, LIST chunks and AIFF chunks other than COMM/SSND are not carried; skipped_metadata counts them and comments_dropped reports dropped FLAC comments. "
- "Limits: 64 MiB input and output, 33,554,432 samples (frames x channels). Existing files are never overwritten.";
+ "Vorbis, Opus and MP3 are lossy and never reversible: lossy_output, lossy_source and generation_loss (lossy to lossy: a second generation of loss, quality is never restored) label the result. "
+ "Lossy sources decode to 16-bit PCM with encoder delay and padding trimmed from container data (encoder_delay_trimmed; MP3 only with a LAME/Info tag, else encoder_delay_unknown); Opus always decodes at 48 kHz (original_sample_rate reports the declared input rate). "
+ "Lossy encoding takes 1-2 channels and never resamples: Opus needs 8, 12, 16, 24 or 48 kHz; MP3 a standard MP3 rate (8-48 kHz); Vorbis keeps the source rate. "
+ "Controls, each only for its own output: vorbis_quality 0-100 (default 50); opus_bitrate_kbps 6-510 (default 128); mp3_rate_control cbr (default) with mp3_bitrate_kbps (default 192, a legal Layer III bitrate the gapless tag fits in) or vbr with mp3_vbr_quality 0-9 (default 2). "
+ "Decoders report exactly the source duration for Vorbis, for Opus (at 48 kHz) and for MP3 when they honour the LAME tag. "
+ "Tags, comments, pictures and album art, cue sheets, LIST chunks and AIFF chunks other than COMM/SSND are not carried; skipped_metadata, tags_skipped and comments_dropped_count count them. "
+ "Limits: 64 MiB input and output, 33,554,432 samples (frames x channels), which bounds lossy decoding to about 6 min 20 s of 44.1 kHz stereo. Existing files are never overwritten.";
 
 // Document ids 20-24 and 32-39. `notes`: the request carries include_notes (PPTX/ODP).
 struct DocumentPair {std::uint32_t id;C::DocumentInput input;D::OutputFormat output;bool notes;const char* description;};
@@ -153,10 +185,10 @@ std::vector<mcp::ToolPresentation> presentations() {
 const mcp::Server& server() {
  static const auto value=[] {
   mcp::ServerDescription d{"Arken Convert","r6262",
-   "Convert images, audio (WAV, FLAC, AIFF), documents (DOCX, RTF, PPTX, ODT, ODP, EPUB to text or Markdown), tables (CSV, TSV, JSON, XLSX, ODS to CSV, TSV or JSON) "
+   "Convert images, audio (WAV, FLAC and AIFF losslessly; Ogg Vorbis, Ogg Opus and MP3 as labelled lossy formats), documents (DOCX, RTF, PPTX, ODT, ODP, EPUB to text or Markdown), tables (CSV, TSV, JSON, XLSX, ODS to CSV, TSV or JSON) "
    "and markup (HTML and Markdown, SRT and WebVTT) inside the launch-selected folder. Paths are relative; parents must exist. "
    "Output files are created exclusively, never overwritten; sources are never modified. Limits differ by family: 8 MiB images, 64 MiB audio, 32 MiB documents and tables, 8 MiB markup. "
-   "Results state what a conversion did not carry: source_frames for multi-frame images, skipped_metadata and channel_mask_dropped for audio, excluded_* counts for documents, "
+   "Results state what a conversion did not carry: source_frames for multi-frame images, skipped_metadata, channel_mask_dropped and the lossy and encoder-delay labels for audio, excluded_* counts for documents, "
    "formulas and merged ranges for tables, dropped and degraded counts for markup. "
    "Discovery is free of filesystem effects. No upload, account, network or payment is required.",
    S::commandCatalog,presentations()};
@@ -197,7 +229,34 @@ std::string media(I::Format format) {
 }
 std::string media(A::Container format) {
  switch(format){case A::Container::wav:return "audio/wav";case A::Container::flac:return "audio/flac";
-  case A::Container::aiff:return "audio/aiff";default:throw std::invalid_argument("output format");}
+  case A::Container::aiff:return "audio/aiff";case A::Container::vorbis:return "audio/ogg; codecs=vorbis";
+  case A::Container::opus:return "audio/ogg; codecs=opus";case A::Container::mp3:return "audio/mpeg";
+  default:throw std::invalid_argument("output format");}
+}
+// Lossy controls, each meaningful only for its own output (and the MP3 bitrate only for CBR, the
+// VBR quality only for VBR). Presence matters, as for the image options: a control for another
+// output is rejected rather than ignored. Schema checks bound the ranges; the codec checks the
+// MP3 bitrate against the sample rate's MPEG version.
+template<class Request> A::LossyOptions lossyOptions(const Request& v,A::Container to) {
+ A::LossyOptions options;
+ if constexpr(requires {v.vorbis_quality;}) {
+  J::require(to==A::Container::vorbis||!v.vorbis_quality,"vorbis_quality requires Vorbis output");
+  if(v.vorbis_quality)options.vorbisQuality=v.vorbis_quality->value;
+ }
+ if constexpr(requires {v.opus_bitrate_kbps;}) {
+  J::require(to==A::Container::opus||!v.opus_bitrate_kbps,"opus_bitrate_kbps requires Opus output");
+  if(v.opus_bitrate_kbps)options.opusBitrateKbps=v.opus_bitrate_kbps->value;
+ }
+ if constexpr(requires {v.mp3_rate_control;v.mp3_bitrate_kbps;v.mp3_vbr_quality;}) {
+  J::require(to==A::Container::mp3||(!v.mp3_rate_control&&!v.mp3_bitrate_kbps&&!v.mp3_vbr_quality),"MP3 options require MP3 output");
+  const bool vbr=v.mp3_rate_control&&*v.mp3_rate_control==S::mp3_rate_control_kind::vbr;
+  J::require(!v.mp3_bitrate_kbps||!vbr,"mp3_bitrate_kbps requires CBR");
+  J::require(!v.mp3_vbr_quality||vbr,"mp3_vbr_quality requires mp3_rate_control=vbr");
+  options.mp3RateControl=vbr?A::Mp3RateControl::vbr:A::Mp3RateControl::cbr;
+  if(v.mp3_bitrate_kbps)options.mp3BitrateKbps=v.mp3_bitrate_kbps->value;
+  if(v.mp3_vbr_quality)options.mp3VbrQuality=v.mp3_vbr_quality->value;
+ }
+ return options;
 }
 std::string media(T::TableFormat format) {
  switch(format){case T::TableFormat::csv:return "text/csv; charset=utf-8";
@@ -295,15 +354,20 @@ struct Session::Impl {
   return publish(id,value.output,converted.bytes,std::move(result),published);
  }
  Json audio(const Json& id,std::uint32_t command,const Json& arguments,bool& published) {
-  std::string sourcePath,outputPath;A::Container from=A::Container::wav,to=A::Container::flac;
-  if(command==17){const auto v=J::read<S::audio_request>(arguments);paths(v);sourcePath=v.source_path.value;outputPath=v.output_path.value;
-   // audio_kind values equal the codec's Container values.
-   from=static_cast<A::Container>(v.input_format);to=static_cast<A::Container>(v.output_format);}
-  else for(const auto& p:audioPairs)if(p.id==command){const auto v=J::read<S::file_request>(arguments);paths(v);
-   sourcePath=v.source_path.value;outputPath=v.output_path.value;from=p.input;to=p.output;}
+  std::string sourcePath,outputPath;A::Container from=A::Container::wav,to=A::Container::flac;A::LossyOptions options;
+  const auto take=[&](const auto& v){paths(v);sourcePath=v.source_path.value;outputPath=v.output_path.value;options=lossyOptions(v,to);};
+  if(command==17){const auto v=J::read<S::audio_request>(arguments);
+   // audio_kind values equal the codec's Container values (vorbis 4, opus 5, mp3 6).
+   from=static_cast<A::Container>(v.input_format);to=static_cast<A::Container>(v.output_format);take(v);}
+  else for(const auto& p:audioPairs)if(p.id==command){from=p.input;to=p.output;
+   // Encoders take their own format's controls only; every other pair takes none.
+   if(to==A::Container::mp3)take(J::read<S::mp3_file_request>(arguments));
+   else if(to==A::Container::opus)take(J::read<S::opus_file_request>(arguments));
+   else if(to==A::Container::vorbis)take(J::read<S::vorbis_file_request>(arguments));
+   else take(J::read<S::file_request>(arguments));}
   const auto source=files->read(sourcePath,C::maximumAudioSourceBytes);
   if(!source)return error(id,source.error,"Input must be a nonempty regular file inside the selected folder, no larger than 64 MiB.");
-  const auto converted=C::ConvertStandaloneAudio(from,to,source.bytes);
+  const auto converted=C::ConvertStandaloneAudio(from,to,source.bytes,options);
   if(!converted)return error(id,"conversionFailed",conversionMessage(converted));
   S::audio_result result;result.media_type.value=media(to);
   result.sample_rate.value=converted.sampleRate;result.channels.value=converted.channels;
@@ -312,6 +376,13 @@ struct Session::Impl {
   result.frames.value=count(converted.frames);
   result.skipped_metadata.value=converted.skippedMetadata;result.comments_dropped.value=converted.ignoredComments;
   result.channel_mask_dropped.value=converted.channelMaskDropped;
+  result.lossy_source.value=converted.lossySource;result.lossy_output.value=converted.lossyOutput;
+  result.generation_loss.value=converted.generationLoss;
+  result.encoder_delay_trimmed.value=converted.encoderDelayTrimmed;result.encoder_delay_unknown.value=converted.encoderDelayUnknown;
+  result.trimmed_leading_frames.value=count(converted.trimmedLeadingFrames);result.trimmed_trailing_frames.value=count(converted.trimmedTrailingFrames);
+  result.comments_dropped_count.value=converted.commentsDropped;result.tags_skipped.value=converted.tagsSkipped;
+  result.streams_skipped.value=converted.streamsSkipped;result.original_sample_rate.value=converted.originalSampleRate;
+  result.silenced_frames.value=converted.silencedFrames;
   return publish(id,outputPath,converted.bytes,std::move(result),published);
  }
  Json document(const Json& id,std::uint32_t command,const Json& arguments,bool& published) {
