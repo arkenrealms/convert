@@ -12,6 +12,10 @@ struct EncodeOptions {
     std::uint32_t maximumDimension=8192,jpegQuality=95;
     AlphaPolicy alphaPolicy=AlphaPolicy::preserve;
     RasterProfile resourceProfile=RasterProfile::bounded;
+    // AVIF only (validated for every format, like jpegQuality): lossless reproduces exact RGBA;
+    // otherwise avifQuality 1-100 selects lossy 4:2:0 colour with lossless alpha.
+    bool avifLossless=true;
+    std::uint32_t avifQuality=60;
 };
 struct EncodeResult {
     EncodeError error=EncodeError::none;
@@ -23,6 +27,8 @@ struct EncodeResult {
 // ICO writes one PNG-backed rendition, at most256x256, without resizing.
 // TIFF writes one classic little-endian uncompressed chunky RGBA8 image.
 // WebP writes one lossless image preserving exact RGBA, including transparent RGB.
+// AVIF (where compiled in) writes one still image, lossless GBR 4:4:4 or lossy 4:2:0 with
+// lossless alpha, tagged sRGB NCLX.
 // JPEG transparency requires explicit white-matte consent. No I/O or metadata copy.
 [[nodiscard]] EncodeResult EncodeImage(Format,std::uint32_t width,std::uint32_t height,
     std::span<const std::uint8_t> rgba8,const EncodeOptions& options={}) noexcept;
