@@ -4,8 +4,10 @@
 
 namespace arken::file_conversion::v1 {
 namespace audio = arken::audio::v1;
-// Standalone native MCP audio profile: WAV <-> FLAC, integer PCM only, resident (not
-// streaming). It is a separate admission from the image profiles and from any browser or
+// Standalone native MCP audio profile: WAV, FLAC and AIFF/AIFF-C in every direction,
+// integer PCM only, resident (not streaming). AIFF-C is read (NONE, twos, sowt, raw); AIFF
+// is written (COMM + SSND). Float (fl32/fl64), mu-law, A-law and other compressed AIFF-C,
+// and non-integer AIFF sample rates, are rejected like float WAV. It is a separate admission from the image profiles and from any browser or
 // hosted audio surface, none of which this declaration authorizes.
 //
 // 64 MiB of source admits about 6 min 20 s of 16-bit 44.1 kHz stereo WAV (176,400 B/s);
@@ -31,16 +33,21 @@ struct AudioResult {
     std::uint32_t sampleRate = 0, channels = 0, bitsPerSample = 0;
     std::uint64_t frames = 0;
     // What the source carried that the output does not: WAV chunks other than fmt/data,
+    // AIFF chunks other than COMM/SSND (MARK, INST, COMT, NAME, AUTH, ANNO, APPL, ID3, ...),
     // FLAC metadata blocks other than STREAMINFO, and FLAC comments other than the mask.
     std::uint32_t skippedMetadata = 0;
     bool ignoredComments = false;
+    // AIFF has no channel-mask field: a mask declared by a WAV/FLAC source was not written.
+    // Channel order is kept either way.
+    bool channelMaskDropped = false;
     std::vector<std::byte> bytes;
     explicit operator bool() const noexcept { return error == Error::none; }
 };
 [[nodiscard]] audio::Limits StandaloneAudioLimits() noexcept;
 // Decode `source` and re-encode as `destination` under StandaloneAudioLimits(). Integer
-// samples, rate, channel count, order and any declared channel mask are preserved exactly;
-// float, compressed WAV, RF64/W64 and Ogg FLAC are rejected, never approximated.
+// samples, rate, channel count and order are preserved exactly, and any declared channel
+// mask too unless the destination is AIFF (channelMaskDropped); float, compressed WAV/AIFF-C,
+// RF64/W64 and Ogg FLAC are rejected, never approximated.
 [[nodiscard]] AudioResult ConvertStandaloneAudio(audio::Container source, audio::Container destination,
     std::span<const std::byte>) noexcept;
 [[nodiscard]] std::string_view AudioErrorMessage(Error) noexcept;
