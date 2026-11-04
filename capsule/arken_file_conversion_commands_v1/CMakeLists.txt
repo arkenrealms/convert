@@ -14,7 +14,7 @@ add_library(arken_file_conversion_commands_v1 STATIC src/commands.cpp)
 target_compile_features(arken_file_conversion_commands_v1 PUBLIC cxx_std_20)
 target_include_directories(arken_file_conversion_commands_v1 PUBLIC "${CMAKE_CURRENT_LIST_DIR}/.." PRIVATE "${generated}")
 target_link_libraries(arken_file_conversion_commands_v1 PUBLIC arken_mcp_protocol_v1
- PRIVATE arken_file_conversion_images_v1 arken_file_conversion_audio_v1 arken_file_conversion_documents_v1
+ PRIVATE arken_file_conversion_images_v1 arken_file_conversion_audio_v1 arken_file_conversion_documents_v1 arken_file_conversion_markup_v1
  arken_file_workspace_files_v1 arken_digest_v1)
 target_compile_options(arken_file_conversion_commands_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_dependencies(arken_file_conversion_commands_v1 arken-conversion-file-schema)

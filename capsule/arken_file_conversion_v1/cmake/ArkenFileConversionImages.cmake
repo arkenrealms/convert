@@ -9,21 +9,25 @@ function(arken_add_file_conversion_images)
     target_link_libraries(arken_file_conversion_images_v1 PUBLIC arken_image_codecs_v1)
 endfunction()
 
-# Standalone audio and document owners. Their codec capsules must already be configured
-# (the standalone component lists them as public dependencies).
+# Standalone audio, document/table and markup owners. Their codec capsules must already be
+# configured (the standalone component lists them as public dependencies).
 function(arken_add_file_conversion_standalone_media)
     if(TARGET arken_file_conversion_audio_v1)
         return()
     endif()
-    if(NOT TARGET arken_audio_codecs_v1 OR NOT TARGET arken_document_extraction_v1)
-        message(FATAL_ERROR "Standalone conversion requires arken_audio_codecs_v1 and arken_document_extraction_v1")
+    if(NOT TARGET arken_audio_codecs_v1 OR NOT TARGET arken_document_extraction_v1 OR NOT TARGET arken_markup_conversion_v1)
+        message(FATAL_ERROR "Standalone conversion requires arken_audio_codecs_v1, arken_document_extraction_v1 and arken_markup_conversion_v1")
     endif()
     get_filename_component(owner "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
     add_library(arken_file_conversion_audio_v1 STATIC "${owner}/src/audio.cpp")
     target_link_libraries(arken_file_conversion_audio_v1 PUBLIC arken_file_conversion_images_v1 arken_audio_codecs_v1)
-    add_library(arken_file_conversion_documents_v1 STATIC "${owner}/src/document.cpp")
+    # Documents (DOCX/RTF/PPTX/ODT/ODP/EPUB) and tables (CSV/TSV/JSON/XLSX/ODS) share the
+    # document-extraction capsule.
+    add_library(arken_file_conversion_documents_v1 STATIC "${owner}/src/document.cpp" "${owner}/src/table.cpp")
     target_link_libraries(arken_file_conversion_documents_v1 PUBLIC arken_file_conversion_images_v1 arken_document_extraction_v1)
-    foreach(target IN ITEMS arken_file_conversion_audio_v1 arken_file_conversion_documents_v1)
+    add_library(arken_file_conversion_markup_v1 STATIC "${owner}/src/markup.cpp")
+    target_link_libraries(arken_file_conversion_markup_v1 PUBLIC arken_file_conversion_images_v1 arken_markup_conversion_v1)
+    foreach(target IN ITEMS arken_file_conversion_audio_v1 arken_file_conversion_documents_v1 arken_file_conversion_markup_v1)
         target_compile_features(${target} PUBLIC cxx_std_20)
         target_include_directories(${target} PUBLIC "${owner}/..")
         if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
@@ -44,7 +48,7 @@ function(arken_add_file_conversion_image_tests)
     if(TARGET arken_file_conversion_audio_v1)
         add_executable(arken-file-conversion-media-tests "${owner}/tests/media_tests.cpp")
         target_link_libraries(arken-file-conversion-media-tests PRIVATE arken_file_conversion_audio_v1
-            arken_file_conversion_documents_v1)
+            arken_file_conversion_documents_v1 arken_file_conversion_markup_v1)
         target_compile_options(arken-file-conversion-media-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
         add_test(NAME FileConversion.Media COMMAND arken-file-conversion-media-tests)
         set_tests_properties(FileConversion.Media PROPERTIES TIMEOUT 120)
