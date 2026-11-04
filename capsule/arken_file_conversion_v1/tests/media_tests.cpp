@@ -7,6 +7,7 @@
 #include "arken_file_conversion_v1/tables.hpp"
 #include "arken_document_extraction_v1/test_support/docx_fixtures.hpp"
 #include "arken_document_extraction_v1/test_support/package_fixtures.hpp"
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
@@ -180,8 +181,198 @@ void AiffCases() {
         "float AIFF-C not rejected as unsupported_float");
     Check(c::ConvertStandaloneAudio(Container::aiff, Container::wav, audio::EncodeWav(Signal(8000, 1, 16, 4)).bytes).codecError
         == audio::Error::wrong_magic, "WAV passed as AIFF");
-    Check(c::ConvertStandaloneAudio(Container(4), Container::wav, FloatAifc()).error == c::Error::input_format_unavailable,
-        "an unadmitted container (4) was accepted");
+    Check(c::ConvertStandaloneAudio(Container(7), Container::wav, FloatAifc()).error == c::Error::input_format_unavailable,
+        "an unadmitted container (7) was accepted");
+    Check(c::ConvertStandaloneAudio(Container::aiff, Container(0), FloatAifc()).error == c::Error::output_format_unavailable,
+        "an unadmitted output container (0) was accepted");
+}
+// A two-tone 16-bit programme (no extrema: lossy codecs are compared by length and labels).
+audio::Audio Tone(std::uint32_t rate, std::uint32_t channels, std::uint64_t frames) {
+    audio::Audio value{rate, channels, 16, std::nullopt, frames, {}};
+    for (std::uint64_t i = 0; i < frames; ++i)
+        for (std::uint32_t c = 0; c < channels; ++c) {
+            const double t = double(i) / rate;
+            value.samples.push_back(std::int32_t(9000.0 * std::sin(6.283185307179586 * (440.0 + 110.0 * c) * t)
+                + 3000.0 * std::sin(6.283185307179586 * 1250.0 * t)));
+        }
+    return value;
+}
+// Byte length of the MPEG-1 Layer III frame at `at` (the Info frame LAME writes first).
+std::size_t Mpeg1FrameBytes(const std::vector<std::byte>& bytes, std::size_t at) {
+    static constexpr std::uint32_t kbps[] = {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320};
+    static constexpr std::uint32_t rates[] = {44100, 48000, 32000};
+    const auto b1 = std::uint32_t(bytes.at(at + 1)), b2 = std::uint32_t(bytes.at(at + 2));
+    Check(std::uint32_t(bytes[at]) == 0xff && (b1 & 0xfe) == 0xfa && (b2 >> 4) >= 1 && (b2 >> 4) <= 14 && ((b2 >> 2) & 3) < 3,
+        "expected an MPEG-1 Layer III frame header");
+    return 144u * kbps[b2 >> 4] * 1000u / rates[(b2 >> 2) & 3] + ((b2 >> 1) & 1);
+}
+void LossyCases() {
+    using audio::Container;
+    const auto limits = c::StandaloneAudioLimits();
+    const auto programme = Tone(48000, 2, 48000);
+    const auto wav = audio::EncodeWav(programme).bytes;
+    const auto flac = audio::EncodeFlac(programme).bytes;
+    const auto aiff = audio::EncodeAiff(programme).bytes;
+    const Container lossy[] = {Container::vorbis, Container::opus, Container::mp3};
+    const Container lossless[] = {Container::wav, Container::flac, Container::aiff};
+    std::vector<std::byte> encoded[7];
+    // Every lossless source into every lossy format: labelled lossy, identical to the codec's
+    // own encoder (the owner adds no processing), and decoding back gives the exact length.
+    for (const auto to : lossy) {
+        const auto direct = to == Container::vorbis ? audio::EncodeVorbis(programme, {}, limits)
+            : to == Container::opus ? audio::EncodeOpus(programme, {}, limits) : audio::EncodeMp3(programme, {}, limits);
+        Check(bool(direct), "lossy reference encode");
+        for (const auto from : lossless) {
+            const auto& source = from == Container::wav ? wav : from == Container::flac ? flac : aiff;
+            const auto out = c::ConvertStandaloneAudio(from, to, source);
+            Check(bool(out) && out.lossyOutput && !out.lossySource && !out.generationLoss && out.bytes == direct.bytes
+                && out.sampleRate == 48000 && out.channels == 2 && out.bitsPerSample == 16 && out.frames == 48000,
+                "lossless to lossy conversion or labels");
+        }
+        encoded[std::size_t(to)] = direct.bytes;
+    }
+    // Every lossy source into every format, lossy ones carrying generation loss.
+    for (const auto from : lossy) {
+        for (const auto to : {Container::wav, Container::flac, Container::aiff, Container::vorbis, Container::opus, Container::mp3}) {
+            const auto out = c::ConvertStandaloneAudio(from, to, encoded[std::size_t(from)]);
+            const bool lossyTo = to == Container::vorbis || to == Container::opus || to == Container::mp3;
+            Check(bool(out) && out.lossySource && out.lossyOutput == lossyTo && out.generationLoss == lossyTo
+                && out.bitsPerSample == 16 && out.sampleRate == 48000 && out.channels == 2 && out.frames == 48000 && !out.bytes.empty(),
+                "lossy source conversion, length or labels");
+            // Vorbis has no encoder delay: only the end may be trimmed; Opus and LAME MP3 trim both ends.
+            Check(out.encoderDelayTrimmed == (from != Container::vorbis || out.trimmedTrailingFrames > 0) && !out.encoderDelayUnknown
+                && (from == Container::vorbis || out.trimmedLeadingFrames > 0), "encoder delay report");
+            Check(out.originalSampleRate == (from == Container::opus ? 48000u : 0u), "Opus original rate report");
+        }
+        const auto wavOut = c::ConvertStandaloneAudio(from, Container::wav, encoded[std::size_t(from)]);
+        const auto decoded = audio::DecodeWav(wavOut.bytes);
+        Check(bool(decoded) && decoded.audio.frames == 48000 && decoded.audio.bitsPerSample == 16, "lossy to WAV output");
+        if (from == Container::mp3) Check(wavOut.trimmedLeadingFrames == 576 + 529, "LAME delay plus decoder delay trimmed");
+        if (from == Container::opus) Check(wavOut.trimmedLeadingFrames == 312, "Opus pre-skip trimmed");
+    }
+    // Explicit controls: each changes the output and is accepted only for its own format.
+    const auto withOptions = [&](Container to, auto set) { audio::LossyOptions o; set(o); return c::ConvertStandaloneAudio(Container::wav, to, wav, o); };
+    const auto vorbisLow = withOptions(Container::vorbis, [](auto& o) { o.vorbisQuality = 0; });
+    const auto vorbisHigh = withOptions(Container::vorbis, [](auto& o) { o.vorbisQuality = 100; });
+    Check(vorbisLow && vorbisHigh && vorbisLow.bytes.size() < encoded[4].size() && encoded[4].size() < vorbisHigh.bytes.size(),
+        "vorbis_quality does not order the output size");
+    const auto opusLow = withOptions(Container::opus, [](auto& o) { o.opusBitrateKbps = 6; });
+    const auto opusHigh = withOptions(Container::opus, [](auto& o) { o.opusBitrateKbps = 510; });
+    Check(opusLow && opusHigh && opusLow.bytes.size() < encoded[5].size() && encoded[5].size() < opusHigh.bytes.size(),
+        "opus_bitrate_kbps does not order the output size");
+    // MP3 CBR floor of this codec build: LAME writes its gapless Info/LAME tag only into a
+    // frame of at least 4 + side information + 156 bytes; below that it omits the tag and the
+    // codec fails with codec_failed instead of writing a file without gapless data. The
+    // floors below (mono, stereo) are pinned exactly so that a codec change is noticed and
+    // the documented table (tool descriptions, README) is updated with it. VBR at every
+    // quality and every rate is accepted.
+    struct Floor { std::uint32_t rate, mono, stereo; };
+    for (const auto floor : {Floor{48000, 64, 64}, Floor{44100, 56, 64}, Floor{32000, 40, 48}, Floor{24000, 64, 64},
+                             Floor{22050, 56, 56}, Floor{16000, 40, 40}, Floor{12000, 32, 32}, Floor{11025, 32, 32}, Floor{8000, 24, 24}}) {
+        const bool mpeg1 = floor.rate >= 32000;
+        const std::vector<std::uint32_t> legal = mpeg1 ? std::vector<std::uint32_t>{32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320}
+            : std::vector<std::uint32_t>{8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160};
+        for (const std::uint32_t channels : {1u, 2u}) {
+            const auto source = audio::EncodeWav(Tone(floor.rate, channels, 2400)).bytes;
+            const auto minimum = channels == 1 ? floor.mono : floor.stereo;
+            for (const auto kbps : legal) {
+                audio::LossyOptions o; o.mp3BitrateKbps = kbps;
+                const auto out = c::ConvertStandaloneAudio(Container::wav, Container::mp3, source, o);
+                Check(kbps >= minimum ? bool(out) && audio::DecodeMp3(out.bytes).audio.frames == 2400
+                    : out.error == c::Error::encode_failed && out.codecError == audio::Error::codec_failed && out.bytes.empty(),
+                    "MP3 CBR floor changed at " + std::to_string(floor.rate) + " Hz, " + std::to_string(channels) + " ch, "
+                    + std::to_string(kbps) + " kbps");
+            }
+            for (std::uint32_t q = 0; q <= 9; ++q) {
+                audio::LossyOptions o; o.mp3RateControl = audio::Mp3RateControl::vbr; o.mp3VbrQuality = q;
+                const auto out = c::ConvertStandaloneAudio(Container::wav, Container::mp3, source, o);
+                Check(bool(out) && audio::DecodeMp3(out.bytes).audio.frames == 2400, "MP3 VBR rejected at a Layer III rate");
+            }
+        }
+    }
+    const auto mp3Low = withOptions(Container::mp3, [](auto& o) { o.mp3BitrateKbps = 64; });
+    const auto mp3High = withOptions(Container::mp3, [](auto& o) { o.mp3BitrateKbps = 320; });
+    const auto mp3Vbr = withOptions(Container::mp3, [](auto& o) { o.mp3RateControl = audio::Mp3RateControl::vbr; o.mp3VbrQuality = 0; });
+    const auto mp3VbrDefault = withOptions(Container::mp3, [](auto& o) { o.mp3RateControl = audio::Mp3RateControl::vbr; });
+    Check(mp3Low && mp3High && mp3Vbr && mp3VbrDefault, "MP3 rate controls rejected");
+    Check(mp3Low.bytes.size() < encoded[6].size() && encoded[6].size() < mp3High.bytes.size()
+        && mp3Vbr.bytes != encoded[6] && mp3VbrDefault.bytes != mp3Vbr.bytes, "MP3 rate controls do not change the output");
+    Check(audio::DecodeMp3(mp3Vbr.bytes).audio.frames == 48000 && audio::DecodeMp3(mp3Low.bytes).audio.frames == 48000, "MP3 option outputs keep the length");
+    const auto rejected = [&](Container to, auto set, audio::Error reason, std::string_view what) {
+        const auto out = withOptions(to, set);
+        Check(out.error == c::Error::invalid_options && out.codecError == reason && out.bytes.empty(), what);
+    };
+    rejected(Container::vorbis, [](auto& o) { o.vorbisQuality = 101; }, audio::Error::invalid_option, "vorbis_quality 101 accepted");
+    rejected(Container::opus, [](auto& o) { o.opusBitrateKbps = 5; }, audio::Error::invalid_option, "opus_bitrate_kbps 5 accepted");
+    rejected(Container::opus, [](auto& o) { o.opusBitrateKbps = 511; }, audio::Error::invalid_option, "opus_bitrate_kbps 511 accepted");
+    rejected(Container::mp3, [](auto& o) { o.mp3RateControl = audio::Mp3RateControl::vbr; o.mp3VbrQuality = 10; },
+        audio::Error::invalid_option, "mp3_vbr_quality 10 accepted");
+    rejected(Container::mp3, [](auto& o) { o.mp3BitrateKbps = 200; }, audio::Error::invalid_option, "illegal MP3 bitrate accepted");
+    rejected(Container::mp3, [](auto& o) { o.mp3RateControl = audio::Mp3RateControl(3); }, audio::Error::invalid_option, "unknown MP3 rate control");
+    rejected(Container::mp3, [](auto& o) { o.mp3RateControl = audio::Mp3RateControl::vbr; o.mp3BitrateKbps = 128; },
+        audio::Error::none, "mp3_bitrate_kbps accepted with VBR");
+    rejected(Container::mp3, [](auto& o) { o.mp3VbrQuality = 4; }, audio::Error::none, "mp3_vbr_quality accepted with CBR");
+    rejected(Container::mp3, [](auto& o) { o.vorbisQuality = 20; }, audio::Error::none, "vorbis option accepted for MP3");
+    rejected(Container::vorbis, [](auto& o) { o.opusBitrateKbps = 64; }, audio::Error::none, "opus option accepted for Vorbis");
+    rejected(Container::opus, [](auto& o) { o.mp3RateControl = audio::Mp3RateControl::vbr; }, audio::Error::none, "mp3 option accepted for Opus");
+    rejected(Container::flac, [](auto& o) { o.mp3BitrateKbps = 128; }, audio::Error::none, "mp3 option accepted for FLAC");
+    rejected(Container::wav, [](auto& o) { o.vorbisQuality = 0; }, audio::Error::none, "vorbis option accepted for WAV");
+    // MPEG-2 (16 kHz) defines 8-160 kbps: 192 (the default) and 320 are illegal there.
+    const auto narrow = audio::EncodeWav(Tone(16000, 1, 16000)).bytes;
+    const auto narrowMp3 = c::ConvertStandaloneAudio(Container::wav, Container::mp3, narrow);
+    Check(narrowMp3.error == c::Error::invalid_options && narrowMp3.codecError == audio::Error::invalid_option, "192 kbps at 16 kHz accepted");
+    audio::LossyOptions mpeg2; mpeg2.mp3BitrateKbps = 64;
+    const auto narrowOk = c::ConvertStandaloneAudio(Container::wav, Container::mp3, narrow, mpeg2);
+    Check(bool(narrowOk) && audio::DecodeMp3(narrowOk.bytes).audio.frames == 16000, "MPEG-2 MP3 at 64 kbps");
+    // No resampling: 44.1 kHz is not an Opus rate; MP3 and Vorbis encode it at its own rate.
+    const auto cd = audio::EncodeWav(Tone(44100, 2, 44100)).bytes;
+    const auto cdOpus = c::ConvertStandaloneAudio(Container::wav, Container::opus, cd);
+    Check(cdOpus.error == c::Error::encode_failed && cdOpus.codecError == audio::Error::resampling_required && cdOpus.bytes.empty(),
+        "44.1 kHz to Opus not rejected as resampling_required");
+    const auto cdMp3 = c::ConvertStandaloneAudio(Container::wav, Container::mp3, cd);
+    const auto cdBack = c::ConvertStandaloneAudio(Container::mp3, Container::wav, cdMp3.bytes);
+    Check(cdMp3 && cdBack && cdBack.frames == 44100 && cdBack.sampleRate == 44100 && cdBack.encoderDelayTrimmed, "44.1 kHz MP3 round trip length");
+    const auto cdVorbis = c::ConvertStandaloneAudio(Container::wav, Container::vorbis, cd);
+    Check(cdVorbis && c::ConvertStandaloneAudio(Container::vorbis, Container::flac, cdVorbis.bytes).frames == 44100, "44.1 kHz Vorbis round trip length");
+    Check(c::ConvertStandaloneAudio(Container::wav, Container::mp3, audio::EncodeWav(Tone(96000, 2, 960)).bytes).codecError
+        == audio::Error::resampling_required, "96 kHz to MP3 not rejected");
+    // Opus from 16 kHz decodes at 48 kHz with three times the frames and reports the input rate.
+    const auto wide = c::ConvertStandaloneAudio(Container::wav, Container::opus, narrow);
+    const auto wideBack = c::ConvertStandaloneAudio(Container::opus, Container::wav, wide.bytes);
+    Check(wide && wideBack && wideBack.sampleRate == 48000 && wideBack.frames == 48000 && wideBack.originalSampleRate == 16000,
+        "16 kHz Opus decode rate, length or original rate");
+    // Encoding is 1-2 channels; multichannel Vorbis/Opus is decode-only.
+    const auto surround = audio::EncodeWav(Tone(48000, 6, 480)).bytes;
+    for (const auto to : lossy) {
+        const auto out = c::ConvertStandaloneAudio(Container::wav, to, surround);
+        Check(out.error == c::Error::encode_failed && out.codecError == audio::Error::channel_limit, "6-channel lossy encode accepted");
+    }
+    // Chained Ogg is rejected explicitly.
+    for (const auto from : {Container::vorbis, Container::opus}) {
+        auto chained = encoded[std::size_t(from)];
+        chained.insert(chained.end(), encoded[std::size_t(from)].begin(), encoded[std::size_t(from)].end());
+        const auto out = c::ConvertStandaloneAudio(from, Container::wav, chained);
+        Check(out.error == c::Error::decode_failed && out.codecError == audio::Error::chained_stream, "chained Ogg not rejected");
+    }
+    // An ID3v2 tag is skipped and counted; samples are identical.
+    std::vector<std::byte> tagged;
+    for (const int b : std::initializer_list<int>{'I', 'D', '3', 3, 0, 0, 0, 0, 0, 13, 'T', 'I', 'T', '2', 0, 0, 0, 3, 0, 0, 0, 'h', 'i'})
+        tagged.push_back(std::byte(b));
+    tagged.insert(tagged.end(), encoded[6].begin(), encoded[6].end());
+    const auto withTag = c::ConvertStandaloneAudio(Container::mp3, Container::wav, tagged);
+    Check(withTag && withTag.tagsSkipped == 1 && withTag.skippedMetadata == 1
+        && withTag.bytes == c::ConvertStandaloneAudio(Container::mp3, Container::wav, encoded[6]).bytes, "ID3v2 tag not skipped and counted");
+    // Without LAME's Info frame nothing is trimmed: encoder_delay_unknown, whole frames decoded.
+    const std::vector<std::byte> untagged(encoded[6].begin() + std::ptrdiff_t(Mpeg1FrameBytes(encoded[6], 0)), encoded[6].end());
+    const auto raw = c::ConvertStandaloneAudio(Container::mp3, Container::wav, untagged);
+    Check(raw && raw.encoderDelayUnknown && !raw.encoderDelayTrimmed && raw.frames > 48000 + 1105 && raw.frames % 1152 == 0,
+        "MP3 without a LAME tag: delay must be reported unknown and nothing trimmed");
+    // Mislabelled input names the codec's reason.
+    Check(c::ConvertStandaloneAudio(Container::opus, Container::wav, encoded[4]).codecError == audio::Error::wrong_magic, "Vorbis passed as Opus");
+    Check(c::ConvertStandaloneAudio(Container::mp3, Container::wav, wav).error == c::Error::decode_failed, "WAV passed as MP3");
+    // Determinism through the owner.
+    Check(c::ConvertStandaloneAudio(Container::flac, Container::mp3, flac).bytes == encoded[6]
+        && c::ConvertStandaloneAudio(Container::wav, Container::opus, wav).bytes == encoded[5], "lossy output not deterministic");
 }
 void TextDocumentCases() {
     using document::OutputFormat; using c::DocumentInput;
@@ -362,6 +553,7 @@ int main() {
         AudioCases();
         DocumentCases();
         AiffCases();
+        LossyCases();
         TextDocumentCases();
         TableCases();
         MarkupCases();
