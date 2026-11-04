@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "recipeId": "minimp3-ea99364-v1",
+  "packageId": "minimp3",
+  "upstreamVersion": "ea99364f61c14656440e8d77e9c233ccf3124633",
+  "dependencyClass": "tracked-source",
+  "supportedPlatforms": ["macos", "linux", "web"],
+  "source": {
+    "kind": "tracked-source",
+    "root": "sdk",
+    "path": "third_party/minimp3",
+    "commit": "ea99364f61c14656440e8d77e9c233ccf3124633",
+    "treeSha256": "3c0017c43be58f1415a2bd7095684223369e00be3e68033364c23f282913d025",
+    "files": [
+      {"path":"minimp3.h","sha256":"57e437c5c1f0e8b243885d3929c8973b5e6c778451e0100ab4251d19915cb3ad"},
+      {"path":"minimp3_ex.h","sha256":"8437f3fc1d4d8ab2269a1624f5380a08df1967a048f8887789bae6e25db7db79"},
+      {"path":"LICENSE","sha256":"6a1ee543e5282cd9061881edf462e6fdab181f328da71fc2c9a6950a80e94d01"}
+    ]
+  },
+  "adapter": {"kind":"header-only","version":1},
+  "license": {"spdx":"CC0-1.0","distribution":"redistributable","files":[{"path":"LICENSE","sha256":"6a1ee543e5282cd9061881edf462e6fdab181f328da71fc2c9a6950a80e94d01"}]},
+  "components": [{"name":"decoder","target":"arken::external_minimp3_v1","kind":"interface","systemIncludeDirectories":["."],"compileDefinitions":["MINIMP3_NO_SIMD","MINIMP3_ONLY_MP3"]}],
+  "dependencies": []
+}

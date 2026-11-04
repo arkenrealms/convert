@@ -40,6 +40,25 @@ if(ARKEN_AUDIO_INTEROP_FFMPEG)
 else()
   message(STATUS "ffmpeg not found: AudioCodecs.FfmpegInterop is not registered")
 endif()
+
+# Lossy codecs (Ogg Vorbis, Ogg Opus, MP3).
+add_executable(arken-compressed-audio-tests compressed_audio_tests.cpp)
+target_link_libraries(arken-compressed-audio-tests PRIVATE arken::audio_codecs_v1)
+target_compile_options(arken-compressed-audio-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+foreach(check Quality Gapless Determinism Reports OggStructure Malformed Limits)
+  add_test(NAME CompressedAudio.${check} COMMAND arken-compressed-audio-tests --check ${check})
+  set_tests_properties(CompressedAudio.${check} PROPERTIES TIMEOUT 300)
+endforeach()
+add_test(NAME CompressedAudio.Version COMMAND arken-compressed-audio-tests --version)
+set_tests_properties(CompressedAudio.Version PROPERTIES TIMEOUT 5
+  PASS_REGULAR_EXPRESSION "Xiph\\.Org libVorbis 1\\.3\\.7; libopus 1\\.5\\.2; LAME 3\\.100")
+if(ARKEN_AUDIO_INTEROP_FFMPEG)
+  add_test(NAME CompressedAudio.FfmpegInterop COMMAND "${CMAKE_COMMAND}"
+    -DTOOL=$<TARGET_FILE:arken-compressed-audio-tests> -DFFMPEG=${ARKEN_AUDIO_INTEROP_FFMPEG}
+    -DWORK=${CMAKE_CURRENT_BINARY_DIR}/lossy-interop -P "${CMAKE_CURRENT_LIST_DIR}/lossy_interop.cmake")
+  set_tests_properties(CompressedAudio.FfmpegInterop PROPERTIES TIMEOUT 300)
+endif()
+
 add_test(NAME AudioCodecs.Version COMMAND arken-audio-codec-tests --version --invalid)
 set_tests_properties(AudioCodecs.Version PROPERTIES TIMEOUT 5
   PASS_REGULAR_EXPRESSION "arken_audio_codecs_v1 r1 \\(reference libFLAC 1\\.5\\.0 20250211\\)")

@@ -1050,7 +1050,7 @@ void AiffDeterminism() {
     char text[17]; std::snprintf(text, sizeof text, "%016llx", static_cast<unsigned long long>(h));
     std::cout << "AIFF fingerprint: " << text << " bytes=" << first.bytes.size() << '\n';
     Check(!Name(Error::unsupported_sample_rate).empty() && Name(Error::unsupported_sample_rate) != "unknown audio error", "new error has a message");
-    Check(!audio::Convert(audio::Container(4), audio::Container::aiff, first.bytes), "Convert rejects an unknown container");
+    Check(!audio::Convert(audio::Container(7), audio::Container::aiff, first.bytes), "Convert rejects an unknown container");
 }
 
 // --- independent interoperability support (driven by tests/interop.cmake) ---
