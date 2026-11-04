@@ -2,16 +2,16 @@
 
 Status: native codec milestone (handoff section 9, plan-task d85e2c6cc4a2f945).
 It covers the WAV, FLAC and AIFF/AIFF-C codec owner and its native qualification.
-AIFF (`DecodeAiff`, `EncodeAiff`, `Container::aiff`) is implemented and
-qualified in the capsule but not yet exposed through the MCP server; see
-"Remaining steps to expose AIFF" at the end.
-
-Standalone MCP: exposed as `convert_audio`, `wav_to_flac` and `flac_to_wav`
-through `ConvertStandaloneAudio` in `arken_file_conversion_v1` (component
+Standalone MCP: exposed as `convert_audio` (`wav`, `flac`, `aiff`),
+`wav_to_flac`, `flac_to_wav`, `aiff_to_wav`, `aiff_to_flac`, `wav_to_aiff` and
+`flac_to_aiff` through `ConvertStandaloneAudio` in `arken_file_conversion_v1` (component
 `standalone`) with its own profile: 64 MiB source and output, 32 Mi samples,
 1-8 channels, up to 384 kHz, 8 MiB / 256 metadata blocks. The "remaining steps"
 section at the end is kept as the integration record; the integrated profile
-differs from its suggested 8 MiB figures. Browser execution, a UI and a
+differs from its suggested 8 MiB figures. AIFF uses the same profile; the
+result reports `channel_mask_dropped` and counts skipped AIFF chunks in
+`skipped_metadata` (commands 45-48; `audio_kind` aiff=3, with 4-6 left for
+Vorbis, Opus and MP3). Browser execution, a UI and a
 streaming file path are still not provided and need separate qualification.
 
 ## Supported profile

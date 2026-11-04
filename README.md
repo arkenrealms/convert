@@ -1,15 +1,17 @@
 # Arken Convert
 
-Twenty-three MCP tools for image, audio and document conversion: images between
-common formats, WAV and FLAC losslessly, and DOCX or RTF to text or Markdown.
+Forty-seven MCP tools for image, audio, document, table and markup conversion:
+images between common formats; WAV, FLAC and AIFF losslessly; DOCX, RTF, PPTX,
+ODT, ODP and EPUB to text or Markdown; CSV, TSV, JSON, XLSX and ODS to CSV, TSV or
+JSON; HTML to Markdown, Markdown to HTML, and SRT to and from WebVTT.
 No account, wallet or cloud service required. Files stay on the machine running the server.
 
 ## Build
 
 Requires CMake 3.25+, a C++20 compiler and a POSIX host (Linux or macOS); Windows
 support is not included. This revision was qualified on Linux with GCC 13; earlier
-revisions were also qualified on macOS, and the audio and document additions have
-not yet been built there.
+revisions were also qualified on macOS, and the audio, document, table and markup
+additions have not yet been built there.
 
 The first configure downloads the pinned third-party archives, verifies their
 digests and caches them in `~/Library/Caches/Arken/external-packages/v1` on macOS,
@@ -23,6 +25,11 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel 2
 ctest --test-dir build --output-on-failure
 ```
+
+The codec capsules also have standalone qualification projects, configured,
+built and tested the same way: `capsule/arken_audio_codecs_v1/tests`,
+`capsule/arken_document_extraction_v1/tests` (DOCX/RTF, tables, and
+PPTX/ODT/ODP/EPUB) and `capsule/arken_markup_conversion_v1/tests`.
 
 ## Connect
 
@@ -58,15 +65,40 @@ Images:
 
 Audio:
 
-- `convert_audio`: WAV or FLAC to WAV or FLAC (`input_format`, `output_format`).
-- `wav_to_flac`, `flac_to_wav`.
+- `convert_audio`: WAV, FLAC or AIFF to WAV, FLAC or AIFF (`input_format`,
+  `output_format`: `wav`, `flac` or `aiff`; AIFF-C is read as `aiff`).
+- `wav_to_flac`, `flac_to_wav`, `aiff_to_wav`, `aiff_to_flac`, `wav_to_aiff`, `flac_to_aiff`.
 
 Documents:
 
-- `convert_document`: DOCX or RTF (`input_format`) to `txt` or `markdown` (`output_format`).
+- `convert_document`: DOCX, RTF, PPTX, ODT, ODP or EPUB (`input_format`: `docx`,
+  `rtf`, `pptx`, `odt`, `odp`, `epub`) to `txt` or `markdown` (`output_format`);
+  `include_notes` for `pptx` and `odp` only.
 - `docx_to_txt`, `docx_to_markdown`, `rtf_to_txt`, `rtf_to_markdown`.
+- `pptx_to_txt`, `pptx_to_markdown`, `odp_to_txt`, `odp_to_markdown` (each with
+  optional `include_notes`), `odt_to_txt`, `odt_to_markdown`, `epub_to_txt`,
+  `epub_to_markdown`.
 
-Every tool takes a relative `source_path` and a new relative `output_path`.
+Tables:
+
+- `convert_table`: CSV, TSV, JSON, XLSX or ODS (`input_format`) to CSV, TSV or
+  JSON (`output_format`, different from the input); optional `delimiter`,
+  `json_shape`, `sheet_index` or `sheet_name` where they apply.
+- `xlsx_to_csv`, `ods_to_csv` (`delimiter`, `sheet_index`, `sheet_name`),
+  `xlsx_to_json` (`json_shape`, `sheet_index`, `sheet_name`), `csv_to_json`
+  (`delimiter`, `json_shape`), `json_to_csv`, `csv_to_tsv` (`delimiter`).
+
+Markup and subtitles:
+
+- `convert_markup`: exactly `html` to `markdown`, `markdown` to `html`, `srt` to
+  `vtt` or `vtt` to `srt` (`input_format`, `output_format`); `drop_navigation`
+  for HTML input, `full_document` for HTML output.
+- `html_to_markdown` (`drop_navigation`), `markdown_to_html` (`full_document`),
+  `srt_to_vtt`, `vtt_to_srt`.
+
+Every tool takes a relative `source_path` and a new relative `output_path`. An
+option that does not apply to the tool, input or output is an invalid request,
+never ignored.
 
 ## Image profile
 
@@ -107,9 +139,9 @@ Limits: 8 MiB input and output, 1,048,576 pixels and 4096 pixels per dimension.
 
 ## Audio profile
 
-WAV and FLAC conversion is lossless. Integer PCM samples (4–32 bit), sample rate,
+WAV, FLAC and AIFF conversion is lossless. Integer PCM samples (4–32 bit), sample rate,
 channel count, channel order and any WAVE_FORMAT_EXTENSIBLE channel mask are
-preserved exactly. FLAC frame CRCs and the stream MD5 are checked on input. FLAC
+preserved exactly, except that AIFF has no channel-mask field (see AIFF below). FLAC frame CRCs and the stream MD5 are checked on input. FLAC
 output uses compression level 5, is verified while encoding and is deterministic
 for a given build.
 
@@ -119,7 +151,17 @@ chunks are not carried; `skipped_metadata` counts them and `comments_dropped`
 reports dropped FLAC comments. 12- and 20-bit audio is written as
 WAVE_FORMAT_EXTENSIBLE with channel mask 0 when no mask was declared.
 
-Results report `sample_rate`, `channels`, `bits_per_sample` and `frames`.
+AIFF: big-endian AIFF and AIFF-C with `NONE`, `twos`, `sowt` or `raw ` integer
+samples are read; AIFF (COMM and SSND chunks only) is written. The 80-bit sample
+rate must be an exact positive whole number. Float (`fl32`, `fl64`), mu-law, A-law,
+IMA4 and other compressed AIFF-C are rejected, never approximated. MARK, INST,
+COMT, NAME, AUTH, ANNO, APPL, ID3 and other chunks are not carried and count in
+`skipped_metadata`. AIFF declares no channel mask: a mask from a WAV or FLAC
+source is not written and `channel_mask_dropped` is true; channel order is kept,
+and AIFF read into WAV or FLAC carries no mask.
+
+Results report `sample_rate`, `channels`, `bits_per_sample`, `frames`,
+`skipped_metadata`, `comments_dropped` and `channel_mask_dropped`.
 
 Limits: 64 MiB input and output, 33,554,432 samples (frames × channels), 1–8
 channels, up to 384 kHz, 8 MiB per metadata block. That is about 6 min 20 s of
@@ -127,6 +169,12 @@ channels, up to 384 kHz, 8 MiB per metadata block. That is about 6 min 20 s of
 source, the samples as 32-bit integers and the output (about 256 MiB at the limits).
 
 ## Document profile
+
+Documents are extracted, not rendered: no layout, positions, fonts, colours or
+page structure, and no reading-order analysis beyond document order. All formats
+feed one structural model and the same TXT and Markdown writers.
+
+### DOCX and RTF
 
 DOCX and RTF are extracted, not rendered. Only the main story is read: paragraphs,
 headings, lists, tables and hyperlinks. Headers, footers, footnotes, endnotes,
@@ -144,11 +192,169 @@ the link text in parentheses. Markdown uses ATX headings, nested lists, pipe tab
 when every row has the same number of cells, and links only for http, https and
 mailto. Literal Markdown characters are escaped; no HTML is emitted.
 
-Results report `paragraphs`, `headings`, `list_items`, `tables` and `table_rows`.
+### Presentations and OpenDocument
 
-Limits: 32 MiB input, 16 MiB per expanded DOCX part, 32 MiB output, 16 MiB of
-extracted text. Extraction is resident: the expanded main part, its XML tree and
-the text model coexist (about 8–10 times the expanded part).
+PPTX: slides in presentation order, each introduced by a `Slide N` line (`# Slide
+N` in Markdown) and its title (`## ` in Markdown), then body text with bullet and
+numbering levels, tables and http/https/mailto links. Shapes are read in
+shape-tree order. Text inherited from layouts and masters, images, charts,
+SmartArt, OLE objects, media, comments and date, footer and slide-number
+placeholders are excluded; hidden slides are not filtered. Encrypted and
+macro-enabled files are rejected.
+
+ODP: pages in order with the same `Slide N` structure: title, text boxes, shape
+text, lists and tables. Images, charts, embedded objects and page-number, date and
+footer fields are excluded.
+
+Speaker notes (PPTX and ODP) are off by default and counted in
+`excluded_notes`; `include_notes: true` appends each slide's notes as a trailing
+`Notes:` paragraph (`**Notes:**` in Markdown) and counts them in `notes_included`.
+
+ODT: the body only. Headings, paragraphs, nested lists, tables (repeated rows and
+columns expanded) and links. Tracked changes appear accepted; deletions are
+counted. A list whose style is not known (no style definition reachable) becomes a
+bullet list. Footnotes, endnotes, comments, headers and footers (master pages in
+`styles.xml`), frames, drawings and images are excluded. Password-protected files
+and OpenDocument files of another kind (for example a spreadsheet given as ODT)
+are rejected.
+
+### EPUB
+
+EPUB 2 and 3: the well-formed XHTML spine items in spine order. Headings,
+paragraphs, nested lists, tables, block quotes, preformatted code (its language
+taken from a `language-x` or `lang-x` class), horizontal rules and
+http/https/mailto links are kept; relative links into the book become text. A
+chapter without its own `h1`–`h6` is titled from the table of contents. Images,
+SVG, MathML, media, scripts, styles, navigation documents and `nav` elements,
+non-linear spine items and non-XHTML spine items are excluded and counted; CSS is
+not applied (`display:none` is not honoured, `hidden` is). DRM-protected books
+(any `META-INF/encryption.xml` entry other than font obfuscation, or
+`META-INF/rights.xml`) and spine items that are HTML but not well-formed XML are
+rejected.
+
+In TXT a block quote is a plain paragraph, a horizontal rule is one extra blank
+line and code is verbatim. In Markdown a block quote is `> `, a horizontal rule is
+`---` and code is fenced with backticks longer than any backtick run inside it;
+the language is written only when it matches `[A-Za-z0-9_+.#-]{1,32}`. A list item
+with several paragraphs is still one item whose paragraphs are joined by a line
+break.
+
+### Results and limits
+
+Results report `paragraphs`, `headings`, `list_items`, `tables`, `table_rows`,
+`block_quotes`, `code_blocks`, `thematic_breaks`, `slides`, `chapters`,
+`notes_included`, `toc_headings`, and what was deliberately left out:
+`excluded_images`, `excluded_graphics`, `excluded_notes`, `excluded_annotations`,
+`excluded_deletions`, `excluded_placeholders`, `excluded_scripts`,
+`excluded_navigation`, `excluded_non_linear` and `excluded_unsupported_items`
+(element or item counts; zero for DOCX and RTF, whose extractor keeps no exclusion
+report).
+
+Limits: 32 MiB input, 16 MiB per expanded package part (and 64 MiB expanded across
+all parts read), 32 MiB output, 16 MiB of extracted text, 4096 slides or spine
+items, nesting depth 128, 1,000,000 table cells including ODF repeats. Extraction
+is resident: one expanded part, its XML tree and the text model coexist (about
+8–10 times the expanded part, measured for DOCX; PPTX, ODT, ODP and EPUB use the
+same parser one part at a time and were not measured separately).
+
+## Spreadsheets and tables
+
+One sheet is converted per call: the first visible sheet unless `sheet_index`
+(zero-based, in workbook order, hidden sheets included) or `sheet_name` (exact,
+case-sensitive) selects another. `sheet_names` lists every sheet and
+`selected_sheet` names the one converted. Chart, dialog and macro sheets cannot be
+selected.
+
+Values are those stored in the file. **Formulas are never evaluated**: XLSX `<v>`
+and ODS `office:value` hold the result last cached by the producing application;
+`formulas` counts formula cells and `formulas_without_value` those without a cached
+value (written empty). Dates and times become ISO 8601. Merged ranges are reported
+in `merged_ranges`, not expanded: the covered cells are empty. Number formats,
+currency and percent display, fonts, colours, column widths, hidden rows and
+columns, comments, charts, images, pivot tables, data validation, defined names and
+hyperlinks are not carried; rich text is flattened. Rows shorter than the widest
+row are padded and counted in `ragged_rows`. ODS empty repeated rows and cells after
+the data are trimmed, never materialized, and counted in `trimmed_repeated_rows`
+and `trimmed_repeated_cells` (saturating at 4,294,967,295).
+
+Rejected: encrypted and macro-enabled workbooks, XLSB, legacy XLS and other OLE
+files, flat ODS (`.fods`), non-UTF-8 CSV/TSV, unterminated quotes, and JSON that is
+not an array of scalar arrays or of flat objects (including duplicate keys and
+nesting deeper than 64).
+
+CSV and TSV follow RFC 4180 and are written as UTF-8 with LF line ends; fields
+holding the delimiter, a quote or a line break are quoted. `delimiter` (`comma`,
+`semicolon` or `tab`) applies to a CSV input and a CSV output. CSV fields that
+follow the JSON number grammar, and `true`/`false`, become typed cells.
+
+JSON output is an array of row arrays, or with `json_shape: objects` one object per
+row keyed by the first row; empty or duplicate keys are renamed (`renamed_keys`).
+Numbers are written as JSON numbers only when the value round-trips exactly through
+binary64; booleans as `true`/`false`; everything else as strings. JSON input of
+objects takes its header row from the union of keys in first-seen order.
+
+Results report `rows`, `columns`, `sheet_count`, `sheet_names`, `selected_sheet`,
+`ragged_rows`, `merged_ranges`, `formulas`, `formulas_without_value`,
+`trimmed_repeated_rows`, `trimmed_repeated_cells`, `renamed_keys` and
+`byte_order_mark` (the source began with a UTF-8 BOM).
+
+Limits: 32 MiB input, 16 MiB per expanded XLSX/ODS part, 1,048,576 rows, 16,384
+columns, 2,000,000 cells (checked before allocation, so a single cell at
+`XFD1048576` is rejected rather than allocated), 1 MiB per cell, 64 MiB of cell
+text, 2,000,000 shared strings, 4096 sheets, 64 MiB output. Conversion is
+resident and not streaming: the XLSX/ODS path costs about 15–17 bytes of memory per
+byte of worksheet XML (the XML node tree dominates), so a 16 MiB worksheet part
+needs about 280 MB; a CSV at the 2,000,000-cell cap measured about 280 MB peak.
+
+## Markup profile
+
+HTML to Markdown (CommonMark with GFM tables and strikethrough): headings,
+paragraphs, lists, block quotes, fenced code (language from a `language-` class),
+code spans, emphasis, strikethrough, rectangular tables, definition lists,
+http/https/mailto links and http/https images are kept. Other links (relative,
+fragment, `javascript:`, `data:`, ...) become text (`links_as_text`); other images
+become their alt text (`images_as_text`) or are dropped without one
+(`images_dropped`); tables with spans or block content become paragraphs
+(`tables_as_paragraphs`). Scripts, styles, `noscript` and templates, iframes,
+objects, embeds, SVG, MathML, canvas, audio, video and hidden elements are dropped
+(`dropped_elements`); `drop_navigation: true` also drops `nav`, `aside`, `header`
+and `footer`. Comments are skipped (`comments_skipped`). CSS is not evaluated
+beyond inline `display:none`/`visibility:hidden`, relative links are not resolved,
+and no raw HTML is ever emitted. Only UTF-8 is accepted: HTML declaring another
+charset, or starting with a UTF-16 BOM, is rejected. The tree builder is a
+simplified HTML5 builder, so pathological misnesting can differ from a browser.
+
+Markdown to HTML renders a CommonMark subset: ATX and setext headings, paragraphs,
+block quotes, lists, indented and fenced code, thematic breaks, emphasis, code
+spans, inline links and images, autolinks and hard breaks, plus GFM tables and
+strikethrough. Reference links, footnotes, task lists and bare-URL autolinks are
+not supported. Raw HTML is never passed through: it is shown as text
+(`html_escaped`). URL policy: link destinations must be `http`, `https`, `mailto`
+or relative, image sources `http`, `https` or relative; scheme-relative URLs and
+every other scheme are refused and rendered as text (`unsafe_links`,
+`unsafe_images`). Output is an HTML fragment, or with `full_document: true` a
+complete UTF-8 document whose title is the first heading. Results also report
+`links`, `images` and `unknown_entities`.
+
+## Subtitles
+
+SRT and WebVTT convert through one cue model: start and end times and text with
+`b`, `i` and `u`. SRT to WebVTT drops SRT coordinates (`dropped_cue_settings`),
+strips `font` and other tags and `{\...}` override codes (`stripped_tags`) and
+tolerates missing index lines (`missing_indices`). WebVTT to SRT drops cue settings
+(position, alignment), cue identifiers that differ from the SRT number
+(`dropped_identifiers`), header text and NOTE, STYLE and REGION blocks
+(`dropped_blocks`), and voice, class, language, ruby and timestamp tags
+(`stripped_tags`); cues are numbered from 1. SRT has no escaping, so WebVTT text
+such as `&lt;b&gt;` becomes a literal `<b>`. Only UTF-8 is accepted. A missing
+WEBVTT header, a malformed timestamp or block, a cue that ends before it starts and
+a cue that starts before the previous one are rejected, and the message names the
+input line. Results report `cues` and the counts above.
+
+Limits for markup and subtitles: 8 MiB input and 8 MiB output for every pair; a
+larger result is rejected, never cut. Hostile Markdown made only of syntax
+characters converts at about 0.5 s per MiB, and deeply nested HTML lists around
+8 MiB of text take about 3 s.
 
 ## Files and results
 
@@ -205,7 +411,8 @@ Pinned sources are acquired from exact upstream archives by the SDK package grap
 and its declared licence files. Their licences apply to their code:
 
 - stb_image / stb_image_write 2.30 (MIT): PNG, JPEG and GIF decoding; PNG, JPEG,
-  BMP and TGA encoding; zlib for TIFF Deflate and DOCX members.
+  BMP and TGA encoding; zlib for TIFF Deflate and DOCX, XLSX, ODS, PPTX, ODT, ODP
+  and EPUB members.
 - skcms (BSD-3-Clause): ICC colour conversion.
 - libwebp 1.6.0 (BSD-3-Clause): WebP decode and encode.
 - libFLAC 1.5.0 (BSD-3-Clause; library only, no GPL programs or LGPL helpers).
