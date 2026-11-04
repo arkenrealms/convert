@@ -66,7 +66,7 @@ EncodeResult EncodeImage(Format format,std::uint32_t width,std::uint32_t height,
     if(format==Format::jpeg&&alpha&&options.alphaPolicy!=AlphaPolicy::flatten_white)return failure(EncodeError::alpha_requires_matte);
     try{
         if(format==Format::ico)return encodeIcon(width,height,rgba,options);
-        if(format==Format::tiff)return detail::EncodeTiff(width,height,rgba,options.maximumOutputBytes);
+        if(format==Format::tiff)return detail::EncodeTiff(width,height,rgba,options.maximumOutputBytes,options.tiffDeflate);
         if(format==Format::webp)return detail::EncodeWebp(width,height,rgba,options.maximumOutputBytes);
         Output output{{},options.maximumOutputBytes};const auto w=int(width),h=int(height);int accepted=0;
         if(format==Format::png)accepted=stbi_write_png_to_func(append,&output,w,h,4,rgba.data(),w*4);
