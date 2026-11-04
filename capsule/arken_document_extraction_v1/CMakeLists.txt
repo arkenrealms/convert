@@ -8,6 +8,8 @@ endif()
 if(NOT TARGET arken_document_extraction_v1)
     add_library(arken_document_extraction_v1 STATIC
         src/api.cpp src/docx.cpp src/inflate.cpp src/rtf.cpp src/serialize.cpp src/xml.cpp src/zip.cpp)
+    # Tabular conversion (tabular.hpp): CSV/TSV/JSON core, XLSX and ODS readers.
+    target_sources(arken_document_extraction_v1 PRIVATE src/tabular.cpp src/xlsx.cpp src/ods.cpp)
     add_library(arken::document_extraction_v1 ALIAS arken_document_extraction_v1)
     target_compile_features(arken_document_extraction_v1 PUBLIC cxx_std_20)
     target_include_directories(arken_document_extraction_v1 PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")
