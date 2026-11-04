@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "recipeId": "flac-1.5.0-v1",
+  "packageId": "libflac",
+  "upstreamVersion": "1.5.0",
+  "dependencyClass": "source-package",
+  "supportedPlatforms": [
+    "macos",
+    "linux",
+    "web"
+  ],
+  "source": {
+    "kind": "archive",
+    "urls": [
+      "https://github.com/xiph/flac/releases/download/1.5.0/flac-1.5.0.tar.xz"
+    ],
+    "sha256": "f2c1c76592a82ffff8413ba3c4a1299b6c7ab06c734dee03fd88630485c2b920",
+    "subdirectory": "flac-1.5.0",
+    "files": [
+      {
+        "path": "COPYING.Xiph",
+        "sha256": "7866ee98760fc1f0156b4fe6bf530257e02be487ab3fd94e2b63799dd32d6b2c"
+      },
+      {
+        "path": "AUTHORS",
+        "sha256": "89d44b9c876a8a5cbfc886348a151abd74eeb49e4b690b0cfe96d44a9afe8118"
+      },
+      {
+        "path": "CMakeLists.txt",
+        "sha256": "7a4720fe44395e1b56c91e39d5b3cd5debfeb1cec02e02814891884de6c70740"
+      },
+      {
+        "path": "src/CMakeLists.txt",
+        "sha256": "ce09a9d7f3d69705c1dbb678c1c95b2d6280049fbb116f7a80961443de842cf0"
+      },
+      {
+        "path": "src/libFLAC/CMakeLists.txt",
+        "sha256": "f19e8d4b8dd1483ffbd6550b2753667b1ec7ebe7692ed6a749d9a5ff3240dacc"
+      },
+      {
+        "path": "src/libFLAC/format.c",
+        "sha256": "3ce4418dab19436e83d1aa622a324241916e88c5829b5b9afb48352c6ad0fa51"
+      },
+      {
+        "path": "src/libFLAC/stream_encoder.c",
+        "sha256": "ff11a135d3c846fbf5c67be917f9779056967f5402f64e80ff66de135512d963"
+      },
+      {
+        "path": "src/libFLAC/stream_decoder.c",
+        "sha256": "9a075fbc07ebc19bac6e02bb7e3e1b1e4ca847485e15430d327c6c7130fd1723"
+      },
+      {
+        "path": "include/FLAC/stream_encoder.h",
+        "sha256": "5aedffc9654871ed89055155b92ce3e784f3d059837b6d4d972a489d85f8dbb7"
+      },
+      {
+        "path": "include/FLAC/stream_decoder.h",
+        "sha256": "375f08a6983ce0f75a00169b114d753965d0176fd95c620ecf265244e61be5f3"
+      }
+    ],
+    "maxArchiveBytes": 2097152,
+    "maxEntries": 2048,
+    "maxExtractedBytes": 33554432,
+    "allowSafeSymlinks": false
+  },
+  "patches": [
+    {
+      "path": "patches/generated/flac-1.5.0/CMakeLists.txt",
+      "sha256": "346cdc37093158e415d074772b99aa843b93755f04b0d0697af55028b70d4cdf",
+      "replacementPath": "CMakeLists.txt",
+      "expectedSourceSha256": "7a4720fe44395e1b56c91e39d5b3cd5debfeb1cec02e02814891884de6c70740"
+    },
+    {
+      "path": "patches/generated/flac-1.5.0/src/CMakeLists.txt",
+      "sha256": "df527e85a593099a824fde3693c026b00a70e27d307618a27e51ed4ebb78ca29",
+      "replacementPath": "src/CMakeLists.txt",
+      "expectedSourceSha256": "ce09a9d7f3d69705c1dbb678c1c95b2d6280049fbb116f7a80961443de842cf0"
+    }
+  ],
+  "adapter": {
+    "kind": "cmake-source",
+    "version": 1,
+    "options": {
+      "BUILD_SHARED_LIBS": false,
+      "BUILD_CXXLIBS": false,
+      "BUILD_PROGRAMS": false,
+      "BUILD_EXAMPLES": false,
+      "BUILD_TESTING": false,
+      "BUILD_DOCS": false,
+      "BUILD_UTILS": false,
+      "INSTALL_MANPAGES": false,
+      "INSTALL_PKGCONFIG_MODULES": false,
+      "INSTALL_CMAKE_CONFIG_MODULE": false,
+      "WITH_OGG": false,
+      "WITH_ASM": false,
+      "WITH_AVX": false,
+      "ENABLE_MULTITHREADING": false,
+      "ENABLE_64_BIT_WORDS": true,
+      "WITH_FORTIFY_SOURCE": false,
+      "WITH_STACK_PROTECTOR": false,
+      "ENABLE_WERROR": false
+    }
+  },
+  "license": {
+    "spdx": "BSD-3-Clause",
+    "distribution": "redistributable",
+    "files": [
+      {
+        "path": "COPYING.Xiph",
+        "sha256": "7866ee98760fc1f0156b4fe6bf530257e02be487ab3fd94e2b63799dd32d6b2c"
+      },
+      {
+        "path": "AUTHORS",
+        "sha256": "89d44b9c876a8a5cbfc886348a151abd74eeb49e4b690b0cfe96d44a9afe8118"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "codec",
+      "target": "arken::external_flac_v1",
+      "kind": "static",
+      "upstreamTarget": "FLAC",
+      "compileOptions": [
+        "-fno-associative-math",
+        "-fno-reciprocal-math",
+        "-ffp-contract=off"
+      ]
+    }
+  ],
+  "dependencies": []
+}
