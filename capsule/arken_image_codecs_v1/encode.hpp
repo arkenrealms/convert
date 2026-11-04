@@ -27,7 +27,7 @@ struct EncodeResult {
     explicit operator bool() const noexcept {return error==EncodeError::none;}
 };
 // Top-left, tightly packed, straight-alpha RGBA8; PNG/BMP/TGA/ICO/TIFF preserve all channels.
-// ICO writes one PNG-backed rendition, at most256x256, without resizing.
+// ICO writes one PNG-backed rendition, at most 256x256, without resizing.
 // TIFF writes one classic little-endian chunky RGBA8 image, uncompressed by default
 // or Deflate + horizontal predictor when tiffDeflate is set.
 // WebP writes one still image: lossless by default, preserving exact RGBA including

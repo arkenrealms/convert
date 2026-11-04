@@ -24,9 +24,12 @@ struct Profile {
     std::uint32_t sourceBytes,outputBytes,pixels,dimension;
     image::RasterProfile codec;
     Admission input,output;
+    // Round 16-bit PNG/TIFF sources to the 8-bit output instead of rejecting them. Only the
+    // standalone profile opts in, and its result reports the source precision.
+    bool render16=false;
 };
 constexpr Profile hosted{maximumSourceBytes,maximumOutputBytes,maximumPixels,maximumDimension,image::RasterProfile::bounded,HostedInput,HostedOutput};
-constexpr Profile standalone{maximumSourceBytes,maximumOutputBytes,maximumPixels,maximumDimension,image::RasterProfile::bounded,StandaloneInput,StandaloneOutput};
+constexpr Profile standalone{maximumSourceBytes,maximumOutputBytes,maximumPixels,maximumDimension,image::RasterProfile::bounded,StandaloneInput,StandaloneOutput,true};
 constexpr Profile browser{browserMaximumSourceBytes,browserMaximumOutputBytes,browserMaximumPixels,browserMaximumDimension,image::RasterProfile::largeRaster,BrowserInput,HostedOutput};
 ImageResult Convert(std::span<const std::byte> source,const ImageOptions& options,const Profile& profile) noexcept {
     if (source.empty() || source.size() > profile.sourceBytes) return Failure(Error::input_limit);
@@ -38,12 +41,19 @@ ImageResult Convert(std::span<const std::byte> source,const ImageOptions& option
             && options.alphaPolicy != image::AlphaPolicy::flatten_white)
         || (options.output != image::Format::jpeg && options.alphaPolicy != image::AlphaPolicy::preserve))
         return Failure(Error::invalid_options);
+    // Codec options are meaningful only for their own output, like the JPEG options above.
+    if (options.webpQuality < 1 || options.webpQuality > 100
+        || (options.output != image::Format::webp && (!options.webpLossless || options.webpQuality != 90))
+        || (options.webpLossless && options.webpQuality != 90)
+        || (options.output != image::Format::tiff && options.tiffDeflate))
+        return Failure(Error::invalid_options);
     try {
         image::DecodeOptions decode;
         decode.maximumSourceBytes = profile.sourceBytes;
         decode.maximumPixels = profile.pixels;
         decode.maximumDimension = profile.dimension;
         decode.resourceProfile = profile.codec;
+        decode.allowPng16BitRenderingDerivative = profile.render16;
         auto decoded = image::DecodeImage(options.input, source, decode);
         if (!decoded) {
             auto result = Failure(Error::decode_failed);
@@ -57,6 +67,9 @@ ImageResult Convert(std::span<const std::byte> source,const ImageOptions& option
         encode.resourceProfile = profile.codec;
         encode.jpegQuality = options.jpegQuality;
         encode.alphaPolicy = options.alphaPolicy;
+        encode.webpLossless = options.webpLossless;
+        encode.webpQuality = options.webpQuality;
+        encode.tiffDeflate = options.tiffDeflate;
         auto encoded = image::EncodeImage(options.output, decoded.image.width,
             decoded.image.height, decoded.image.rgba8, encode);
         if (!encoded) {
@@ -67,6 +80,8 @@ ImageResult Convert(std::span<const std::byte> source,const ImageOptions& option
         ImageResult result;
         result.width = decoded.image.width; result.height = decoded.image.height;
         result.alphaFlattened = encoded.alphaFlattened;
+        result.sourceFrames = decoded.image.frameCount;
+        result.sourceBitsPerChannel = decoded.image.sourceBitsPerChannel;
         result.bytes = std::move(encoded.bytes);
         if(profile.codec==image::RasterProfile::largeRaster&&options.output==image::Format::tga)
             detail::SetPreview(result,std::move(decoded.image));
