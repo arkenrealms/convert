@@ -2,6 +2,10 @@
  "key":"arken_convert_portable_mcp",
  "public_dependencies":["arken_file_conversion_commands_v1"],
  "private_dependencies":[],
+ "external_dependencies":[
+  {"recipe":"libheif-1.23.7-hevc-av1-v1","scope":"private","components":["codec"],
+   "reason":"One libheif instance (HEVC via libde265, AV1 via libaom) for the memory-only HEIC decoder (ARKEN_IMAGE_CODECS_V1_HEIF) and the AVIF wrapper to follow; not an admitted public format."}
+ ],
  "module_components":{"arken_file_conversion_v1":"images","arken_file_workspace_v1":"native_files",
   "arken_mcp_protocol_v1":"stdio","arken_digest_v1":"hash","arken_ao_schema_v1":"types","arken_identity_v1":"types"}
 }
