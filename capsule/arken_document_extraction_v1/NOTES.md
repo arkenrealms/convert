@@ -12,9 +12,13 @@ macro-enabled, malformed or over-budget input fails with a typed `Error`. A
 failure never returns an empty document that looks like a success. A
 genuinely empty Word document is the only empty success.
 
-Surface status: this capsule is **not yet exposed** through the standalone MCP,
-the browser converter or the hosted MCP. "Remaining steps" below lists the
-exact work for the standalone MCP. The browser and hosted surfaces need their
+Surface status: exposed through the standalone MCP only, as `convert_document`,
+`docx_to_txt`, `docx_to_markdown`, `rtf_to_txt` and `rtf_to_markdown`, via
+`ConvertStandaloneDocument` in `arken_file_conversion_v1` (component
+`standalone`): 32 MiB source, 16 MiB per ZIP member, 32 MiB output. "Remaining
+steps" below is kept as the integration record; the commands use ids 20-24 and
+the result also reports block counts. Not exposed through the browser converter
+or the hosted MCP. The real-document corpus requested below is still outstanding. The browser and hosted surfaces need their
 own admission decisions (handoff sections 3 and 13). Nothing here authorizes them.
 
 ## Public API (`api.hpp`)
