@@ -4,6 +4,7 @@
   "version": "1.7.0",
   "components": {
     "runtime": {
+      "public_headers": ["binding.hpp", "runtime.hpp", "type_concepts.hpp", "wire.hpp"],
       "cmake": "cmake/Runtime.cmake",
       "public_dependencies": ["arken_schema_core_v1"],
       "private_dependencies": []

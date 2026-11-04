@@ -3,6 +3,11 @@
   "name": "Arken File Conversion v1",
   "version": "1.0.0",
   "components": {
+    "image_processing": {
+      "cmake": "cmake/ImageProcessing.cmake",
+      "public_dependencies": ["arken_image_codecs_v1", "arken_canvas_execution_v1"],
+      "private_dependencies": []
+    },
     "images": {
       "cmake": "cmake/Images.cmake",
       "public_dependencies": ["arken_image_codecs_v1"],

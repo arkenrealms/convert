@@ -212,14 +212,14 @@ void orient(Image& image,unsigned orientation){
     image.rgba8=std::move(output);image.width=out_w;image.height=out_h;
 }
 }
-bool InflateScalarStrip(Bytes bytes,std::span<std::byte> output){
+bool InflateTiffStrip(Bytes bytes,std::span<std::byte> output){
     if(bytes.size()<6||bytes.size()>std::size_t(std::numeric_limits<int>::max())
        ||output.size()>std::size_t(std::numeric_limits<int>::max()))return false;
     const auto decoded=stbi_zlib_decode_buffer(reinterpret_cast<char*>(output.data()),int(output.size()),
         reinterpret_cast<const char*>(bytes.data()),int(bytes.size()));
     if(decoded!=int(output.size()))return false;
-    // stb's PNG inflater does not check the zlib Adler trailer. Scalar source
-    // admission does: damaged terrain must not become a plausible height field.
+    // stb's PNG inflater does not check the zlib Adler trailer. TIFF strip
+    // admission does, for both exact scalar data and color-image samples.
     std::uint32_t a=1,b=0;
     for(auto value:output){a=(a+std::to_integer<std::uint8_t>(value))%65521;b=(b+a)%65521;}
     return ((b<<16)|a)==be32(bytes,bytes.size()-4);
@@ -265,6 +265,22 @@ DecodeResult DecodeRaster(Format format,Bytes bytes,const DecodeOptions& options
         if((compression!=0&&compression!=3)||(bits!=1&&bits!=4&&bits!=8&&bits!=16&&bits!=24&&bits!=32))return Failure(DecodeError::unsupported_content);
         const auto row=((std::uint64_t(width)*bits+31)/32)*4;
         if(row*static_cast<unsigned>(height)>size-offset)return Failure(DecodeError::truncated);
+        if(bits<=8){
+            // stb indexes its palette directly. Reject undeclared entries before
+            // decoding; a short palette must never expose uninitialized colors.
+            const auto used=U32(bytes,46),maximum=1u<<bits;
+            const auto colors=used?used:maximum;
+            const auto available=(offset-14-dib)/4;
+            if(compression||!colors||colors>maximum||available<colors||available>256)
+                return Failure(DecodeError::invalid_palette,46);
+            if(colors<maximum)for(unsigned y=0;y<static_cast<unsigned>(height);++y)
+                for(unsigned x=0;x<static_cast<unsigned>(width);++x){
+                    const auto at=offset+y*row+(std::uint64_t(x)*bits)/8;
+                    const auto shift=8-bits-(x*bits)%8;
+                    if(((U8(bytes,at)>>shift)&(maximum-1))>=colors)
+                        return Failure(DecodeError::invalid_palette,at);
+                }
+        }
     }
     const auto expected_width=width,expected_height=height;
     if(format==Format::png&&U8(bytes,24)==16){

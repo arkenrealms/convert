@@ -55,10 +55,12 @@ function(arken_external_package_notice_assets)
     set(manifest "${private_root}/assets.manifest")
     _arken_extpkg_write_if_different("${plan}"
         "{\"schema\":\"arken.external-package-notice-inputs.v1\",\"packages\":[${packages}]}\n")
+    set(stage_script "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/StageExternalPackageNotices.cmake")
     add_custom_target("${ARG_TARGET}"
         COMMAND "${CMAKE_COMMAND}" "-DINPUT=${plan}" "-DOUTPUT_ROOT=${ARG_OUTPUT_ROOT}"
-            "-DMANIFEST=${manifest}" -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/StageExternalPackageNotices.cmake"
-        DEPENDS "${plan}" ${inputs}
+            "-DMANIFEST=${manifest}" -P "${stage_script}"
+        DEPENDS "${plan}" ${inputs} "${stage_script}"
+        SOURCES "${stage_script}"
         BYPRODUCTS "${manifest}" "${ARG_OUTPUT_ROOT}/licenses/external-packages/index.json"
         VERBATIM)
     set_property(TARGET "${ARG_TARGET}" PROPERTY ARKEN_EXTERNAL_PACKAGE_NOTICE_MANIFEST "${manifest}")

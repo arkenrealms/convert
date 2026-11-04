@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "recipeId": "apple-patch-2.0-12u11-macos-v1",
+  "packageId": "apple-patch",
+  "upstreamVersion": "2.0-12u11-Apple",
+  "dependencyClass": "build-tool",
+  "supportedPlatforms": [
+    "macos",
+    "web"
+  ],
+  "source": {
+    "kind": "tool-profile"
+  },
+  "adapter": {
+    "kind": "tool-profile",
+    "version": 1
+  },
+  "license": {
+    "spdx": "NOASSERTION",
+    "distribution": "system",
+    "files": []
+  },
+  "components": [
+    {
+      "name": "patch",
+      "target": "arken::external_patch_v1",
+      "kind": "executable",
+      "executablePath": "/usr/bin/patch",
+      "expectedSha256": [
+        "046e415c946b836ccf3be9fd3887dbeecd5418fbe1a2a22f63c8f389c5ee9154",
+        "5f1577051f23e9a4232aa8d763bd1ed51b788815b28e3f90dd453ec459f2795d",
+        "81f4feabe3c88469b8dd045eed326e7f77b90d668aa706edd631aa10e8311823",
+        "ca8aaa5fa4bd9dfaf4b3be251b18372f25f07483946e7d06b505e5a5fb0a6a84"
+      ],
+      "versionArguments": [
+        "-v"
+      ],
+      "expectedVersionRegex": "^patch 2\\.0-12u11-Apple"
+    }
+  ],
+  "dependencies": []
+}

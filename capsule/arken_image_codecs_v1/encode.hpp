@@ -1,6 +1,7 @@
 #pragma once
 #include "api.hpp"
 namespace arken::image::v1 {
+inline constexpr std::uint32_t maximumIconDimension=256;
 enum class EncodeError : std::uint32_t {none,unsupported_format,invalid_dimensions,invalid_extent,invalid_options,alpha_requires_matte,output_limit,allocation_failed,encoding_failed};
 enum class AlphaPolicy : std::uint32_t {preserve,flatten_white};
 struct EncodeOptions {
@@ -18,7 +19,10 @@ struct EncodeResult {
     std::vector<std::byte> bytes;
     explicit operator bool() const noexcept {return error==EncodeError::none;}
 };
-// Top-left, tightly packed, straight-alpha RGBA8; PNG/BMP/TGA preserve all channels.
+// Top-left, tightly packed, straight-alpha RGBA8; PNG/BMP/TGA/ICO/TIFF preserve all channels.
+// ICO writes one PNG-backed rendition, at most256x256, without resizing.
+// TIFF writes one classic little-endian uncompressed chunky RGBA8 image.
+// WebP writes one lossless image preserving exact RGBA, including transparent RGB.
 // JPEG transparency requires explicit white-matte consent. No I/O or metadata copy.
 [[nodiscard]] EncodeResult EncodeImage(Format,std::uint32_t width,std::uint32_t height,
     std::span<const std::uint8_t> rgba8,const EncodeOptions& options={}) noexcept;

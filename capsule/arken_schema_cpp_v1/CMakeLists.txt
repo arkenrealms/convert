@@ -89,6 +89,8 @@ if(NOT EMSCRIPTEN AND NOT ARKEN_SCHEMA_CPP_V1_RUNTIME_ONLY)
 endif()
 
 if((BUILD_TESTING OR ARKEN_SCHEMA_CPP_V1_NATIVE_CHECKS) AND TARGET arken-schema-cpp-v1-codegen)
+    target_sources(arken-schema-cpp-v1-codegen PRIVATE
+        tests/large_command_catalog.cmake tests/codegen_overwrite_guard_test.cmake)
     add_test(NAME ArkenSchemaCppV1.CodegenVersion COMMAND arken-schema-cpp-v1-codegen --version --invalid)
     set_tests_properties(ArkenSchemaCppV1.CodegenVersion PROPERTIES TIMEOUT 5
         PASS_REGULAR_EXPRESSION "^arken-schema-cpp-v1-codegen r6078-command-selection-model-descriptions")

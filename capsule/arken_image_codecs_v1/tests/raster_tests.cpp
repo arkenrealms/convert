@@ -8,10 +8,13 @@
 #include <iostream>
 #include <string>
 namespace image=arken::image::v1;
+void RunIcoTests();
+void PrepareIcoFixtures(const std::filesystem::path&);
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 int main(int argc,char** argv){
-    if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-raster-codec-tests-r4566\n";return 0;}
+    if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-raster-codec-tests-r6338\n";return 0;}
     try{
+        if(argc==3&&std::string_view(argv[1])=="--prepare-ico"){PrepareIcoFixtures(argv[2]);return 0;}
         if(argc==4&&std::string_view(argv[1])=="--convert-png"){
             std::ifstream input(argv[2],std::ios::binary|std::ios::ate);const auto size=input.tellg();
             require(bool(input)&&size>0&&size<=50*1024*1024,"PNG input unavailable or too large");
@@ -27,7 +30,8 @@ int main(int argc,char** argv){
             }
             std::cout<<"Converted PNG to sRGB PNG and JPEG: "<<decoded.image.width<<'x'<<decoded.image.height<<'\n';return 0;
         }
-        require(argc==1,"Usage: arken-raster-codec-tests [--convert-png INPUT NEW-OUTPUT]");
+        require(argc==1,"Usage: arken-raster-codec-tests [--convert-png INPUT NEW-OUTPUT | --prepare-ico NEW-OUTPUT]");
+        RunIcoTests();
         for(const auto size:{std::pair{1u,1u},std::pair{9u,7u}}){
             const auto decoded=image::DecodeImage(image::Format::png,raster_fixture::LayoutPng(size.first,size.second,true));
             require(decoded&&decoded.image.rgba8==raster_fixture::Pixels(size.first,size.second,true),"Adam7 pass extent or empty pass rejected");

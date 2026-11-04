@@ -1173,6 +1173,7 @@ function(arken_resolve_external_packages)
                 "-DGRAPH_RECEIPT=${_graph_receipt}"
                 "-DRELEASE_EVIDENCE=${_release_evidence}"
                 -P "${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageInspect.cmake"
+            SOURCES "${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageInspect.cmake"
             VERBATIM
         )
     endif()
@@ -1195,6 +1196,7 @@ function(arken_resolve_external_packages)
                 "${CMAKE_COMMAND}"
                 "-DRECEIPT_ROOTS_JOINED=${_receipt_roots_joined}"
                 -P "${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageVerifyReceipts.cmake"
+            SOURCES "${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageVerifyReceipts.cmake"
             VERBATIM
         )
     endif()
@@ -1206,6 +1208,7 @@ function(arken_resolve_external_packages)
                 "${CMAKE_COMMAND}"
                 "-DINVENTORY_RECEIPT=${_inventory_receipt}"
                 -P "${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageInventoryInspect.cmake"
+            SOURCES "${_ARKEN_EXTERNAL_PACKAGE_MODULE_DIR}/ArkenExternalPackageInventoryInspect.cmake"
             VERBATIM
         )
     endif()

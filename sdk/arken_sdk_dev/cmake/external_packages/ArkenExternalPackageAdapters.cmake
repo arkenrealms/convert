@@ -262,6 +262,9 @@ function(_arken_extpkg_add_selected_source_receipt
     adapter_id
     source_identity
 )
+    set(receipt_script "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ArkenExternalPackageBuildReceipt.cmake")
+    target_sources("${internal_target}" PRIVATE "${receipt_script}")
+    set_property(TARGET "${internal_target}" APPEND PROPERTY LINK_DEPENDS "${receipt_script}")
     add_custom_command(
         TARGET "${internal_target}"
         POST_BUILD
@@ -274,7 +277,7 @@ function(_arken_extpkg_add_selected_source_receipt
             "-DADAPTER_ID=${adapter_id}"
             "-DSOURCE_IDENTITY=${source_identity}"
             "-DOUTPUT_FILES_JOINED=$<TARGET_FILE:${internal_target}>"
-            -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ArkenExternalPackageBuildReceipt.cmake"
+            -P "${receipt_script}"
         VERBATIM
     )
 endfunction()

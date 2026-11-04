@@ -11,16 +11,27 @@
   "components": {
     "rpc": {
       "cmake": "cmake/Rpc.cmake",
-      "public_dependencies": ["arken_schema_cpp_v1"],
+      "public_dependencies": [
+        "arken_schema_cpp_v1"
+      ],
       "private_dependencies": []
     },
     "stdio": {
       "cmake": "cmake/Stdio.cmake",
-      "public_dependencies": ["arken_schema_cpp_v1"],
+      "public_dependencies": [
+        "arken_schema_cpp_v1"
+      ],
       "private_dependencies": []
     },
     "core": {
       "cmake": "cmake/Core.cmake",
+      "public_dependencies": [
+        "arken_schema_cpp_v1"
+      ],
+      "private_dependencies": []
+    },
+    "contribution_stdio": {
+      "cmake": "cmake/ContributionStdio.cmake",
       "public_dependencies": [
         "arken_schema_cpp_v1"
       ],
