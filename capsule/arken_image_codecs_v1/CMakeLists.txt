@@ -123,7 +123,8 @@ if(ARKEN_IMAGE_CODECS_V1_HEIF)
         target_link_libraries(arken-heif-codec-tests PRIVATE arken::image_codecs_v1)
         target_compile_options(arken-heif-codec-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
         add_test(NAME ArkenImageCodecsV1.Heif COMMAND arken-heif-codec-tests
-            --sample "${heif_source}/examples/example.heic" --corpus "${heif_source}/fuzzing/data/corpus")
+            --sample "${heif_source}/examples/example.heic" --corpus "${heif_source}/fuzzing/data/corpus"
+            --data "${heif_source}/tests/data")
         add_test(NAME ArkenImageCodecsV1.HeifVersion COMMAND arken-heif-codec-tests --invalid --version)
         set_tests_properties(ArkenImageCodecsV1.Heif PROPERTIES TIMEOUT 120)
         set_tests_properties(ArkenImageCodecsV1.HeifVersion PROPERTIES TIMEOUT 5 PASS_REGULAR_EXPRESSION "heif-codec-tests")
