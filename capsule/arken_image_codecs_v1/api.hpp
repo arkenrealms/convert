@@ -3,7 +3,9 @@
 #include <string_view>
 
 namespace arken::image::v1 {
-enum class Format : std::uint32_t {pcx=1, cel=2, dc6=3, blp=4, dds=5, tga=6, png=7, bmp=8, jpeg=9, gif=10, ico=11, tiff=12, webp=13};
+// heif: HEIC/HEIF still images (HEVC). Decoded only where the memory-only decoder is compiled in
+// (ARKEN_IMAGE_CODECS_V1_HEIF); otherwise the format is reported as unsupported content.
+enum class Format : std::uint32_t {pcx=1, cel=2, dc6=3, blp=4, dds=5, tga=6, png=7, bmp=8, jpeg=9, gif=10, ico=11, tiff=12, webp=13, heif=14};
 enum class RasterProfile : std::uint32_t {bounded, largeRaster};
 struct DecodeOptions {
     std::uint32_t frameIndex=0, directionIndex=0, mipIndex=0;
