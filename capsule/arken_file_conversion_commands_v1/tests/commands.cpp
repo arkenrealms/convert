@@ -1,6 +1,8 @@
 #include "arken_file_conversion_v1/api.hpp"
 #include "arken_file_conversion_v1/audio.hpp"
 #include "arken_file_conversion_v1/documents.hpp"
+#include "arken_file_conversion_v1/markup.hpp"
+#include "arken_file_conversion_v1/tables.hpp"
 #include "arken_mcp_protocol_v1/api.hpp"
 #include "arken/digest/v1/digest.hpp"
 #include "arken_image_codecs_v1/test_support/texture_fixtures.hpp"
@@ -8,6 +10,7 @@
 #include "arken_image_codecs_v1/test_support/ico_fixtures.hpp"
 #include "arken_image_codecs_v1/test_support/tiff_fixtures.hpp"
 #include "arken_document_extraction_v1/test_support/docx_fixtures.hpp"
+#include "arken_document_extraction_v1/test_support/package_fixtures.hpp"
 #include <array>
 #include <cstring>
 #include <filesystem>
@@ -20,6 +23,8 @@ namespace C=arken::file_conversion::v1;
 namespace I=arken::image::v1;
 namespace A=arken::audio::v1;
 namespace D=arken::document::v1;
+namespace T=arken::document::v1::tabular;
+namespace M=arken::markup::v1;
 using Json=arken::mcp::v1::Json;
 void check(bool value,std::string_view message){if(!value)throw std::runtime_error(std::string(message));}
 void write(const fs::path& path,std::span<const std::byte> bytes){
@@ -153,6 +158,146 @@ void prepare(const fs::path& root){
    {{"media_type",std::string(D::MediaType(test.output))},{"paragraphs",result.paragraphs},{"headings",result.headings},
     {"list_items",result.listItems},{"tables",result.tables},{"table_rows",result.tableRows}});
  }
+ // Presentations, OpenDocument text and EPUB through the same document owner.
+ namespace P=package_fixture;
+ const auto pptx=docx_fixture::Bytes(P::Pptx({{P::PptxShape("<p:ph type=\"title\"/>",P::PptxPara("Plan"))
+  +P::PptxShape("<p:ph idx=\"1\"/>",P::PptxPara("First")+P::PptxPara("Sub","<a:pPr lvl=\"1\"/>"))
+  +"<p:pic><p:nvPicPr><p:cNvPr id=\"5\" name=\"p\"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill/><p:spPr/></p:pic>",P::PptxPara("Say hi")}}));
+ const auto odt=docx_fixture::Bytes(P::Odt("<text:h text:outline-level=\"1\">Title</text:h>"
+  "<text:p>Body <text:a xlink:href=\"https://e.test/\">link</text:a><text:note text:note-class=\"footnote\"><text:note-citation>1</text:note-citation>"
+  "<text:note-body><text:p>Foot</text:p></text:note-body></text:note></text:p>"));
+ const auto odp=docx_fixture::Bytes(P::Odp("<draw:page draw:name=\"p1\"><draw:frame presentation:class=\"title\"><draw:text-box><text:p>Hello</text:p>"
+  "</draw:text-box></draw:frame><presentation:notes><draw:frame presentation:class=\"notes\"><draw:text-box><text:p>Psst</text:p>"
+  "</draw:text-box></draw:frame></presentation:notes></draw:page>"));
+ const auto epub=docx_fixture::Bytes(P::Epub({"<h1>Intro</h1><blockquote><p>Q</p></blockquote><pre><code class=\"language-sh\">ls -l</code></pre>"
+  "<hr/><p>End <img src=\"a.png\" alt=\"x\"/></p><script>x()</script>","<p>Second</p>"}));
+ write(root/"files/inputs/deck.pptx",pptx);write(root/"files/inputs/body.odt",odt);write(root/"files/inputs/deck.odp",odp);write(root/"files/inputs/book.epub",epub);
+ struct TextDocumentCase{const char* name;const char* source;C::DocumentInput input;D::OutputFormat output;bool notes;const char* outputPath;std::string_view text;Json args;};
+ const TextDocumentCase textDocumentCases[]={
+  {"pptx_to_txt","inputs/deck.pptx",C::DocumentInput::pptx,D::OutputFormat::text,false,"outputs/deck.txt","Slide 1\n\nPlan\n\n- First\n  - Sub\n",Json::object()},
+  {"pptx_to_markdown","inputs/deck.pptx",C::DocumentInput::pptx,D::OutputFormat::markdown,true,"outputs/deck.md",
+   "# Slide 1\n\n## Plan\n\n- First\n  - Sub\n\n**Notes:** Say hi\n",{{"include_notes",true}}},
+  {"odt_to_txt","inputs/body.odt",C::DocumentInput::odt,D::OutputFormat::text,false,"outputs/body.txt","Title\n\nBody link (https://e.test/)\n",Json::object()},
+  {"odt_to_markdown","inputs/body.odt",C::DocumentInput::odt,D::OutputFormat::markdown,false,"outputs/body.md","# Title\n\nBody [link](https://e.test/)\n",Json::object()},
+  {"odp_to_txt","inputs/deck.odp",C::DocumentInput::odp,D::OutputFormat::text,true,"outputs/odp.txt","Slide 1\n\nHello\n\nNotes: Psst\n",{{"include_notes",true}}},
+  {"odp_to_markdown","inputs/deck.odp",C::DocumentInput::odp,D::OutputFormat::markdown,false,"outputs/odp.md","# Slide 1\n\n## Hello\n",{{"include_notes",false}}},
+  {"epub_to_txt","inputs/book.epub",C::DocumentInput::epub,D::OutputFormat::text,false,"outputs/book.txt","Intro\n\nQ\n\nls -l\n\n\nEnd\n\nSecond\n",Json::object()},
+  {"epub_to_markdown","inputs/book.epub",C::DocumentInput::epub,D::OutputFormat::markdown,false,"outputs/book.md",
+   "# Intro\n\n> Q\n\n```sh\nls -l\n```\n\n---\n\nEnd\n\nSecond\n",Json::object()},
+  {"convert_document","inputs/deck.pptx",C::DocumentInput::pptx,D::OutputFormat::text,true,"outputs/generic-deck.txt",
+   "Slide 1\n\nPlan\n\n- First\n  - Sub\n\nNotes: Say hi\n",{{"input_format","pptx"},{"output_format","txt"},{"include_notes",true}}}};
+ for(const auto& test:textDocumentCases){
+  const auto& source=test.input==C::DocumentInput::pptx?pptx:test.input==C::DocumentInput::odt?odt:test.input==C::DocumentInput::odp?odp:epub;
+  const auto result=C::ConvertStandaloneDocument({test.input,test.output,test.notes},source);
+  check(bool(result)&&text(result.bytes)==test.text,std::string(test.name)+": unexpected extracted text: "+text(result.bytes));
+  const auto& r=result.report;const auto& x=r.excluded;
+  Json args=test.args;args["source_path"]=test.source;
+  converted(test.name,args,test.outputPath,result.bytes,
+   {{"media_type",std::string(D::MediaType(test.output))},{"paragraphs",result.paragraphs},{"headings",result.headings},
+    {"list_items",result.listItems},{"block_quotes",result.blockQuotes},{"code_blocks",result.codeBlocks},{"thematic_breaks",result.thematicBreaks},
+    {"slides",r.slides},{"chapters",r.chapters},{"notes_included",r.notesIncluded},{"excluded_images",x.images},{"excluded_notes",x.notes},
+    {"excluded_scripts",x.scripts},{"excluded_graphics",x.graphics}});
+ }
+ check(C::ConvertStandaloneDocument({C::DocumentInput::pptx,D::OutputFormat::text,false},pptx).report.excluded.notes==1
+  &&C::ConvertStandaloneDocument({C::DocumentInput::epub,D::OutputFormat::text,false},epub).report.chapters==2,"document reports");
+ // Tables: a two-sheet XLSX (hidden first sheet), an ODS, CSV and JSON.
+ const auto xlsx=docx_fixture::Bytes(P::Xlsx({{"Hidden","hidden","<sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>secret</t></is></c></row></sheetData>"},
+  {"Data","","<sheetData><row r=\"1\"><c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\" t=\"s\"><v>1</v></c></row>"
+   "<row r=\"2\"><c r=\"A2\"><v>1.5</v></c><c r=\"B2\"><f>A2*2</f><v>3</v></c></row><row r=\"3\"><c r=\"A3\" t=\"inlineStr\"><is><t>a;b</t></is></c></row></sheetData>"
+   "<mergeCells count=\"1\"><mergeCell ref=\"A1:B1\"/></mergeCells>"}},{"x","y"}));
+ const auto ods=docx_fixture::Bytes(P::Ods("<table:table table:name=\"S\"><table:table-row><table:table-cell office:value-type=\"string\"><text:p>k</text:p>"
+  "</table:table-cell><table:table-cell office:value-type=\"float\" office:value=\"7\"><text:p>7</text:p></table:table-cell></table:table-row></table:table>"));
+ const auto csv=docx_fixture::Bytes("name,qty\nwidget,2\n\"a,b\",3\nshort\n");
+ const auto json=docx_fixture::Bytes("[{\"name\":\"widget\",\"qty\":2},{\"name\":\"a;b\",\"qty\":3,\"note\":\"x\"}]");
+ write(root/"files/inputs/book.xlsx",xlsx);write(root/"files/inputs/sheet.ods",ods);write(root/"files/inputs/items.csv",csv);write(root/"files/inputs/items.json",json);
+ const auto tableOptions=[](T::TableFormat input,T::TableFormat output){C::TableOptions o;o.input=input;o.output=output;return o;};
+ struct TableCase{const char* name;const char* source;C::TableOptions options;const char* outputPath;std::string_view text;Json args;};
+ auto hiddenSemicolon=tableOptions(T::TableFormat::xlsx,T::TableFormat::csv);hiddenSemicolon.sheet={T::SheetSelection::index,0,{}};hiddenSemicolon.delimiter=';';
+ auto dataObjects=tableOptions(T::TableFormat::xlsx,T::TableFormat::json);dataObjects.json=T::JsonShape::objects;dataObjects.sheet={T::SheetSelection::name,0,"Data"};
+ auto csvObjects=tableOptions(T::TableFormat::csv,T::TableFormat::json);csvObjects.json=T::JsonShape::objects;
+ auto jsonSemicolon=tableOptions(T::TableFormat::json,T::TableFormat::csv);jsonSemicolon.delimiter=';';
+ const TableCase tableCases[]={
+  {"xlsx_to_csv","inputs/book.xlsx",tableOptions(T::TableFormat::xlsx,T::TableFormat::csv),"outputs/book.csv","x,y\n1.5,3\na;b,\n",Json::object()},
+  {"xlsx_to_csv","inputs/book.xlsx",hiddenSemicolon,"outputs/hidden.csv","secret\n",{{"sheet_index",0},{"delimiter","semicolon"}}},
+  {"xlsx_to_json","inputs/book.xlsx",dataObjects,"outputs/book.json","[\n{\"x\":1.5,\"y\":3},\n{\"x\":\"a;b\",\"y\":\"\"}\n]\n",{{"sheet_name","Data"},{"json_shape","objects"}}},
+  {"ods_to_csv","inputs/sheet.ods",tableOptions(T::TableFormat::ods,T::TableFormat::csv),"outputs/sheet.csv","k,7\n",Json::object()},
+  {"csv_to_json","inputs/items.csv",csvObjects,"outputs/items.json",
+   "[\n{\"name\":\"widget\",\"qty\":2},\n{\"name\":\"a,b\",\"qty\":3},\n{\"name\":\"short\",\"qty\":\"\"}\n]\n",{{"json_shape","objects"}}},
+  {"json_to_csv","inputs/items.json",jsonSemicolon,"outputs/from-json.csv","name;qty;note\nwidget;2;\n\"a;b\";3;x\n",{{"delimiter","semicolon"}}},
+  {"csv_to_tsv","inputs/items.csv",tableOptions(T::TableFormat::csv,T::TableFormat::tsv),"outputs/items.tsv","name\tqty\nwidget\t2\na,b\t3\nshort\t\n",Json::object()},
+  {"convert_table","inputs/book.xlsx",dataObjects,"outputs/generic.json","[\n{\"x\":1.5,\"y\":3},\n{\"x\":\"a;b\",\"y\":\"\"}\n]\n",
+   {{"input_format","xlsx"},{"output_format","json"},{"sheet_name","Data"},{"json_shape","objects"}}}};
+ for(const auto& test:tableCases){
+  const auto& source=test.options.input==T::TableFormat::xlsx?xlsx:test.options.input==T::TableFormat::ods?ods:test.options.input==T::TableFormat::csv?csv:json;
+  const auto result=C::ConvertStandaloneTable(test.options,source);
+  check(bool(result)&&text(result.bytes)==test.text,std::string(test.name)+": unexpected table text: "+text(result.bytes));
+  const auto& r=result.report;Json names=Json::array();for(const auto& s:r.sheets)names.push_back(s.name);
+  Json args=test.args;args["source_path"]=test.source;
+  converted(test.name,args,test.outputPath,result.bytes,
+   {{"media_type",test.options.output==T::TableFormat::csv?"text/csv; charset=utf-8":test.options.output==T::TableFormat::tsv
+     ?"text/tab-separated-values; charset=utf-8":"application/json"},{"rows",r.rows},{"columns",r.columns},{"sheet_count",r.sheets.size()},
+    {"sheet_names",names},{"selected_sheet",r.selectedSheet},{"ragged_rows",r.raggedRows},{"merged_ranges",r.mergedRanges.size()},
+    {"formulas",r.formulas},{"formulas_without_value",r.formulasWithoutValue},{"renamed_keys",result.renamedKeys}});
+ }
+ check(C::ConvertStandaloneTable(tableOptions(T::TableFormat::xlsx,T::TableFormat::csv),xlsx).report.formulas==1
+  &&C::ConvertStandaloneTable(tableOptions(T::TableFormat::xlsx,T::TableFormat::csv),xlsx).report.mergedRanges.size()==1
+  &&C::ConvertStandaloneTable(tableOptions(T::TableFormat::csv,T::TableFormat::tsv),csv).report.raggedRows==1,"table reports");
+ // Markup: HTML with navigation and script, Markdown with an unsafe link, SRT and WebVTT.
+ const auto html=docx_fixture::Bytes("<nav><a href=\"/\">Home</a></nav><h1>T</h1><p>a <b>b</b> <a href=\"https://e.test/\">e</a> <a href=\"javascript:x()\">j</a></p><script>s()</script>");
+ const auto markdown=docx_fixture::Bytes("# T\n\n[ok](https://e.test/) [bad](javascript:x) <b>raw</b>\n");
+ const auto srt=docx_fixture::Bytes("1\n00:00:01,000 --> 00:00:02,500\nHello, <b>world</b>.\n\n2\n00:00:03,000 --> 00:00:04,000 X1:10 X2:20 Y1:5 Y2:6\nTwo\n\n");
+ const auto vtt=docx_fixture::Bytes("WEBVTT - demo\n\nNOTE hi\n\nintro\n00:00:01.000 --> 00:00:02.500 align:start\n<v Ann>Hello</v> &amp; bye\n\n");
+ write(root/"files/inputs/page.html",html);write(root/"files/inputs/notes.md",markdown);write(root/"files/inputs/subs.srt",srt);write(root/"files/inputs/subs.vtt",vtt);
+ const auto markupOptions=[](M::Format input,M::Format output){C::MarkupOptions o;o.input=input;o.output=output;return o;};
+ auto noNav=markupOptions(M::Format::html,M::Format::markdown);noNav.dropNavigation=true;
+ auto full=markupOptions(M::Format::markdown,M::Format::html);full.fullDocument=true;
+ struct MarkupCase{const char* name;const char* source;C::MarkupOptions options;const char* outputPath;std::string_view text;Json args;};
+ const MarkupCase markupCases[]={
+  {"html_to_markdown","inputs/page.html",noNav,"outputs/page.md","# T\n\na **b** [e](https://e.test/) j\n",{{"drop_navigation",true}}},
+  {"markdown_to_html","inputs/notes.md",markupOptions(M::Format::markdown,M::Format::html),"outputs/notes.html",
+   "<h1>T</h1>\n<p><a href=\"https://e.test/\">ok</a> bad &lt;b&gt;raw&lt;/b&gt;</p>\n",Json::object()},
+  {"srt_to_vtt","inputs/subs.srt",markupOptions(M::Format::srt,M::Format::vtt),"outputs/subs.vtt",
+   "WEBVTT\n\n00:00:01.000 --> 00:00:02.500\nHello, <b>world</b>.\n\n00:00:03.000 --> 00:00:04.000\nTwo\n\n",Json::object()},
+  {"vtt_to_srt","inputs/subs.vtt",markupOptions(M::Format::vtt,M::Format::srt),"outputs/subs.srt","1\n00:00:01,000 --> 00:00:02,500\nHello & bye\n\n",Json::object()},
+  {"convert_markup","inputs/notes.md",full,"outputs/notes-full.html",{},{{"input_format","markdown"},{"output_format","html"},{"full_document",true}}}};
+ for(const auto& test:markupCases){
+  const auto& source=test.options.input==M::Format::html?html:test.options.input==M::Format::markdown?markdown:test.options.input==M::Format::srt?srt:vtt;
+  const auto result=C::ConvertStandaloneMarkup(test.options,source);
+  check(bool(result)&&(test.text.empty()?text(result.bytes).starts_with("<!DOCTYPE html>"):text(result.bytes)==test.text),
+   std::string(test.name)+": unexpected markup text: "+text(result.bytes));
+  const auto& h=result.html;const auto& m=result.markdown;const auto& s=result.subtitles;
+  Json args=test.args;args["source_path"]=test.source;
+  converted(test.name,args,test.outputPath,result.bytes,
+   {{"media_type",std::string(M::MediaType(test.options.output))},
+    {"dropped_elements",h.scriptStyleDropped+h.embeddedDropped+h.hiddenDropped+h.navigationDropped},{"links_as_text",h.linksAsText},
+    {"links",m.links},{"unsafe_links",m.unsafeLinks},{"html_escaped",m.htmlEscaped},{"cues",s.cues},
+    {"dropped_identifiers",s.identifiersDropped},{"dropped_cue_settings",s.settingsDropped},
+    {"dropped_blocks",s.headerLinesDropped+s.notesDropped+s.styleBlocksDropped+s.regionBlocksDropped},{"stripped_tags",s.tagsStripped+s.overridesStripped}});
+ }
+ check(C::ConvertStandaloneMarkup(noNav,html).html.navigationDropped==1&&C::ConvertStandaloneMarkup(noNav,html).html.scriptStyleDropped==1
+  &&C::ConvertStandaloneMarkup(markupOptions(M::Format::vtt,M::Format::srt),vtt).subtitles.settingsDropped==1
+  &&C::ConvertStandaloneMarkup(markupOptions(M::Format::srt,M::Format::vtt),srt).subtitles.settingsDropped==1,"markup reports");
+ // AIFF: written from the stereo WAV and the masked 5.1 FLAC, read back to WAV/FLAC.
+ const auto aiff=A::EncodeAiff(stereo);check(bool(aiff),"AIFF fixture");write(root/"files/inputs/stereo.aiff",aiff.bytes);
+ const AudioCase aiffCases[]={
+  {"aiff_to_wav","inputs/stereo.aiff",A::Container::aiff,A::Container::wav,"outputs/from-aiff.wav",Json::object()},
+  {"aiff_to_flac","inputs/stereo.aiff",A::Container::aiff,A::Container::flac,"outputs/from-aiff.flac",Json::object()},
+  {"wav_to_aiff","inputs/stereo.wav",A::Container::wav,A::Container::aiff,"outputs/stereo.aiff",Json::object()},
+  {"flac_to_aiff","inputs/surround.flac",A::Container::flac,A::Container::aiff,"outputs/surround.aiff",Json::object()},
+  {"convert_audio","inputs/stereo.aiff",A::Container::aiff,A::Container::flac,"outputs/generic-aiff.flac",{{"input_format","aiff"},{"output_format","flac"}}}};
+ for(const auto& test:aiffCases){
+  const auto& source=test.input==A::Container::aiff?aiff.bytes:test.input==A::Container::wav?wav.bytes:flac.bytes;
+  const auto result=C::ConvertStandaloneAudio(test.input,test.output,source);check(bool(result),"AIFF reference");
+  Json args=test.args;args["source_path"]=test.source;
+  converted(test.name,args,test.outputPath,result.bytes,
+   {{"media_type",test.output==A::Container::aiff?"audio/aiff":test.output==A::Container::flac?"audio/flac":"audio/wav"},
+    {"sample_rate",result.sampleRate},{"channels",result.channels},{"bits_per_sample",result.bitsPerSample},{"frames",result.frames},
+    {"skipped_metadata",result.skippedMetadata},{"channel_mask_dropped",result.channelMaskDropped}});
+ }
+ check(C::ConvertStandaloneAudio(A::Container::flac,A::Container::aiff,flac.bytes).channelMaskDropped
+  &&!C::ConvertStandaloneAudio(A::Container::wav,A::Container::aiff,wav.bytes).channelMaskDropped,"AIFF mask report");
+ check(A::DecodeAiff(C::ConvertStandaloneAudio(A::Container::flac,A::Container::aiff,flac.bytes).bytes).audio.samples==surround.samples
+  &&C::ConvertStandaloneAudio(A::Container::aiff,A::Container::wav,aiff.bytes).bytes==wav.bytes,"reference AIFF is not lossless");
  const auto call=[&](const char* name,Json args,std::string kind="toolError",std::string reason={}){
   send({{"method","tools/call"},{"params",{{"name",name},{"arguments",std::move(args)}}}},kind,
    reason.empty()?Json::object():Json{{"reason",reason}});
@@ -197,10 +342,63 @@ void prepare(const fs::path& root){
  call("docx_to_txt",{{"source_path","inputs/encrypted.docx"},{"output_path","outputs/encrypted.txt"}},"toolError",std::string(D::ErrorMessage(D::Error::docx_encrypted)));
  call("flac_to_wav",{{"source_path","inputs/stereo.wav"},{"output_path","outputs/notflac.wav"}},"toolError",std::string(A::ErrorMessage(A::Error::wrong_magic)));
  call("rtf_to_txt",{{"source_path","inputs/plan.docx"},{"output_path","outputs/notrtf.txt"}},"toolError",std::string(D::ErrorMessage(D::Error::rtf_not_rtf)));
+ // The new families' owners name their reasons: a password-protected ODT, a DRM EPUB, an ODS given
+ // as ODT, non-table JSON, a missing sheet, a macro-enabled workbook, HTML declaring windows-1252, a
+ // malformed SRT timestamp (with its line) and a float AIFF-C.
+ write(root/"files/inputs/locked.odt",docx_fixture::Bytes(P::EncryptedOdt()));
+ call("odt_to_txt",{{"source_path","inputs/locked.odt"},{"output_path","outputs/locked.txt"}},"toolError",std::string(D::ErrorMessage(D::TextDocumentError::odf_encrypted)));
+ write(root/"files/inputs/drm.epub",docx_fixture::Bytes(P::DrmEpub()));
+ call("epub_to_markdown",{{"source_path","inputs/drm.epub"},{"output_path","outputs/drm.md"}},"toolError",std::string(D::ErrorMessage(D::TextDocumentError::epub_drm)));
+ call("odt_to_txt",{{"source_path","inputs/sheet.ods"},{"output_path","outputs/wrong-kind.txt"}},"toolError",std::string(D::ErrorMessage(D::TextDocumentError::odf_wrong_kind)));
+ write(root/"files/inputs/object.json",docx_fixture::Bytes("{\"a\":[1]}"));
+ call("json_to_csv",{{"source_path","inputs/object.json"},{"output_path","outputs/object.csv"}},"toolError",std::string(T::ErrorMessage(T::Error::json_not_table)));
+ call("xlsx_to_csv",{{"source_path","inputs/book.xlsx"},{"output_path","outputs/nope.csv"},{"sheet_name","Nope"}},"toolError",std::string(T::ErrorMessage(T::Error::sheet_not_found)));
+ write(root/"files/inputs/macro.xlsx",docx_fixture::Bytes(P::Xlsx({{"S","","<sheetData/>"}},{},"application/vnd.ms-excel.sheet.macroEnabled.main+xml")));
+ call("xlsx_to_json",{{"source_path","inputs/macro.xlsx"},{"output_path","outputs/macro.json"}},"toolError",std::string(T::ErrorMessage(T::Error::package_macro_enabled)));
+ write(root/"files/inputs/legacy.html",docx_fixture::Bytes("<meta charset=\"windows-1252\"><p>cafe</p>"));
+ call("html_to_markdown",{{"source_path","inputs/legacy.html"},{"output_path","outputs/legacy.md"}},"toolError",std::string(M::ErrorMessage(M::Error::unsupported_charset)));
+ write(root/"files/inputs/broken.srt",docx_fixture::Bytes("1\n00:00:01,000 --> nope\nx\n\n"));
+ call("srt_to_vtt",{{"source_path","inputs/broken.srt"},{"output_path","outputs/broken.vtt"}},"toolError",
+  std::string(M::ErrorMessage(M::Error::subtitle_malformed_timestamp))+" (line 2)");
+ std::vector<std::byte> floatAifc;{
+  std::string b;const auto be=[&](std::uint32_t v,int n){for(int i=n-1;i>=0;--i)b.push_back(char((v>>(8*i))&0xff));};
+  b+="FORM";be(68,4);b+="AIFC";b+="FVER";be(4,4);be(0xA2805140u,4);b+="COMM";be(24,4);be(1,2);be(1,4);be(32,2);
+  b+=std::string("\x40\x0b\xfa\x00\x00\x00\x00\x00\x00\x00",10);b+="fl32";be(0,2);b+="SSND";be(12,4);be(0,4);be(0,4);be(0x3f800000u,4);
+  floatAifc=docx_fixture::Bytes(b);}
+ write(root/"files/inputs/float.aifc",floatAifc);
+ check(C::ConvertStandaloneAudio(A::Container::aiff,A::Container::wav,floatAifc).codecError==A::Error::unsupported_float,"float AIFF-C fixture");
+ call("aiff_to_wav",{{"source_path","inputs/float.aifc"},{"output_path","outputs/float.wav"}},"toolError",std::string(A::ErrorMessage(A::Error::unsupported_float)));
+ // Option validation for the new tools is a protocol rejection, never ignored.
+ call("convert_table",{{"source_path","inputs/items.csv"},{"output_path","outputs/o1.csv"},{"input_format","csv"},{"output_format","csv"}},"rpcError");
+ call("convert_table",{{"source_path","inputs/items.json"},{"output_path","outputs/o2.tsv"},{"input_format","json"},{"output_format","tsv"},{"delimiter","semicolon"}},"rpcError");
+ call("convert_table",{{"source_path","inputs/items.csv"},{"output_path","outputs/o3.tsv"},{"input_format","csv"},{"output_format","tsv"},{"json_shape","objects"}},"rpcError");
+ call("convert_table",{{"source_path","inputs/items.csv"},{"output_path","outputs/o4.json"},{"input_format","csv"},{"output_format","json"},{"sheet_index",0}},"rpcError");
+ call("convert_table",{{"source_path","inputs/book.xlsx"},{"output_path","outputs/o5.csv"},{"input_format","xlsx"},{"output_format","xlsx"}},"rpcError");
+ call("xlsx_to_csv",{{"source_path","inputs/book.xlsx"},{"output_path","outputs/o6.csv"},{"sheet_index",1},{"sheet_name","Data"}},"rpcError");
+ call("xlsx_to_csv",{{"source_path","inputs/book.xlsx"},{"output_path","outputs/o7.csv"},{"sheet_name",""}},"rpcError");
+ call("xlsx_to_json",{{"source_path","inputs/book.xlsx"},{"output_path","outputs/o8.json"},{"delimiter","comma"}},"rpcError");
+ call("csv_to_tsv",{{"source_path","inputs/items.csv"},{"output_path","outputs/o9.tsv"},{"json_shape","arrays"}},"rpcError");
+ call("csv_to_json",{{"source_path","inputs/items.csv"},{"output_path","outputs/o10.json"},{"delimiter","pipe"}},"rpcError");
+ call("convert_markup",{{"source_path","inputs/page.html"},{"output_path","outputs/o11.srt"},{"input_format","html"},{"output_format","srt"}},"rpcError");
+ call("convert_markup",{{"source_path","inputs/subs.srt"},{"output_path","outputs/o12.srt"},{"input_format","srt"},{"output_format","srt"}},"rpcError");
+ call("convert_markup",{{"source_path","inputs/notes.md"},{"output_path","outputs/o13.html"},{"input_format","markdown"},{"output_format","html"},{"drop_navigation",true}},"rpcError");
+ call("convert_markup",{{"source_path","inputs/page.html"},{"output_path","outputs/o14.md"},{"input_format","html"},{"output_format","markdown"},{"full_document",true}},"rpcError");
+ call("html_to_markdown",{{"source_path","inputs/page.html"},{"output_path","outputs/o15.md"},{"full_document",true}},"rpcError");
+ call("srt_to_vtt",{{"source_path","inputs/subs.srt"},{"output_path","outputs/o16.vtt"},{"drop_navigation",false}},"rpcError");
+ call("convert_document",{{"source_path","inputs/body.odt"},{"output_path","outputs/o17.txt"},{"input_format","odt"},{"output_format","txt"},{"include_notes",false}},"rpcError");
+ call("odt_to_txt",{{"source_path","inputs/body.odt"},{"output_path","outputs/o18.txt"},{"include_notes",true}},"rpcError");
+ call("convert_audio",{{"source_path","inputs/stereo.aiff"},{"output_path","outputs/o19.ogg"},{"input_format","aiff"},{"output_format","vorbis"}},"rpcError");
+ call("wav_to_aiff",{{"source_path","inputs/stereo.wav"},{"output_path","outputs/o20.aiff"},{"channel_mask_dropped",true}},"rpcError");
  // Existing outputs are never replaced, and sources outside the folder are never read, for every family.
  call("wav_to_flac",{{"source_path","inputs/stereo.wav"},{"output_path","outputs/stereo.flac"}});
  call("docx_to_markdown",{{"source_path","inputs/plan.docx"},{"output_path","outputs/plan.md"}});
  call("docx_to_markdown",{{"source_path","../outside/private.png"},{"output_path","outputs/escape.md"}});
+ call("wav_to_aiff",{{"source_path","inputs/stereo.wav"},{"output_path","outputs/stereo.aiff"}});
+ call("epub_to_txt",{{"source_path","inputs/book.epub"},{"output_path","outputs/book.txt"}});
+ call("csv_to_json",{{"source_path","inputs/items.csv"},{"output_path","outputs/items.json"}});
+ call("csv_to_json",{{"source_path","../outside/private.png"},{"output_path","outputs/escape.json"}});
+ call("srt_to_vtt",{{"source_path","inputs/subs.srt"},{"output_path","outputs/subs.vtt"}});
+ call("html_to_markdown",{{"source_path","link/private.png"},{"output_path","outputs/escape-link.md"}});
  call("convert_image",{{"source_path","inputs/png.bin"},{"output_path","outputs/unlisted.dds"},{"input_format","png"},{"output_format","dds"}},"rpcError");
  call("convert_image",{{"source_path","inputs/png.bin"},{"output_path","outputs/matte.webp"},{"input_format","png"},{"output_format","webp"},{"alpha_policy","flatten_white"}},"rpcError");
  send({{"method","tools/call"},{"params",{{"name","png_to_jpeg"},{"arguments",{{"source_path","inputs/png.bin"},{"output_path","outputs/paid.jpg"}}},{"_meta",{{"x402/payment",Json::object()}}}}}},"rpcError");
@@ -242,14 +440,29 @@ void verify(const fs::path& root){
     check(tool.at("annotations").at("idempotentHint")==false,"unsafe idempotence hint");
     const bool imageOptions=name=="convert_image"||name=="png_to_jpeg"||name=="bmp_to_jpeg"||name=="webp_to_jpeg"||name=="png_to_webp"||name=="png_to_tiff";
     check(properties.contains("webp_quality")==imageOptions&&properties.contains("tiff_deflate")==imageOptions,name+": option schema");
+    // Each new option appears exactly on the tools it applies to.
+    const auto only=[&](const char* option,std::set<std::string> tools){
+     check(properties.contains(option)==tools.contains(name),name+": "+option+" schema");};
+    only("include_notes",{"convert_document","pptx_to_txt","pptx_to_markdown","odp_to_txt","odp_to_markdown"});
+    only("delimiter",{"convert_table","xlsx_to_csv","ods_to_csv","csv_to_json","json_to_csv","csv_to_tsv"});
+    only("sheet_index",{"convert_table","xlsx_to_csv","xlsx_to_json","ods_to_csv"});
+    only("sheet_name",{"convert_table","xlsx_to_csv","xlsx_to_json","ods_to_csv"});
+    only("json_shape",{"convert_table","xlsx_to_json","csv_to_json"});
+    only("drop_navigation",{"convert_markup","html_to_markdown"});
+    only("full_document",{"convert_markup","markdown_to_html"});
     const auto dump=tool.dump();
     for(const auto* term:{"\"heif\"","\"heic\"","\"avif\"","heic","avif"})
      check(dump.find(term)==std::string::npos,"HEIF/AVIF must not be admitted: "+name);
    }
    check(names==std::set<std::string>{"convert_image","png_to_jpeg","jpeg_to_png","bmp_to_png","bmp_to_jpeg","tga_to_png","dds_to_png",
     "webp_to_png","webp_to_jpeg","png_to_webp","gif_to_png","tiff_to_png","png_to_tiff","ico_to_png","png_to_ico",
-    "convert_audio","wav_to_flac","flac_to_wav","convert_document","docx_to_txt","docx_to_markdown","rtf_to_txt","rtf_to_markdown"},
-    "exactly twenty-three tools required");
+    "convert_audio","wav_to_flac","flac_to_wav","convert_document","docx_to_txt","docx_to_markdown","rtf_to_txt","rtf_to_markdown",
+    "convert_table","xlsx_to_csv","xlsx_to_json","ods_to_csv","csv_to_json","json_to_csv","csv_to_tsv",
+    "pptx_to_txt","pptx_to_markdown","odt_to_txt","odt_to_markdown","odp_to_txt","odp_to_markdown","epub_to_txt","epub_to_markdown",
+    "convert_markup","html_to_markdown","markdown_to_html","srt_to_vtt","vtt_to_srt",
+    "aiff_to_wav","aiff_to_flac","wav_to_aiff","flac_to_aiff"},
+    "exactly forty-seven tools required");
+   check(names.size()==47,"tool count");
   }
   if(kind=="converted"){
    const auto& data=test.at("data");const auto& value=result.at("structuredContent");const auto output=data.at("output").get<std::string>();
@@ -268,7 +481,7 @@ void verify(const fs::path& root){
  std::size_t outputs=0;for(const auto& entry:fs::directory_iterator(root/"files/outputs")){(void)entry;++outputs;}
  check(outputs==conversions,"failed request created an output");
  for(const auto& entry:fs::recursive_directory_iterator(root/"files"))check(!entry.path().filename().string().starts_with(".arken-write-"),"temporary stage leaked");
- std::cout<<"PASS "<<index<<" real stdio responses; all 23 tools, "<<converted
+ std::cout<<"PASS "<<index<<" real stdio responses; all 47 tools, "<<converted
   <<" conversions with exact files, hashes and reported metadata; codec-owner reasons; no overwrite or escape\n";
 }
 int main(int argc,char** argv){
