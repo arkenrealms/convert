@@ -1,0 +1,27 @@
+{
+  "key": "arken_audio_codecs_v1",
+  "name": "Arken Audio Codecs v1",
+  "version": "1.0.0",
+  "description": "Portable bounded memory-only WAV and FLAC codecs over a canonical lossless integer PCM model. Integer PCM is preserved exactly; floating-point and compressed WAV are rejected rather than quantized. The codec never opens files, reads stdio or starts threads.",
+  "public_dependencies": [],
+  "private_dependencies": [],
+  "test_dependencies": [],
+  "external_dependencies": [
+    {
+      "recipe": "flac-1.5.0-v1",
+      "scope": "private",
+      "components": [
+        "codec"
+      ],
+      "reason": "Pinned BSD-3-Clause libFLAC library only (no GPL programs, no Ogg, no SIMD) for memory-only FLAC decoding and deterministic encoding."
+    }
+  ],
+  "capabilities": [
+    "bounded_riff_wave_integer_pcm_decode",
+    "bounded_riff_wave_integer_pcm_encode",
+    "bounded_native_flac_decode",
+    "bounded_deterministic_flac_encode",
+    "lossless_integer_pcm_canonical_samples",
+    "wave_extensible_channel_mask_preservation"
+  ]
+}
