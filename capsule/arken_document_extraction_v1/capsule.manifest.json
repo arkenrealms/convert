@@ -1,0 +1,27 @@
+{
+  "key": "arken_document_extraction_v1",
+  "name": "Arken Document Extraction v1",
+  "version": "1.0.0",
+  "description": "Bounded memory-only DOCX (WordprocessingML main story) and RTF text extraction into one structural model with UTF-8 TXT and escaped Markdown serializers. No file, network, macro, Office or external-resource access; unsupported, encrypted and malformed inputs are typed errors.",
+  "public_dependencies": [],
+  "private_dependencies": [],
+  "test_dependencies": [],
+  "external_dependencies": [
+    {
+      "recipe": "stb-image-2.30-v1",
+      "scope": "private",
+      "components": [
+        "image"
+      ],
+      "reason": "Pinned memory-only raw-deflate inflation of DOCX ZIP members into a fixed, declared-size output buffer."
+    }
+  ],
+  "capabilities": [
+    "bounded_docx_zip_package_read",
+    "bounded_utf8_xml_without_dtd",
+    "wordprocessingml_main_story_extraction",
+    "stateful_rtf_extraction",
+    "utf8_text_serialization",
+    "escaped_markdown_serialization"
+  ]
+}
