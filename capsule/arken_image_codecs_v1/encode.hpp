@@ -12,6 +12,8 @@ struct EncodeOptions {
     std::uint32_t maximumDimension=8192,jpegQuality=95;
     AlphaPolicy alphaPolicy=AlphaPolicy::preserve;
     RasterProfile resourceProfile=RasterProfile::bounded;
+    // TIFF only: Deflate (compression 8) with horizontal predictor instead of uncompressed.
+    bool tiffDeflate=false;
 };
 struct EncodeResult {
     EncodeError error=EncodeError::none;
@@ -21,7 +23,8 @@ struct EncodeResult {
 };
 // Top-left, tightly packed, straight-alpha RGBA8; PNG/BMP/TGA/ICO/TIFF preserve all channels.
 // ICO writes one PNG-backed rendition, at most256x256, without resizing.
-// TIFF writes one classic little-endian uncompressed chunky RGBA8 image.
+// TIFF writes one classic little-endian chunky RGBA8 image, uncompressed by default
+// or Deflate + horizontal predictor when tiffDeflate is set.
 // WebP writes one lossless image preserving exact RGBA, including transparent RGB.
 // JPEG transparency requires explicit white-matte consent. No I/O or metadata copy.
 [[nodiscard]] EncodeResult EncodeImage(Format,std::uint32_t width,std::uint32_t height,
