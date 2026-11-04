@@ -141,11 +141,10 @@ profile; nothing here claims gigabyte streaming.
     target, `FLAC`, linking only `m`; no getopt, iconv, intl, libogg or
     Threads target or cache entry exists.
 - Archive note: the release tarball contains three test files with UTF-8
-  names. The SDK lists archives with `cmake -E tar`, which refuses them under
-  the POSIX `C` locale. `tests/CMakeLists.txt` therefore sets a UTF-8
-  `LC_ALL` for the configure when the host has none. Any composition that
-  resolves this recipe (including the root MCP build) needs the same, or the
-  SDK should pin a UTF-8 locale for its archive listing.
+  names. libarchive refuses them under the POSIX `C` locale, so the SDK
+  (`ArkenExternalPackageSource.cmake`) lists and extracts archives in child
+  processes with a UTF-8 `LC_ALL` when the host's effective `LC_CTYPE` is not
+  UTF-8. Compositions need no locale workaround of their own.
 - Browser note (not yet qualified): libFLAC's static archive still contains
   its file-based entry points (`fopen`, `fseeko`, `chmod`, `utimensat`,
   `unlink`, `stdin`/`stdout` in `stream_decoder.c`, `stream_encoder.c` and

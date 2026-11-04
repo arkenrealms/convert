@@ -13,26 +13,8 @@ if(NOT modules STREQUAL "arken_audio_codecs_v1")
   message(FATAL_ERROR "Audio codec qualification must resolve only arken_audio_codecs_v1, not: ${modules}")
 endif()
 arken_get_resolved_module_manifests(manifests)
-# The pinned flac-1.5.0 release archive contains three test files with UTF-8
-# names (test/flac-to-flac-metadata-test-files/). The SDK lists archives with
-# `cmake -E tar`, whose libarchive cannot represent them under the POSIX "C"
-# locale and refuses the archive. Give the child processes a UTF-8 character
-# locale when the host provides none; the archive digest check is unchanged.
-set(effective_ctype "$ENV{LC_ALL}")
-if(effective_ctype STREQUAL "")
-  set(effective_ctype "$ENV{LC_CTYPE}")
-endif()
-if(effective_ctype STREQUAL "")
-  set(effective_ctype "$ENV{LANG}")
-endif()
-if(CMAKE_HOST_UNIX AND NOT effective_ctype MATCHES "[Uu][Tt][Ff]-?8")
-  if(CMAKE_HOST_APPLE)
-    set(ENV{LC_ALL} "en_US.UTF-8")
-  else()
-    set(ENV{LC_ALL} "C.UTF-8")
-  endif()
-  message(STATUS "Using LC_ALL=$ENV{LC_ALL} for UTF-8 archive member names")
-endif()
+# The flac-1.5.0 archive's UTF-8 member names are handled by the SDK, which lists
+# and extracts archives with a UTF-8 locale when the host provides none.
 include("${workspace}/sdk/arken_sdk_dev/cmake/ArkenExternalPackageGraph.cmake")
 arken_resolve_external_packages(ROOT_MANIFEST "${CMAKE_CURRENT_LIST_DIR}/lib.manifest.json"
   MODULE_MANIFESTS ${manifests} WORKSPACE_ROOT "${workspace}")
