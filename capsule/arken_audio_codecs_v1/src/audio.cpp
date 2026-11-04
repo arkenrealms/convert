@@ -18,30 +18,46 @@ Error ValidateAudio(const Audio& audio, const Limits& limits) noexcept {
 
 namespace {
 bool Known(Container container) noexcept {
-    return container == Container::wav || container == Container::flac || container == Container::aiff;
+    return container == Container::wav || container == Container::flac || container == Container::aiff
+        || IsLossy(container);
 }
 DecodeResult Decode(Container container, std::span<const std::byte> bytes, const Limits& limits) noexcept {
     switch (container) {
     case Container::wav: return DecodeWav(bytes, limits);
     case Container::flac: return DecodeFlac(bytes, limits);
     case Container::aiff: return DecodeAiff(bytes, limits);
+    case Container::vorbis: return DecodeVorbis(bytes, limits);
+    case Container::opus: return DecodeOpus(bytes, limits);
+    case Container::mp3: return DecodeMp3(bytes, limits);
     }
     DecodeResult unknown;
     unknown.issue.code = Error::invalid_audio;
     return unknown;
 }
-EncodeResult Encode(Container container, const Audio& audio, const Limits& limits) noexcept {
+EncodeResult Encode(Container container, const Audio& audio, const LossyOptions& options, const Limits& limits) noexcept {
     switch (container) {
     case Container::wav: return EncodeWav(audio, limits);
     case Container::flac: return EncodeFlac(audio, limits);
     case Container::aiff: return EncodeAiff(audio, limits);
+    case Container::vorbis: return EncodeVorbis(audio, options, limits);
+    case Container::opus: return EncodeOpus(audio, options, limits);
+    case Container::mp3: return EncodeMp3(audio, options, limits);
     }
     return {Error::invalid_audio, {}};
 }
 } // namespace
 
+bool IsLossy(Container container) noexcept {
+    return container == Container::vorbis || container == Container::opus || container == Container::mp3;
+}
+
 ConvertResult Convert(Container source, Container destination, std::span<const std::byte> bytes,
     const Limits& limits) noexcept {
+    return Convert(source, destination, bytes, LossyOptions{}, limits);
+}
+
+ConvertResult Convert(Container source, Container destination, std::span<const std::byte> bytes,
+    const LossyOptions& options, const Limits& limits) noexcept {
     ConvertResult result;
     if (!Known(source) || !Known(destination)) {
         result.encodeError = Error::invalid_audio;
@@ -55,10 +71,12 @@ ConvertResult Convert(Container source, Container destination, std::span<const s
     result.channels = decoded.audio.channels;
     result.bitsPerSample = decoded.audio.bitsPerSample;
     result.frames = decoded.audio.frames;
-    auto encoded = Encode(destination, decoded.audio, limits);
+    auto encoded = Encode(destination, decoded.audio, options, limits);
     result.encodeError = encoded.error;
     if (encoded) {
         result.droppedChannelMask = destination == Container::aiff && decoded.audio.channelMask.has_value();
+        result.lossyOutput = IsLossy(destination);
+        result.generationLoss = result.lossyOutput && decoded.report.lossy;
         result.bytes = std::move(encoded.bytes);
     }
     return result;
@@ -83,14 +101,18 @@ std::string_view ErrorMessage(Error error) noexcept {
     case Error::metadata_limit: return "audio metadata exceeds the admitted size or count";
     case Error::output_limit: return "encoded audio would exceed the admitted output size";
     case Error::invalid_metadata: return "audio metadata is malformed";
-    case Error::corrupt_stream: return "FLAC stream is corrupt";
+    case Error::corrupt_stream: return "audio stream is corrupt (FLAC frame or CRC, Ogg page or packet, Vorbis/Opus packet or MP3 frame error)";
     case Error::checksum_mismatch: return "decoded audio does not match the stream MD5 checksum";
     case Error::length_mismatch: return "decoded sample count does not match the declared total";
     case Error::invalid_audio: return "audio samples or parameters are inconsistent";
     case Error::allocation_failed: return "audio allocation failed";
-    case Error::codec_failed: return "the FLAC codec failed";
+    case Error::codec_failed: return "the audio codec library failed";
     case Error::verify_failed: return "FLAC encoder verification found a mismatch";
     case Error::unsupported_sample_rate: return "AIFF sample rate is not an exact positive integer";
+    case Error::chained_stream: return "chained Ogg streams (a second link after the first ended) are not supported";
+    case Error::unsupported_channel_mapping: return "Opus channel mapping family or mapping table is not supported (families 0 and 1 only)";
+    case Error::resampling_required: return "the sample rate is not one this lossy format codes natively and resampling is not performed";
+    case Error::invalid_option: return "lossy encoder quality or bitrate control is outside its documented range";
     }
     return "unknown audio error";
 }
