@@ -65,8 +65,15 @@ AudioResult ConvertStandaloneAudio(audio::Container source, audio::Container des
         }
         if (converted.encodeError != audio::Error::none) {
             const auto code = converted.encodeError;
-            return Failure(code == audio::Error::allocation_failed ? Error::allocation_failed
-                : code == audio::Error::invalid_option ? Error::invalid_options : Error::encode_failed, code);
+            const bool option = code == audio::Error::invalid_option || code == audio::Error::bitrate_too_low_for_gapless_tag;
+            auto failure = Failure(code == audio::Error::allocation_failed ? Error::allocation_failed
+                : option ? Error::invalid_options : Error::encode_failed, code);
+            // Name the floor for this source so the caller can retry with a usable bitrate.
+            if (code == audio::Error::bitrate_too_low_for_gapless_tag) {
+                failure.sampleRate = converted.sampleRate; failure.channels = converted.channels;
+                failure.minimumMp3BitrateKbps = audio::Mp3MinimumCbrBitrateKbps(converted.sampleRate, converted.channels);
+            }
+            return failure;
         }
         const auto& report = converted.report;
         AudioResult result;

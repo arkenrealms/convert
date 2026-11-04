@@ -77,6 +77,10 @@ struct AudioResult {
     // Opus source: the input sample rate OpusHead declares (informational; decoded at 48 kHz,
     // nothing is resampled back to it).
     std::uint32_t originalSampleRate = 0;
+    // Failure with codecError bitrate_too_low_for_gapless_tag only: the lowest MP3 CBR bitrate
+    // whose frames hold the gapless LAME tag at this source's rate and channel count (also
+    // given in sampleRate and channels).
+    std::uint32_t minimumMp3BitrateKbps = 0;
     std::vector<std::byte> bytes;
     explicit operator bool() const noexcept { return error == Error::none; }
 };
@@ -90,7 +94,9 @@ struct AudioResult {
 // differs from its default is invalid_options unless the destination is its format, and
 // mp3BitrateKbps other than 192 requires CBR, mp3VbrQuality other than 2 requires VBR. An
 // out-of-range value, or an MP3 bitrate the sample rate's MPEG version does not define, is
-// invalid_options with codecError invalid_option. Opus encodes 8/12/16/24/48 kHz and MP3
+// invalid_options with codecError invalid_option; a legal MP3 CBR bitrate whose frames cannot
+// hold the gapless LAME tag is invalid_options with codecError bitrate_too_low_for_gapless_tag
+// and minimumMp3BitrateKbps set (decided by the codec before encoding). Opus encodes 8/12/16/24/48 kHz and MP3
 // the nine Layer III rates only (resampling_required otherwise), from 1-2 channels
 // (channel_limit otherwise).
 [[nodiscard]] AudioResult ConvertStandaloneAudio(audio::Container source, audio::Container destination,

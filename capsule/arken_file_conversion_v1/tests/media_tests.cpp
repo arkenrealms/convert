@@ -260,12 +260,12 @@ void LossyCases() {
     const auto opusHigh = withOptions(Container::opus, [](auto& o) { o.opusBitrateKbps = 510; });
     Check(opusLow && opusHigh && opusLow.bytes.size() < encoded[5].size() && encoded[5].size() < opusHigh.bytes.size(),
         "opus_bitrate_kbps does not order the output size");
-    // MP3 CBR floor of this codec build: LAME writes its gapless Info/LAME tag only into a
-    // frame of at least 4 + side information + 156 bytes; below that it omits the tag and the
-    // codec fails with codec_failed instead of writing a file without gapless data. The
-    // floors below (mono, stereo) are pinned exactly so that a codec change is noticed and
-    // the documented table (tool descriptions, README) is updated with it. VBR at every
-    // quality and every rate is accepted.
+    // MP3 CBR floor: LAME writes its gapless Info/LAME tag only into a frame of at least
+    // 4 + side information + 156 bytes. The codec rejects a smaller legal bitrate before
+    // encoding with bitrate_too_low_for_gapless_tag (the tag is never dropped); the owner
+    // reports it as invalid_options with the floor for this source. The floors (mono,
+    // stereo) are pinned exactly against the documented table (tool descriptions, README).
+    // VBR at every quality and every rate is accepted.
     struct Floor { std::uint32_t rate, mono, stereo; };
     for (const auto floor : {Floor{48000, 64, 64}, Floor{44100, 56, 64}, Floor{32000, 40, 48}, Floor{24000, 64, 64},
                              Floor{22050, 56, 56}, Floor{16000, 40, 40}, Floor{12000, 32, 32}, Floor{11025, 32, 32}, Floor{8000, 24, 24}}) {
@@ -279,7 +279,8 @@ void LossyCases() {
                 audio::LossyOptions o; o.mp3BitrateKbps = kbps;
                 const auto out = c::ConvertStandaloneAudio(Container::wav, Container::mp3, source, o);
                 Check(kbps >= minimum ? bool(out) && audio::DecodeMp3(out.bytes).audio.frames == 2400
-                    : out.error == c::Error::encode_failed && out.codecError == audio::Error::codec_failed && out.bytes.empty(),
+                    : out.error == c::Error::invalid_options && out.codecError == audio::Error::bitrate_too_low_for_gapless_tag
+                        && out.minimumMp3BitrateKbps == minimum && out.sampleRate == floor.rate && out.channels == channels && out.bytes.empty(),
                     "MP3 CBR floor changed at " + std::to_string(floor.rate) + " Hz, " + std::to_string(channels) + " ch, "
                     + std::to_string(kbps) + " kbps");
             }

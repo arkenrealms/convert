@@ -189,11 +189,13 @@ Quality contract:
 
   `mp3_bitrate_kbps` must be a Layer III bitrate of the sample rate's MPEG version
   (32–320 kbps at 32, 44.1 and 48 kHz; 8–160 kbps at 8–24 kHz) and the frame must
-  be large enough to hold the gapless LAME tag. The lowest usable CBR bitrates
-  are therefore 64 kbps at 48 kHz, 56 (mono) or 64 (stereo) at 44.1 kHz, 40 or 48
-  at 32 kHz, 64 at 24 kHz, 56 at 22.05 kHz, 40 at 16 kHz, 32 at 12 and 11.025 kHz
-  and 24 at 8 kHz; lower bitrates fail with the codec's error. VBR works at every
-  quality and rate.
+  be large enough to hold the gapless LAME tag. The minimum CBR bitrates are
+  therefore 64 kbps at 48 kHz, 56 (mono) or 64 (stereo) at 44.1 kHz, 40 or 48 at
+  32 kHz, 64 at 24 kHz, 56 at 22.05 kHz, 40 at 16 kHz, 32 at 12 and 11.025 kHz and
+  24 at 8 kHz. A lower bitrate is rejected before encoding with a typed error
+  (`bitrate_too_low_for_gapless_tag`) whose message names the minimum for the
+  source's sample rate and channel count; the gapless tag is never silently
+  dropped. VBR works at every quality and rate.
 - No resampling. Opus encodes only 8, 12, 16, 24 or 48 kHz sources (44.1 kHz is
   rejected with `resampling_required`); MP3 only the standard rates 8, 11.025, 12,
   16, 22.05, 24, 32, 44.1 and 48 kHz; Vorbis keeps the source rate.

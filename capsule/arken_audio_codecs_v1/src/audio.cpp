@@ -113,6 +113,10 @@ std::string_view ErrorMessage(Error error) noexcept {
     case Error::unsupported_channel_mapping: return "Opus channel mapping family or mapping table is not supported (families 0 and 1 only)";
     case Error::resampling_required: return "the sample rate is not one this lossy format codes natively and resampling is not performed";
     case Error::invalid_option: return "lossy encoder quality or bitrate control is outside its documented range";
+    case Error::bitrate_too_low_for_gapless_tag:
+        return "MP3 CBR bitrate is too low for its frames to hold the gapless LAME tag; minimum CBR kbps (mono/stereo): "
+               "48 kHz 64/64, 44.1 kHz 56/64, 32 kHz 40/48, 24 kHz 64/64, 22.05 kHz 56/56, 16 kHz 40/40, "
+               "12 and 11.025 kHz 32/32, 8 kHz 24/24";
     }
     return "unknown audio error";
 }

@@ -15,6 +15,24 @@ constexpr std::uint16_t mpeg1Kbps[15] = {0, 32, 40, 48, 56, 64, 80, 96, 112, 128
 constexpr std::uint16_t mpeg2Kbps[15] = {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160};
 constexpr std::uint32_t rates[3][3] = {{44100, 48000, 32000}, {22050, 24000, 16000}, {11025, 12000, 8000}};
 
+// LAME 3.100 InitVbrTag (VbrTag.c) writes the Info/LAME tag only when the CBR frame size
+// ((version + 1) * 72000 * kbps / rate, integer division; LAME's version 1 = MPEG-1, 0 =
+// MPEG-2/2.5) is at least sideinfo_len (4-byte header + 17/32 MPEG-1, 9/17 MPEG-2/2.5 side
+// information bytes for mono/stereo, no CRC) + LAMEHEADERSIZE (156); otherwise it silently
+// omits the tag. The same arithmetic here rejects such bitrates before encoding.
+constexpr std::uint32_t lameHeaderBytes = 156;
+bool GaplessTagFits(int version, std::uint32_t channels, std::uint32_t kbps, std::uint32_t sampleRate) noexcept {
+    const std::uint32_t frameBytes = (version == 0 ? 144000u : 72000u) * kbps / sampleRate;
+    const std::uint32_t sideInfo = 4u + (version == 0 ? (channels == 1 ? 17u : 32u) : (channels == 1 ? 9u : 17u));
+    return frameBytes >= sideInfo + lameHeaderBytes;
+}
+int Mp3Version(std::uint32_t sampleRate) noexcept {
+    for (int v = 0; v < 3; ++v)
+        for (auto rate : rates[v])
+            if (rate == sampleRate) return v;
+    return -1;
+}
+
 struct Header {
     std::uint32_t version = 0; // 0: MPEG-1, 1: MPEG-2, 2: MPEG-2.5
     std::uint32_t sampleRate = 0, channels = 0, frameBytes = 0, frameSamples = 0, sideInfo = 0;
@@ -255,15 +273,14 @@ EncodeResult EncodeMp3(const Audio& audio, const LossyOptions& options, const Li
     try {
         if (const auto invalid = ValidateAudio(audio, limits); invalid != Error::none) return {invalid, {}};
         if (audio.channels > 2) return {Error::channel_limit, {}};
-        int version = -1;
-        for (int v = 0; v < 3; ++v)
-            for (auto rate : rates[v])
-                if (rate == audio.sampleRate) version = v;
+        const int version = Mp3Version(audio.sampleRate);
         if (version < 0) return {Error::resampling_required, {}};
         if (options.mp3RateControl == Mp3RateControl::cbr) {
             const auto* table = version == 0 ? mpeg1Kbps : mpeg2Kbps;
             if (options.mp3BitrateKbps == 0 || std::find(table + 1, table + 15, options.mp3BitrateKbps) == table + 15)
                 return {Error::invalid_option, {}};
+            if (!GaplessTagFits(version, audio.channels, options.mp3BitrateKbps, audio.sampleRate))
+                return {Error::bitrate_too_low_for_gapless_tag, {}};
         } else if (options.mp3RateControl == Mp3RateControl::vbr) {
             if (options.mp3VbrQuality > 9) return {Error::invalid_option, {}};
         } else {
@@ -328,4 +345,13 @@ EncodeResult EncodeMp3(const Audio& audio, const LossyOptions& options, const Li
 }
 
 std::string_view LameVersionString() noexcept { return get_lame_version(); }
+
+std::uint32_t Mp3MinimumCbrBitrateKbps(std::uint32_t sampleRate, std::uint32_t channels) noexcept {
+    const int version = Mp3Version(sampleRate);
+    if (version < 0 || channels < 1 || channels > 2) return 0;
+    const auto* table = version == 0 ? mpeg1Kbps : mpeg2Kbps;
+    for (int i = 1; i < 15; ++i)
+        if (GaplessTagFits(version, channels, table[i], sampleRate)) return table[i];
+    return 0;
+}
 } // namespace arken::audio::v1
