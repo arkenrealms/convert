@@ -4,6 +4,7 @@
 #include "webp.hpp"
 #if defined(ARKEN_IMAGE_HEIF_DECODER)
 #include "heif.hpp"
+#include "avif.hpp"
 #endif
 #include <new>
 
@@ -28,8 +29,9 @@ DecodeResult DecodeImage(Format format,std::span<const std::byte> bytes,const De
             case Format::webp:return detail::DecodeWebp(bytes,options);
 #if defined(ARKEN_IMAGE_HEIF_DECODER)
             case Format::heif:return detail::DecodeHeif(bytes,options);
+            case Format::avif:return detail::DecodeAvif(bytes,options);
 #else
-            case Format::heif:return detail::Failure(DecodeError::unsupported_content);
+            case Format::heif:case Format::avif:return detail::Failure(DecodeError::unsupported_content);
 #endif
             case Format::png:case Format::bmp:case Format::jpeg:case Format::gif:return detail::DecodeRaster(format,bytes,options);
         }
