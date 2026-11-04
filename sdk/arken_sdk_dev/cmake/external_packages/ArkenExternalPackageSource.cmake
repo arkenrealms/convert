@@ -261,6 +261,35 @@ function(_arken_extpkg_archive_link_exclusions
     set(${out_targets} "${_targets}" PARENT_SCOPE)
 endfunction()
 
+# Archive member names are UTF-8 (flac-1.5.0 ships test files with non-ASCII
+# names). libarchive cannot represent them under the POSIX "C" locale and
+# refuses the whole archive, both in a `cmake -E tar` child and in-process
+# (file(ARCHIVE_EXTRACT) reads the configure process's own locale
+# environment). Listing and extraction therefore both run as children. When the host's effective
+# LC_CTYPE (LC_ALL, else LC_CTYPE, else LANG) is not UTF-8, archive tool
+# children run with a UTF-8 LC_ALL. Only those children are affected: the
+# configure's own environment, the compilers and every other process keep the
+# host locale, and the archive digest and tree identity checks are unchanged.
+function(_arken_extpkg_archive_tool out_var)
+    set(_ctype "$ENV{LC_ALL}")
+    if(_ctype STREQUAL "")
+        set(_ctype "$ENV{LC_CTYPE}")
+    endif()
+    if(_ctype STREQUAL "")
+        set(_ctype "$ENV{LANG}")
+    endif()
+    if(CMAKE_HOST_UNIX AND NOT _ctype MATCHES "[Uu][Tt][Ff]-?8")
+        if(CMAKE_HOST_APPLE)
+            set(_locale "en_US.UTF-8")
+        else()
+            set(_locale "C.UTF-8")
+        endif()
+        set(${out_var} "${CMAKE_COMMAND}" -E env "LC_ALL=${_locale}" "${CMAKE_COMMAND}" PARENT_SCOPE)
+    else()
+        set(${out_var} "${CMAKE_COMMAND}" PARENT_SCOPE)
+    endif()
+endfunction()
+
 function(_arken_extpkg_validate_archive_listing
     archive
     recipe_json
@@ -273,8 +302,9 @@ function(_arken_extpkg_validate_archive_listing
         "${recipe_json}"
         "${recipe_id}"
     )
+    _arken_extpkg_archive_tool(_archive_tool)
     execute_process(
-        COMMAND "${CMAKE_COMMAND}" -E tar tf "${archive}"
+        COMMAND ${_archive_tool} -E tar tf "${archive}"
         RESULT_VARIABLE _result
         OUTPUT_VARIABLE _listing
         ERROR_VARIABLE _error
@@ -305,7 +335,7 @@ function(_arken_extpkg_validate_archive_listing
         endif()
     endforeach()
     execute_process(
-        COMMAND "${CMAKE_COMMAND}" -E tar tvf "${archive}"
+        COMMAND ${_archive_tool} -E tar tvf "${archive}"
         RESULT_VARIABLE _verbose_result
         OUTPUT_VARIABLE _verbose_listing
         ERROR_VARIABLE _verbose_error
@@ -703,7 +733,26 @@ function(_arken_extpkg_materialize_archive_source
     set(_temporary "${_entry}.partial-${_nonce}")
     file(REMOVE_RECURSE "${_temporary}")
     file(MAKE_DIRECTORY "${_temporary}/source")
-    file(ARCHIVE_EXTRACT INPUT "${_download}" DESTINATION "${_temporary}/source")
+    # Extract in a child, like the listing, so the UTF-8 locale reaches
+    # libarchive without changing the configure process's own environment.
+    _arken_extpkg_archive_tool(_archive_tool)
+    execute_process(
+        COMMAND ${_archive_tool} -E tar xf "${_download}"
+        WORKING_DIRECTORY "${_temporary}/source"
+        RESULT_VARIABLE _extract_result
+        OUTPUT_VARIABLE _extract_output
+        ERROR_VARIABLE _extract_error
+    )
+    if(NOT _extract_result EQUAL 0)
+        file(REMOVE_RECURSE "${_temporary}")
+        file(REMOVE "${_download}")
+        _arken_extpkg_error(
+            "arken.external_packages.archive.extract_failed"
+            "extraction"
+            "${recipe_id}"
+            "Archive extraction failed: ${_extract_error}"
+        )
+    endif()
     file(REMOVE "${_download}")
     _arken_extpkg_remove_excluded_archive_links(
         "${_temporary}/source"
