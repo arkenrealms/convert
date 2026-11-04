@@ -14,6 +14,11 @@ struct EncodeOptions {
     RasterProfile resourceProfile=RasterProfile::bounded;
     // TIFF only: Deflate (compression 8) with horizontal predictor instead of uncompressed.
     bool tiffDeflate=false;
+    // WebP: lossless (default) keeps exact RGBA. When false, lossy VP8 at
+    // webpQuality (1-100, like jpegQuality; validated for every WebP encode)
+    // with a losslessly coded alpha plane; transparent RGB is not preserved.
+    bool webpLossless=true;
+    std::uint32_t webpQuality=90;
 };
 struct EncodeResult {
     EncodeError error=EncodeError::none;
@@ -25,7 +30,9 @@ struct EncodeResult {
 // ICO writes one PNG-backed rendition, at most256x256, without resizing.
 // TIFF writes one classic little-endian chunky RGBA8 image, uncompressed by default
 // or Deflate + horizontal predictor when tiffDeflate is set.
-// WebP writes one lossless image preserving exact RGBA, including transparent RGB.
+// WebP writes one still image: lossless by default, preserving exact RGBA including
+// transparent RGB; or lossy (webpLossless=false) at webpQuality, method 4, exact=0,
+// alpha kept exactly via a lossless alpha plane. Single-threaded and deterministic.
 // JPEG transparency requires explicit white-matte consent. No I/O or metadata copy.
 [[nodiscard]] EncodeResult EncodeImage(Format,std::uint32_t width,std::uint32_t height,
     std::span<const std::uint8_t> rgba8,const EncodeOptions& options={}) noexcept;
