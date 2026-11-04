@@ -98,7 +98,11 @@ enum class Error : std::uint32_t {
     chained_stream,         // Ogg: a further chained link (new BOS pages after every stream of the first link ended)
     unsupported_channel_mapping, // Opus mapping family other than 0/1 (2, 3, 255, ...) or an inadmissible mapping table
     resampling_required,    // lossy encoder: sample rate is not one the format codes natively; no resampling is performed
-    invalid_option          // lossy encoder: quality/bitrate control outside the documented range
+    invalid_option,         // lossy encoder: quality/bitrate control outside the documented range
+    // MP3 CBR: the bitrate is legal for the rate's MPEG version, but its frames are too small to
+    // hold the Info/LAME gapless tag (4-byte header + side information + 156 bytes). Decided
+    // before encoding (Mp3MinimumCbrBitrateKbps); the tag is never silently dropped.
+    bitrate_too_low_for_gapless_tag
 };
 
 struct Issue {
@@ -232,8 +236,16 @@ struct ConvertResult {
 [[nodiscard]] EncodeResult EncodeOpus(const Audio&, const LossyOptions& = {}, const Limits& = {}) noexcept;
 // Deterministic MP3 via LAME: input rate must be an MPEG Layer III rate (8000,
 // 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000), no resampling, a
-// LAME Info/Xing tag frame with encoder delay and padding, no ID3 tags.
+// LAME Info/Xing tag frame with encoder delay and padding, no ID3 tags. A CBR bitrate below
+// Mp3MinimumCbrBitrateKbps is bitrate_too_low_for_gapless_tag, decided before encoding.
 [[nodiscard]] EncodeResult EncodeMp3(const Audio&, const LossyOptions& = {}, const Limits& = {}) noexcept;
+// Lowest CBR bitrate (kbps) EncodeMp3 accepts at this sample rate and channel count: the
+// lowest legal Layer III bitrate whose frame, floor((version == MPEG-1 ? 144000 : 72000) x kbps
+// / rate) bytes, holds the 4-byte header, the side information (MPEG-1: 17 mono / 32 stereo;
+// MPEG-2/2.5: 9 / 17) and the 156-byte Info/LAME tag. 0 when the rate is not an MP3 rate or
+// channels is not 1 or 2. Values: 48 kHz 64/64 (mono/stereo), 44.1 kHz 56/64, 32 kHz 40/48,
+// 24 kHz 64/64, 22.05 kHz 56/56, 16 kHz 40/40, 12 and 11.025 kHz 32/32, 8 kHz 24/24.
+[[nodiscard]] std::uint32_t Mp3MinimumCbrBitrateKbps(std::uint32_t sampleRate, std::uint32_t channels) noexcept;
 // Decode with `source`, re-encode with `destination` under the same limits.
 [[nodiscard]] ConvertResult Convert(Container source, Container destination,
     std::span<const std::byte>, const Limits& = {}) noexcept;

@@ -25,13 +25,21 @@ in two ways: each encoder tool has its own request model carrying only its
 format's controls (`vorbis_file_request`, `opus_file_request`,
 `mp3_file_request`) instead of one `lossy_file_request`, and the result also
 reports `trimmed_leading_frames`, `trimmed_trailing_frames` and
-`silenced_frames`. Integration finding: LAME writes its Info/LAME tag only into
-a frame of at least 4 + side information + 156 bytes; for smaller CBR frames
-`EncodeMp3` returns `codec_failed` (from the empty `lame_get_lametag_frame`)
-rather than a typed option error. The usable CBR floors (mono/stereo kbps: 48
-kHz 64/64, 44.1 kHz 56/64, 32 kHz 40/48, 24 kHz 64/64, 22.05 kHz 56/56, 16 kHz
-40/40, 12 and 11.025 kHz 32/32, 8 kHz 24/24) are pinned by the conversion
-owner's tests and stated in the tool descriptions. Browser execution, a UI and
+`silenced_frames`. Integration finding, fixed in the codec: LAME 3.100
+(`InitVbrTag`) writes its Info/LAME tag only into a CBR frame of at least
+`sideinfo_len` (4-byte header + 17/32 MPEG-1, 9/17 MPEG-2/2.5 side information
+bytes, mono/stereo) + 156 bytes, and otherwise silently omits it, which
+previously surfaced as `codec_failed` from the empty `lame_get_lametag_frame`.
+`EncodeMp3` now applies the same frame-size arithmetic before encoding and
+rejects such a bitrate with the typed `bitrate_too_low_for_gapless_tag`, whose
+message names the minimum CBR bitrate per rate and channel count (mono/stereo
+kbps: 48 kHz 64/64, 44.1 kHz 56/64, 32 kHz 40/48, 24 kHz 64/64, 22.05 kHz
+56/56, 16 kHz 40/40, 12 and 11.025 kHz 32/32, 8 kHz 24/24;
+`Mp3MinimumCbrBitrateKbps(rate, channels)` returns it). The tag is never
+dropped. `CompressedAudio.Mp3GaplessFloor` checks every legal bitrate on both
+sides of the boundary at all nine rates and both channel counts; the
+conversion owner reports the floor for the source and the stdio proof checks
+the typed reason. Browser execution, a UI and
 a streaming file path are still not provided and need separate qualification.
 
 ## Supported profile
@@ -316,6 +324,7 @@ chained or multiplexed Ogg output, seeking/streaming.
 | Granule range not covered by decoded audio or end trim too long; Xing frame count mismatch; LAME delay/padding exceeding the stream | `length_mismatch` |
 | Encoding: Opus rate not 8/12/16/24/48 kHz, MP3 rate not a Layer III rate | `resampling_required` |
 | Encoding: a `LossyOptions` control out of range or an illegal MP3 bitrate | `invalid_option` |
+| Encoding: a legal MP3 CBR bitrate whose frames cannot hold the Info/LAME gapless tag (checked before encoding; the tag is never dropped) | `bitrate_too_low_for_gapless_tag` (message names the minimum per rate and channel count) |
 | Encoding lossy with more than 2 channels | `channel_limit` |
 
 Every strict prefix of a valid WAV or AIFF, and a sweep of prefixes of a valid
@@ -617,6 +626,12 @@ hook), and any browser build.
   kHz and MP3 at 96/88.2/7.999/64 kHz are `resampling_required`; MP3 and
   Vorbis round trips at all nine MP3 rates and Opus at all five Opus rates
   return exactly the input length.
+- `Mp3GaplessFloor`: at all nine MP3 rates, mono and stereo, every legal CBR
+  bitrate below the minimum is `bitrate_too_low_for_gapless_tag` with no bytes
+  (also through `Convert`) and every one at or above it encodes with the LAME
+  tag and decodes to the exact length; `Mp3MinimumCbrBitrateKbps` matches the
+  table; VBR 9 is accepted everywhere; an illegal bitrate stays
+  `invalid_option`; the message names the minimums.
 - `Version`: `Xiph.Org libVorbis 1.3.7; libopus 1.5.2; LAME 3.100`.
 - `FfmpegInterop` (FFmpeg 6.1.1 on the host as an independent oracle; its
   native Vorbis, Opus and MP3 decoders): FFmpeg decodes Arken's Vorbis, Opus,
