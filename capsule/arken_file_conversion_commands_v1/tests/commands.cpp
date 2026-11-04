@@ -2,6 +2,9 @@
 #include "arken_mcp_protocol_v1/api.hpp"
 #include "arken/digest/v1/digest.hpp"
 #include "arken_image_codecs_v1/test_support/texture_fixtures.hpp"
+#include "arken_image_codecs_v1/test_support/gif_fixtures.hpp"
+#include "arken_image_codecs_v1/test_support/ico_fixtures.hpp"
+#include "arken_image_codecs_v1/test_support/tiff_fixtures.hpp"
 #include <array>
 #include <filesystem>
 #include <fstream>
@@ -28,10 +31,14 @@ void prepare(const fs::path& root){
  fs::create_directory(root/"expected");fs::create_directory(root/"outside");
  const std::array<std::uint8_t,16> pixels{255,0,0,255,0,255,0,255,0,0,255,255,255,255,255,255};
  std::map<std::string,std::vector<std::byte>> sources;
- for(auto [name,format]:std::initializer_list<std::pair<std::string,I::Format>>{{"png",I::Format::png},{"jpeg",I::Format::jpeg},{"bmp",I::Format::bmp},{"tga",I::Format::tga}}){
+ for(auto [name,format]:std::initializer_list<std::pair<std::string,I::Format>>{{"png",I::Format::png},{"jpeg",I::Format::jpeg},{"bmp",I::Format::bmp},{"tga",I::Format::tga},{"webp",I::Format::webp}}){
   auto encoded=I::EncodeImage(format,2,2,pixels);check(bool(encoded),"source fixture encoding");sources[name]=std::move(encoded.bytes);
  }
  sources["dds"]=texture_fixture::Dds(8,4,1,1);
+ // Independently authored TIFF, ICO and GIF fixtures, not this writer's own output.
+ sources["tiff"]=tiff_fixture::Make().bytes;
+ sources["ico"]=ico_fixture::Container({ico_fixture::Dib(32,true,9,7).entry,ico_fixture::Png(32,16)});
+ sources["gif"]=raster_fixture::AnimatedGif2x1();
  for(const auto& [name,data]:sources)write(root/"files/inputs"/(name+".bin"),data);
  auto alpha=pixels;alpha[3]=0;const auto transparent=I::EncodeImage(I::Format::png,2,2,alpha);check(bool(transparent),"alpha fixture");
  write(root/"files/inputs/alpha.png",transparent.bytes);write(root/"outside/private.png",sources.at("png"));
@@ -48,10 +55,14 @@ void prepare(const fs::path& root){
  const Case cases[]={{"convert_image","png",I::Format::png,I::Format::tga},
   {"png_to_jpeg","png",I::Format::png,I::Format::jpeg},{"jpeg_to_png","jpeg",I::Format::jpeg,I::Format::png},
   {"bmp_to_png","bmp",I::Format::bmp,I::Format::png},{"bmp_to_jpeg","bmp",I::Format::bmp,I::Format::jpeg},
-  {"tga_to_png","tga",I::Format::tga,I::Format::png},{"dds_to_png","dds",I::Format::dds,I::Format::png}};
+  {"tga_to_png","tga",I::Format::tga,I::Format::png},{"dds_to_png","dds",I::Format::dds,I::Format::png},
+  {"webp_to_png","webp",I::Format::webp,I::Format::png},{"webp_to_jpeg","webp",I::Format::webp,I::Format::jpeg},
+  {"png_to_webp","png",I::Format::png,I::Format::webp},{"gif_to_png","gif",I::Format::gif,I::Format::png},
+  {"tiff_to_png","tiff",I::Format::tiff,I::Format::png},{"png_to_tiff","png",I::Format::png,I::Format::tiff},
+  {"ico_to_png","ico",I::Format::ico,I::Format::png},{"png_to_ico","png",I::Format::png,I::Format::ico}};
  for(const auto& test:cases){
   const std::string output="outputs/"+std::string(test.name)+".bin";
-  const auto converted=C::ConvertImage(sources.at(test.from),{test.input,test.output});check(bool(converted),"reference conversion");
+  const auto converted=C::ConvertStandaloneImage(sources.at(test.from),{test.input,test.output});check(bool(converted),"reference conversion");
   write(root/"expected"/(std::string(test.name)+".bin"),converted.bytes);
   Json args{{"source_path","inputs/"+std::string(test.from)+".bin"},{"output_path",output}};
   if(std::string_view(test.name)=="convert_image"){args["input_format"]="png";args["output_format"]="tga";}
@@ -71,9 +82,21 @@ void prepare(const fs::path& root){
  call("png_to_jpeg",{{"source_path","inputs/png.bin"},{"output_path","outputs/invalid.jpg"},{"jpeg_quality",0}},"rpcError");
  call("jpeg_to_png",{{"source_path","inputs/jpeg.bin"},{"output_path","outputs/invalid.png"},{"jpeg_quality",50}},"rpcError");
  call("prepare_upload",Json::object(),"rpcError");
+ // Rejections the codec owner names: an icon source above 256 pixels and an animated WebP.
+ const auto wide=I::EncodeImage(I::Format::png,257,1,std::vector<std::uint8_t>(257*4,255));check(bool(wide),"wide fixture");
+ write(root/"files/inputs/wide.png",wide.bytes);
+ call("png_to_ico",{{"source_path","inputs/wide.png"},{"output_path","outputs/wide.ico"}});
+ const std::vector<std::byte> animatedWebp{std::byte{'R'},std::byte{'I'},std::byte{'F'},std::byte{'F'},
+  std::byte{22},std::byte{0},std::byte{0},std::byte{0},std::byte{'W'},std::byte{'E'},std::byte{'B'},std::byte{'P'},
+  std::byte{'V'},std::byte{'P'},std::byte{'8'},std::byte{'X'},std::byte{10},std::byte{0},std::byte{0},std::byte{0},
+  std::byte{0x02},std::byte{0},std::byte{0},std::byte{0},std::byte{1},std::byte{0},std::byte{0},std::byte{0},std::byte{0},std::byte{0}};
+ write(root/"files/inputs/animated.webp",animatedWebp);
+ call("webp_to_png",{{"source_path","inputs/animated.webp"},{"output_path","outputs/animated.png"}});
+ call("convert_image",{{"source_path","inputs/png.bin"},{"output_path","outputs/unlisted.dds"},{"input_format","png"},{"output_format","dds"}},"rpcError");
+ call("convert_image",{{"source_path","inputs/png.bin"},{"output_path","outputs/matte.webp"},{"input_format","png"},{"output_format","webp"},{"alpha_policy","flatten_white"}},"rpcError");
  send({{"method","tools/call"},{"params",{{"name","png_to_jpeg"},{"arguments",{{"source_path","inputs/png.bin"},{"output_path","outputs/paid.jpg"}}},{"_meta",{{"x402/payment",Json::object()}}}}}},"rpcError");
  C::ImageOptions options{I::Format::png,I::Format::jpeg,95,I::AlphaPolicy::flatten_white};
- const auto flattened=C::ConvertImage(transparent.bytes,options);check(bool(flattened),"flattening reference");write(root/"expected/flatten.jpg",flattened.bytes);
+ const auto flattened=C::ConvertStandaloneImage(transparent.bytes,options);check(bool(flattened),"flattening reference");write(root/"expected/flatten.jpg",flattened.bytes);
  send({{"method","tools/call"},{"params",{{"name","png_to_jpeg"},{"arguments",{{"source_path","inputs/alpha.png"},{"output_path","outputs/flatten.jpg"},{"alpha_policy","flatten_white"}}}}}},"converted",
   {{"output","outputs/flatten.jpg"},{"expected","flatten.jpg"},{"width",2},{"height",2},{"sha256",digest(flattened.bytes)},{"flattened",true}});
  requests<<"{bad json}\n";expected.push_back({{"id",nullptr},{"kind","rpcError"},{"data",Json::object()}});
@@ -99,7 +122,8 @@ void verify(const fs::path& root){
     check(!tool.at("inputSchema").at("properties").contains("file_token"),"hosted capability leaked");
     check(tool.at("annotations").at("idempotentHint")==false,"unsafe idempotence hint");
    }
-   check(names==std::set<std::string>{"convert_image","png_to_jpeg","jpeg_to_png","bmp_to_png","bmp_to_jpeg","tga_to_png","dds_to_png"},"seven tools required");
+   check(names==std::set<std::string>{"convert_image","png_to_jpeg","jpeg_to_png","bmp_to_png","bmp_to_jpeg","tga_to_png","dds_to_png",
+    "webp_to_png","webp_to_jpeg","png_to_webp","gif_to_png","tiff_to_png","png_to_tiff","ico_to_png","png_to_ico"},"fifteen tools required");
   }
   if(kind=="converted"){
    const auto& data=test.at("data");const auto& value=result.at("structuredContent");const auto output=data.at("output").get<std::string>();
@@ -110,13 +134,13 @@ void verify(const fs::path& root){
     &&value.at("alpha_flattened")==data.value("flattened",false),"conversion metadata mismatch");++converted;
   }
  }
- check(index==expected.size()&&converted==8,"responses/conversions incomplete");
+ check(index==expected.size()&&converted==16,"responses/conversions incomplete");
  check(bytes(root/"files/inputs/png.bin")==bytes(root/"outside/private.png"),"source or outside data overwritten");
  check(!fs::exists(root/"outside/output.jpg"),"output escaped root");
  std::size_t outputs=0;for(const auto& entry:fs::directory_iterator(root/"files/outputs")){(void)entry;++outputs;}
- check(outputs==8,"failed request created an output");
+ check(outputs==16,"failed request created an output");
  for(const auto& entry:fs::recursive_directory_iterator(root/"files"))check(!entry.path().filename().string().starts_with(".arken-write-"),"temporary stage leaked");
- std::cout<<"PASS "<<index<<" real stdio responses; all7tools + explicit alpha conversion, exact files/hashes, no overwrite or escape\n";
+ std::cout<<"PASS "<<index<<" real stdio responses; all 15 tools + explicit alpha conversion, exact files/hashes, no overwrite or escape\n";
 }
 int main(int argc,char** argv){
  for(int i=1;i<argc;++i)if(std::string_view(argv[i])=="--version"){std::cout<<"arken-convert-command-tests-r6262\n";return 0;}

@@ -12,16 +12,26 @@ bool SupportsInput(image::Format format) noexcept {
         || format == image::Format::tga;
 }
 namespace {
+// Each surface names its own admitted formats. Sharing the codec does not share admission.
+using Admission=bool(*)(image::Format) noexcept;
+bool HostedInput(image::Format format) noexcept { return SupportsInput(format); }
+bool HostedOutput(image::Format format) noexcept { return SupportsOutput(format); }
+// The resident browser profile is qualified for the symmetric PNG/JPEG/BMP/TGA set only.
+bool BrowserInput(image::Format format) noexcept { return SupportsInput(format)&&SupportsOutput(format); }
+bool StandaloneInput(image::Format format) noexcept { return SupportsStandaloneInput(format); }
+bool StandaloneOutput(image::Format format) noexcept { return SupportsStandaloneOutput(format); }
 struct Profile {
     std::uint32_t sourceBytes,outputBytes,pixels,dimension;
     image::RasterProfile codec;
+    Admission input,output;
 };
-constexpr Profile hosted{maximumSourceBytes,maximumOutputBytes,maximumPixels,maximumDimension,image::RasterProfile::bounded};
-constexpr Profile browser{browserMaximumSourceBytes,browserMaximumOutputBytes,browserMaximumPixels,browserMaximumDimension,image::RasterProfile::largeRaster};
+constexpr Profile hosted{maximumSourceBytes,maximumOutputBytes,maximumPixels,maximumDimension,image::RasterProfile::bounded,HostedInput,HostedOutput};
+constexpr Profile standalone{maximumSourceBytes,maximumOutputBytes,maximumPixels,maximumDimension,image::RasterProfile::bounded,StandaloneInput,StandaloneOutput};
+constexpr Profile browser{browserMaximumSourceBytes,browserMaximumOutputBytes,browserMaximumPixels,browserMaximumDimension,image::RasterProfile::largeRaster,BrowserInput,HostedOutput};
 ImageResult Convert(std::span<const std::byte> source,const ImageOptions& options,const Profile& profile) noexcept {
     if (source.empty() || source.size() > profile.sourceBytes) return Failure(Error::input_limit);
-    if (!SupportsInput(options.input)||(profile.codec==image::RasterProfile::largeRaster&&!SupportsOutput(options.input))) return Failure(Error::input_format_unavailable);
-    if (!SupportsOutput(options.output)) return Failure(Error::output_format_unavailable);
+    if (!profile.input(options.input)) return Failure(Error::input_format_unavailable);
+    if (!profile.output(options.output)) return Failure(Error::output_format_unavailable);
     if (options.jpegQuality < 1 || options.jpegQuality > 100
         || (options.output != image::Format::jpeg && options.jpegQuality != 95)
         || (options.alphaPolicy != image::AlphaPolicy::preserve
@@ -67,6 +77,9 @@ ImageResult Convert(std::span<const std::byte> source,const ImageOptions& option
 }
 ImageResult ConvertImage(std::span<const std::byte> source,const ImageOptions& options) noexcept {
     return Convert(source,options,hosted);
+}
+ImageResult ConvertStandaloneImage(std::span<const std::byte> source,const ImageOptions& options) noexcept {
+    return Convert(source,options,standalone);
 }
 ImageResult ConvertBrowserImage(std::span<const std::byte> source,const ImageOptions& options) noexcept {
     return Convert(source,options,browser);
