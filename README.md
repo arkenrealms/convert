@@ -78,6 +78,6 @@ Recipes admit macOS, Linux and the separately qualified browser target. Archive
 pins, decoder selection, normative deblocking/SAO and memory-only browser patches
 are preserved. Portable exact-file replacements live under
 `sdk/arken_sdk_dev/external_packages/recipes/patches/generated/`;
-the small original diffs remain as authoring references. LGPL notices stay in the
-verified upstream packages. Actual platform and product-format qualification
+the small original diffs remain as authoring references. Each replacement source
+directory includes the exact upstream `COPYING` notices. Actual platform and product-format qualification
 must precede advertising HEIC support.
