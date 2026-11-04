@@ -1,15 +1,18 @@
 // Native qualification of arken_audio_codecs_v1: exact PCM preservation across
-// WAV and FLAC, channel-mask handling, malformed input, limits and determinism.
+// WAV, FLAC and AIFF/AIFF-C, channel-mask handling, malformed input, limits and determinism.
 #include "arken_audio_codecs_v1/api.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <functional>
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <tuple>
 
 namespace audio = arken::audio::v1;
 using audio::Error;
@@ -540,6 +543,516 @@ void Conversion() {
     Check(audio::ErrorMessage(Error::unsupported_float).find("float") != std::string_view::npos, "error message text");
 }
 
+// --- AIFF / AIFF-C ----------------------------------------------------------
+
+// Independent big-endian IFF builder for hand-authored AIFF inputs.
+struct Form {
+    Bytes b;
+    void Tag(const char* id) { for (int i = 0; i < 4; ++i) b.push_back(std::byte(std::uint8_t(id[i]))); }
+    void Be(std::uint64_t v, int n) { for (int i = n - 1; i >= 0; --i) b.push_back(std::byte((v >> (8 * i)) & 0xFF)); }
+    void Append(const Bytes& x) { b.insert(b.end(), x.begin(), x.end()); }
+    void Chunk(const char* id, const Bytes& body, bool pad = true) {
+        Tag(id); Be(body.size(), 4); Append(body);
+        if (pad && (body.size() & 1)) b.push_back(std::byte{0});
+    }
+    Bytes Finish(const char* type = "AIFF", std::int64_t sizeAdjust = 0) const {
+        Form out; out.Tag("FORM"); out.Be(std::uint64_t(std::int64_t(b.size()) + 4 + sizeAdjust), 4); out.Tag(type);
+        out.Append(b);
+        return out.b;
+    }
+};
+using Ext = std::array<std::uint8_t, 10>;
+// Hand-computed 80-bit extended encodings (sign+exponent, 64-bit significand).
+struct RateCase { std::uint32_t rate; Ext bytes; };
+const RateCase rateTable[] = {
+    {8000, {0x40, 0x0B, 0xFA, 0x00, 0, 0, 0, 0, 0, 0}},
+    {11025, {0x40, 0x0C, 0xAC, 0x44, 0, 0, 0, 0, 0, 0}},
+    {22050, {0x40, 0x0D, 0xAC, 0x44, 0, 0, 0, 0, 0, 0}},
+    {44100, {0x40, 0x0E, 0xAC, 0x44, 0, 0, 0, 0, 0, 0}},
+    {48000, {0x40, 0x0E, 0xBB, 0x80, 0, 0, 0, 0, 0, 0}},
+    {88200, {0x40, 0x0F, 0xAC, 0x44, 0, 0, 0, 0, 0, 0}},
+    {96000, {0x40, 0x0F, 0xBB, 0x80, 0, 0, 0, 0, 0, 0}},
+    {192000, {0x40, 0x10, 0xBB, 0x80, 0, 0, 0, 0, 0, 0}},
+    {1, {0x3F, 0xFF, 0x80, 0x00, 0, 0, 0, 0, 0, 0}},
+    {7, {0x40, 0x01, 0xE0, 0x00, 0, 0, 0, 0, 0, 0}},
+    {11127, {0x40, 0x0C, 0xAD, 0xDC, 0, 0, 0, 0, 0, 0}},
+    {44101, {0x40, 0x0E, 0xAC, 0x45, 0, 0, 0, 0, 0, 0}},
+    {768000, {0x40, 0x12, 0xBB, 0x80, 0, 0, 0, 0, 0, 0}},
+    {4294967295u, {0x40, 0x1E, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0}},
+};
+Ext RateBytes(std::uint32_t rate) {
+    for (const auto& c : rateTable) if (c.rate == rate) return c.bytes;
+    std::cerr << "no hand-computed extended encoding for " << rate << '\n';
+    std::abort();
+}
+Bytes ExtBytes(const Ext& e) { Bytes out; for (auto x : e) out.push_back(std::byte(x)); return out; }
+Bytes Comm(std::uint16_t channels, std::uint32_t frames, std::uint16_t bits, const Ext& rate,
+    const char* compression = nullptr, std::string_view name = {}) {
+    Form f; f.Be(channels, 2); f.Be(frames, 4); f.Be(bits, 2); f.Append(ExtBytes(rate));
+    if (compression) {
+        f.Tag(compression); f.Be(name.size(), 1);
+        for (char c : name) f.b.push_back(std::byte(std::uint8_t(c)));
+        if ((name.size() + 1) & 1) f.b.push_back(std::byte{0}); // pstring padded to even length
+    }
+    return f.b;
+}
+Bytes Ssnd(const Bytes& data, std::uint32_t offset = 0, std::uint32_t blockSize = 0, std::uint8_t lead = 0) {
+    Form f; f.Be(offset, 4); f.Be(blockSize, 4);
+    for (std::uint32_t i = 0; i < offset; ++i) f.b.push_back(std::byte(lead));
+    f.Append(data);
+    return f.b;
+}
+// Big-endian, left-justified sample data of the given container width.
+Bytes BeSamples(const std::vector<std::int32_t>& s, unsigned width, unsigned shift = 0) {
+    Form f; for (auto v : s) f.Be(std::uint32_t(v) << shift, int(width)); return f.b;
+}
+Bytes LeSamples(const std::vector<std::int32_t>& s, unsigned width) {
+    Bytes out; for (auto v : s) for (unsigned i = 0; i < width; ++i) out.push_back(std::byte((std::uint32_t(v) >> (8 * i)) & 0xFF));
+    return out;
+}
+Bytes Aiff16(std::uint16_t ch, std::uint32_t rate, const std::vector<std::int32_t>& s) {
+    Form f; f.Chunk("COMM", Comm(ch, std::uint32_t(s.size() / ch), 16, RateBytes(rate))); f.Chunk("SSND", Ssnd(BeSamples(s, 2)));
+    return f.Finish();
+}
+Ext RateAt(const Bytes& aiff) { Ext e{}; for (int i = 0; i < 10; ++i) e[std::size_t(i)] = std::to_integer<std::uint8_t>(aiff[std::size_t(28 + i)]); return e; }
+
+#if defined(__LDBL_MANT_DIG__) && __LDBL_MANT_DIG__ == 64 && (defined(__x86_64__) || defined(__i386__))
+// The host's x87 long double is the same 80-bit format (little-endian in memory):
+// an independent hardware oracle for the codec's encoding and decoding.
+constexpr bool haveX87 = true;
+Ext X87(long double v) {
+    unsigned char m[sizeof(long double)] = {};
+    std::memcpy(m, &v, sizeof v);
+    Ext e{}; for (int i = 0; i < 10; ++i) e[std::size_t(i)] = m[9 - i];
+    return e;
+}
+#else
+constexpr bool haveX87 = false;
+Ext X87(long double) { return {}; }
+#endif
+
+void AiffRate() {
+    audio::Limits wide; wide.maximumSampleRate = 0xFFFFFFFFu;
+    int cases = 0;
+    for (const auto& c : rateTable) {
+        const auto a = Make(c.rate, 1, 16, 0, Signal::silence);
+        const auto enc = audio::EncodeAiff(a, wide);
+        Check(enc && RateAt(enc.bytes) == c.bytes, "extended rate encoding " + std::to_string(c.rate));
+        Form f; f.Chunk("COMM", Comm(1, 2, 16, c.bytes)); f.Chunk("SSND", Ssnd(Data(4)));
+        const auto dec = audio::DecodeAiff(f.Finish(), wide);
+        Check(dec && dec.audio.sampleRate == c.rate, "extended rate decoding " + std::to_string(c.rate));
+        const auto round = audio::DecodeAiff(enc.bytes, wide);
+        Check(round && round.audio.sampleRate == c.rate, "extended rate round trip " + std::to_string(c.rate));
+        if (haveX87) Check(X87(static_cast<long double>(c.rate)) == c.bytes, "hand table agrees with x87 " + std::to_string(c.rate));
+        ++cases;
+    }
+    // Sweep: every rate the default profile admits up to 200 kHz, plus a stride to 768 kHz,
+    // must encode as the x87 hardware does and decode back exactly.
+    if (haveX87) {
+        int bad = 0;
+        const auto probe = [&](std::uint32_t rate) {
+            const auto enc = audio::EncodeAiff(Make(rate, 1, 8, 0, Signal::silence));
+            const auto dec = audio::DecodeAiff(enc.bytes);
+            if (!enc || RateAt(enc.bytes) != X87(static_cast<long double>(rate)) || !dec || dec.audio.sampleRate != rate) ++bad;
+            ++cases;
+        };
+        for (std::uint32_t rate = 1; rate <= 200000; ++rate) probe(rate);
+        for (std::uint32_t rate = 200001; rate <= 768000; rate += 997) probe(rate);
+        probe(768000);
+        Check(bad == 0, "x87 sweep: " + std::to_string(bad) + " mismatches");
+    }
+    // Rates that are not exact positive integers are typed errors, never rounded.
+    const auto decodeRate = [&](const Ext& e, const audio::Limits& l = {}) {
+        Form f; f.Chunk("COMM", Comm(1, 1, 16, e)); f.Chunk("SSND", Ssnd(Data(2)));
+        return audio::DecodeAiff(f.Finish(), l);
+    };
+    const Ext fraction = {0x40, 0x0E, 0xAC, 0x44, 0x80, 0, 0, 0, 0, 0};   // 44100.5
+    const Ext half = {0x3F, 0xFE, 0x80, 0, 0, 0, 0, 0, 0, 0};            // 0.5
+    const Ext negative = {0xC0, 0x0E, 0xAC, 0x44, 0, 0, 0, 0, 0, 0};     // -44100
+    const Ext nan = {0x7F, 0xFF, 0xC0, 0, 0, 0, 0, 0, 0, 0};
+    const Ext infinity = {0x7F, 0xFF, 0x80, 0, 0, 0, 0, 0, 0, 0};
+    const Ext zero = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    const Ext negativeZero = {0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    const Ext tiny = {0x00, 0x01, 0x80, 0, 0, 0, 0, 0, 0, 0};            // 2^-16382
+    const Ext two32 = {0x40, 0x1F, 0x80, 0, 0, 0, 0, 0, 0, 0};           // 2^32
+    const Ext two40 = {0x40, 0x27, 0x80, 0, 0, 0, 0, 0, 0, 0};           // 2^40
+    const Ext huge = {0x7F, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    const Ext above = RateBytes(768000); // fine by default, rejected under a lower profile
+    ExpectError(decodeRate(fraction).issue.code, Error::unsupported_sample_rate, "44100.5 Hz");
+    ExpectError(decodeRate(half).issue.code, Error::unsupported_sample_rate, "0.5 Hz");
+    ExpectError(decodeRate(negative).issue.code, Error::unsupported_sample_rate, "negative rate");
+    ExpectError(decodeRate(nan).issue.code, Error::unsupported_sample_rate, "NaN rate");
+    ExpectError(decodeRate(infinity).issue.code, Error::unsupported_sample_rate, "infinite rate");
+    ExpectError(decodeRate(tiny).issue.code, Error::unsupported_sample_rate, "tiny rate");
+    ExpectError(decodeRate(zero).issue.code, Error::sample_rate_limit, "zero rate");
+    ExpectError(decodeRate(negativeZero).issue.code, Error::sample_rate_limit, "negative zero rate");
+    ExpectError(decodeRate(two32, wide).issue.code, Error::sample_rate_limit, "2^32 Hz");
+    ExpectError(decodeRate(two40, wide).issue.code, Error::sample_rate_limit, "2^40 Hz");
+    ExpectError(decodeRate(huge, wide).issue.code, Error::sample_rate_limit, "largest finite extended");
+    audio::Limits low; low.maximumSampleRate = 384000;
+    ExpectError(decodeRate(above, low).issue.code, Error::sample_rate_limit, "768 kHz above a 384 kHz profile");
+    Check(decodeRate(above).audio.sampleRate == 768000, "768 kHz within the default profile");
+    ExpectError(decodeRate(RateBytes(1), wide).issue.code, Error::none, "1 Hz admitted when the profile allows it");
+    if (haveX87) {
+        Check(X87(44100.5L) == fraction && X87(0.5L) == half && X87(-44100.0L) == negative && X87(4294967296.0L) == two32,
+            "hand-written invalid encodings agree with x87");
+    }
+    // An unnormal (integer bit clear) with an exact integer value is accepted as that value.
+    const Ext unnormal = {0x40, 0x0F, 0x56, 0x22, 0, 0, 0, 0, 0, 0}; // (0x5622 << 48) * 2^(16399 - 16446) = 44100
+    const auto u = decodeRate(unnormal);
+    Check(u && u.audio.sampleRate == 44100, "unnormal significand with an exact integer value");
+    std::cout << "AIFF extended-rate cases: " << cases << '\n';
+}
+
+void AiffReference() {
+    // A hand-authored 16-bit stereo FORM/AIFF must be reproduced byte-for-byte.
+    const std::vector<std::int32_t> s = {0, -1, 32767, -32768, 1234, -4321};
+    const auto reference = Aiff16(2, 44100, s);
+    const auto decoded = audio::DecodeAiff(reference);
+    Check(decoded && decoded.audio.frames == 3 && decoded.audio.channels == 2 && decoded.audio.bitsPerSample == 16
+        && decoded.audio.sampleRate == 44100 && !decoded.audio.channelMask && decoded.audio.samples == s, "hand-authored AIFF decode");
+    const auto encoded = audio::EncodeAiff(decoded.audio);
+    Check(encoded && encoded.bytes == reference, "EncodeAiff reproduces the hand-authored AIFF");
+    Check(encoded.bytes.size() == 12 + 26 + 16 + 12, "AIFF layout is FORM + COMM(18) + SSND only");
+    // 8-bit AIFF is signed two's complement (unlike WAV); odd data gets a pad byte.
+    Form eight; eight.Chunk("COMM", Comm(1, 3, 8, RateBytes(8000))); eight.Chunk("SSND", Ssnd(Bytes{std::byte{0x00}, std::byte{0x80}, std::byte{0x7F}}));
+    const auto e = audio::DecodeAiff(eight.Finish());
+    Check(e && e.audio.samples == std::vector<std::int32_t>{0, -128, 127}, "8-bit AIFF is signed");
+    const auto eOut = audio::EncodeAiff(e.audio);
+    Check(eOut && eOut.bytes == eight.Finish() && eOut.bytes.size() % 2 == 0, "8-bit odd-length SSND reproduced with pad byte");
+    // 24-bit and 32-bit big-endian words.
+    const std::vector<std::int32_t> s24 = {8388607, -8388608, 1, -1, 0x123456};
+    Form f24; f24.Chunk("COMM", Comm(1, 5, 24, RateBytes(96000))); f24.Chunk("SSND", Ssnd(BeSamples(s24, 3)));
+    const auto d24 = audio::DecodeAiff(f24.Finish());
+    Check(d24 && d24.audio.samples == s24 && audio::EncodeAiff(d24.audio).bytes == f24.Finish(), "24-bit AIFF exact with pad");
+    const std::vector<std::int32_t> s32 = {2147483647, -2147483647 - 1, 1, -1};
+    Form f32; f32.Chunk("COMM", Comm(2, 2, 32, RateBytes(192000))); f32.Chunk("SSND", Ssnd(BeSamples(s32, 4)));
+    const auto d32 = audio::DecodeAiff(f32.Finish());
+    Check(d32 && d32.audio.samples == s32 && audio::EncodeAiff(d32.audio).bytes == f32.Finish(), "32-bit AIFF exact");
+    // 12 significant bits: container 16, COMM sampleSize 12, samples left-justified.
+    const std::vector<std::int32_t> s12 = {2047, -2048, 5, -5};
+    Form f12; f12.Chunk("COMM", Comm(2, 2, 12, RateBytes(48000))); f12.Chunk("SSND", Ssnd(BeSamples(s12, 2, 4)));
+    const auto d12 = audio::DecodeAiff(f12.Finish());
+    Check(d12 && d12.audio.bitsPerSample == 12 && d12.audio.samples == s12, "12-bit AIFF in 16-bit container");
+    Check(audio::EncodeAiff(d12.audio).bytes == f12.Finish(), "EncodeAiff writes sampleSize 12 with left-justified 16-bit words");
+}
+
+void AiffRoundTrip() {
+    AiffReference();
+    const std::uint32_t rates[] = {8000, 11025, 22050, 44100, 48000, 96000, 192000};
+    int cases = 0;
+    for (const auto channels : {1u, 2u})
+        for (const auto bits : {8u, 16u, 24u, 32u})
+            for (const auto rate : rates)
+                for (const auto signal : allSignals) {
+                    const auto a = Make(rate, channels, bits, 1000 + rate / 50, signal, std::nullopt, rate + bits);
+                    const auto label = Describe(a, std::to_string(int(signal)));
+                    const auto aiff = audio::EncodeAiff(a);
+                    Check(bool(aiff), "EncodeAiff " + label);
+                    Check(RateAt(aiff.bytes) == RateBytes(rate), "COMM rate bytes " + label);
+                    const auto fromAiff = audio::DecodeAiff(aiff.bytes);
+                    Check(fromAiff && Same(fromAiff.audio, a), "AIFF decode exact " + label);
+                    // AIFF -> WAV -> AIFF
+                    const auto wav = audio::EncodeWav(fromAiff.audio);
+                    const auto fromWav = audio::DecodeWav(wav.bytes);
+                    Check(wav && fromWav && Same(fromWav.audio, a), "AIFF->WAV->PCM exact " + label);
+                    const auto aiffFromWav = audio::EncodeAiff(fromWav.audio);
+                    Check(aiffFromWav && aiffFromWav.bytes == aiff.bytes, "AIFF->WAV->AIFF byte-identical " + label);
+                    // AIFF -> FLAC -> AIFF
+                    const auto flac = audio::EncodeFlac(fromAiff.audio);
+                    const auto fromFlac = audio::DecodeFlac(flac.bytes);
+                    Check(flac && fromFlac && Same(fromFlac.audio, a), "AIFF->FLAC->PCM exact " + label);
+                    const auto aiffFromFlac = audio::EncodeAiff(fromFlac.audio);
+                    Check(aiffFromFlac && aiffFromFlac.bytes == aiff.bytes, "AIFF->FLAC->AIFF byte-identical " + label);
+                    // The same paths through Convert.
+                    const auto cw = audio::Convert(audio::Container::aiff, audio::Container::wav, aiff.bytes);
+                    const auto cwa = audio::Convert(audio::Container::wav, audio::Container::aiff, cw.bytes);
+                    Check(cw && cw.bytes == wav.bytes && cwa && cwa.bytes == aiff.bytes && !cwa.droppedChannelMask, "Convert aiff<->wav " + label);
+                    if (signal == Signal::mixed || signal == Signal::extrema) {
+                        const auto cf = audio::Convert(audio::Container::aiff, audio::Container::flac, aiff.bytes);
+                        const auto cfa = audio::Convert(audio::Container::flac, audio::Container::aiff, cf.bytes);
+                        Check(cf && cf.bytes == flac.bytes && cfa && cfa.bytes == aiff.bytes, "Convert aiff<->flac " + label);
+                    }
+                    ++cases;
+                }
+    // Bit depths that are not a multiple of 8: real sampleSize, container width written.
+    for (const auto bits : {4u, 12u, 17u, 20u, 28u, 31u}) {
+        const auto a = Make(48000, 2, bits, 5000, Signal::mixed, std::nullopt, bits);
+        const auto aiff = audio::EncodeAiff(a);
+        const auto sampleSize = std::to_integer<unsigned>(aiff.bytes[26]) << 8 | std::to_integer<unsigned>(aiff.bytes[27]);
+        const auto ssndSize = (std::to_integer<std::uint32_t>(aiff.bytes[42]) << 24) | (std::to_integer<std::uint32_t>(aiff.bytes[43]) << 16)
+            | (std::to_integer<std::uint32_t>(aiff.bytes[44]) << 8) | std::to_integer<std::uint32_t>(aiff.bytes[45]);
+        Check(aiff && sampleSize == bits && ssndSize == 8 + 5000u * 2 * ((bits + 7) / 8), "COMM sampleSize and SSND container " + std::to_string(bits));
+        const auto back = audio::DecodeAiff(aiff.bytes);
+        Check(back && Same(back.audio, a), "AIFF valid-bits exact " + std::to_string(bits));
+        // WAV needs EXTENSIBLE (mask 0) for these; AIFF cannot store it, samples still identical.
+        const auto wav = audio::DecodeWav(audio::EncodeWav(back.audio).bytes);
+        Check(wav && SameSamples(wav.audio, a) && audio::EncodeAiff(wav.audio).bytes == aiff.bytes, "AIFF->WAV->AIFF " + std::to_string(bits));
+        const auto flac = audio::DecodeFlac(audio::EncodeFlac(back.audio).bytes);
+        Check(flac && Same(flac.audio, a) && audio::EncodeAiff(flac.audio).bytes == aiff.bytes, "AIFF->FLAC->AIFF " + std::to_string(bits));
+        ++cases;
+    }
+    // Multichannel order is never remapped, and an empty file is valid.
+    audio::Audio order = Make(48000, 6, 16, 10, Signal::silence);
+    for (std::size_t i = 0; i < order.samples.size(); ++i) order.samples[i] = std::int32_t(i % 6) * 1000 + 1;
+    const auto o = audio::DecodeAiff(audio::EncodeAiff(order).bytes);
+    Check(o && o.audio.samples == order.samples, "6-channel order preserved through AIFF");
+    const auto empty = Make(44100, 2, 16, 0, Signal::silence);
+    const auto ea = audio::EncodeAiff(empty);
+    const auto ed = audio::DecodeAiff(ea.bytes);
+    Check(ea && ea.bytes.size() == 54 && ed && Same(ed.audio, empty), "empty AIFF round trip");
+    std::cout << "AIFF round trips: " << cases << " cases\n";
+}
+
+void AiffVariants() {
+    const std::vector<std::int32_t> s16 = {0, -1, 32767, -32768, 1234, -4321, 7, -7};
+    const auto rate = RateBytes(44100);
+    const auto decodeForm = [](const Form& f, const char* type) { return audio::DecodeAiff(f.Finish(type)); };
+    // AIFC with NONE / twos (big-endian) and sowt (little-endian), with FFmpeg-style FVER.
+    for (const auto& [type, name, little] : {std::tuple{"NONE", "not compressed", false}, std::tuple{"twos", "", false},
+             std::tuple{"sowt", "", true}}) {
+        Form f; f.Chunk("FVER", Bytes{std::byte{0xA2}, std::byte{0x80}, std::byte{0x51}, std::byte{0x40}});
+        f.Chunk("COMM", Comm(2, 4, 16, rate, type, name));
+        f.Chunk("SSND", Ssnd(little ? LeSamples(s16, 2) : BeSamples(s16, 2)));
+        const auto d = decodeForm(f, "AIFC");
+        Check(d && d.audio.samples == s16 && d.audio.bitsPerSample == 16 && d.audio.sampleRate == 44100 && d.report.skippedChunks == 1,
+            std::string("AIFC ") + type);
+    }
+    // sowt at 8, 24 and 32 bits, and 20 valid bits in a 24-bit little-endian container.
+    for (const auto bits : {8u, 20u, 24u, 32u}) {
+        const auto a = Make(48000, 2, bits, 300, Signal::noise, std::nullopt, bits);
+        const unsigned width = (bits + 7) / 8, shift = width * 8 - bits;
+        std::vector<std::int32_t> shifted; for (auto v : a.samples) shifted.push_back(std::int32_t(std::uint32_t(v) << shift));
+        Form f; f.Chunk("COMM", Comm(2, 300, std::uint16_t(bits), RateBytes(48000), "sowt"));
+        f.Chunk("SSND", Ssnd(LeSamples(shifted, width)));
+        const auto d = decodeForm(f, "AIFC");
+        Check(d && Same(d.audio, a), "AIFC sowt " + std::to_string(bits));
+        Form t; t.Chunk("COMM", Comm(2, 300, std::uint16_t(bits), RateBytes(48000), "twos"));
+        t.Chunk("SSND", Ssnd(BeSamples(a.samples, width, shift)));
+        const auto dt = decodeForm(t, "AIFC");
+        Check(dt && Same(dt.audio, a) && audio::EncodeAiff(dt.audio).bytes == audio::EncodeAiff(a).bytes, "AIFC twos " + std::to_string(bits));
+    }
+    // 'raw ' is unsigned 8-bit offset binary: 0x80 is silence.
+    Form raw; raw.Chunk("COMM", Comm(1, 4, 8, RateBytes(8000), "raw ")); raw.Chunk("SSND", Ssnd(Bytes{std::byte{0x80}, std::byte{0x00}, std::byte{0xFF}, std::byte{0x81}}));
+    const auto r = decodeForm(raw, "AIFC");
+    Check(r && r.audio.samples == std::vector<std::int32_t>{0, -128, 127, 1} && r.audio.bitsPerSample == 8, "AIFC raw unsigned 8-bit");
+    Form raw16; raw16.Chunk("COMM", Comm(1, 2, 16, RateBytes(8000), "raw ")); raw16.Chunk("SSND", Ssnd(Data(4)));
+    ExpectError(decodeForm(raw16, "AIFC").issue.code, Error::unsupported_bit_depth, "raw with 16-bit samples");
+    // Raw 8-bit through WAV (also unsigned on disk) and back to signed AIFF.
+    const auto rw = audio::Convert(audio::Container::aiff, audio::Container::wav, raw.Finish("AIFC"));
+    Check(rw && rw.bytes.size() == 48 && std::to_integer<int>(rw.bytes[44]) == 0x80 && std::to_integer<int>(rw.bytes[45]) == 0x00,
+        "AIFC raw -> WAV keeps the unsigned bytes");
+    // Floating point is rejected, never quantized; other compression types are unsupported.
+    for (const char* type : {"fl32", "FL32", "fl64", "FL64"}) {
+        Form f; f.Chunk("COMM", Comm(1, 1, type[2] == '3' ? 32 : 64, rate, type, "")); f.Chunk("SSND", Ssnd(Data(type[2] == '3' ? 4 : 8)));
+        ExpectError(decodeForm(f, "AIFC").issue.code, Error::unsupported_float, std::string("AIFC ") + type);
+    }
+    for (const char* type : {"ulaw", "ULAW", "alaw", "ALAW", "ima4", "MAC3", "MAC6", "GSM ", "in24", "none", "QDM2"}) {
+        Form f; f.Chunk("COMM", Comm(1, 1, 16, rate, type)); f.Chunk("SSND", Ssnd(Data(2)));
+        ExpectError(decodeForm(f, "AIFC").issue.code, Error::unsupported_encoding, std::string("AIFC ") + type);
+    }
+    // A plain AIFF COMM is 18 bytes; a FORM/AIFF with 22+ bytes is tolerated as extra COMM bytes.
+    Form plain; plain.Chunk("COMM", Comm(2, 4, 16, rate, "sowt")); plain.Chunk("SSND", Ssnd(BeSamples(s16, 2)));
+    const auto pd = decodeForm(plain, "AIFF");
+    Check(pd && pd.audio.samples == s16, "FORM/AIFF ignores bytes beyond the 18-byte COMM (no compression field)");
+    // Unknown chunks of every common kind, odd-sized, before and after SSND, COMM after SSND.
+    Form many;
+    many.Chunk("NAME", Data(5, 'n')); many.Chunk("AUTH", Data(3, 'a')); many.Chunk("(c) ", Data(4, 'c'));
+    many.Chunk("SSND", Ssnd(BeSamples(s16, 2)));
+    many.Chunk("ANNO", Data(7, 'x')); many.Chunk("MARK", Data(2)); many.Chunk("INST", Data(20)); many.Chunk("COMM", Comm(2, 4, 16, rate));
+    many.Chunk("COMT", Data(9)); many.Chunk("APPL", Data(11, 'p')); many.Chunk("ID3 ", Data(13, 'i'));
+    const auto m = decodeForm(many, "AIFF");
+    Check(m && m.audio.samples == s16 && m.report.skippedChunks == 9, "nine unknown chunks skipped and counted, COMM after SSND");
+    const auto mConv = audio::Convert(audio::Container::aiff, audio::Container::flac, many.Finish());
+    Check(mConv && mConv.report.skippedChunks == 9 && mConv.frames == 4, "Convert reports the skipped AIFF chunks");
+    Check(audio::EncodeAiff(m.audio).bytes == Aiff16(2, 44100, s16), "skipped chunks are not written back");
+    // SSND offset and blockSize: leading bytes are skipped whatever they contain.
+    for (const auto& [offset, block] : {std::pair{4u, 8u}, std::pair{1u, 0u}, std::pair{4096u, 4096u}, std::pair{0u, 4096u}}) {
+        Form f; f.Chunk("COMM", Comm(2, 4, 16, rate)); f.Chunk("SSND", Ssnd(BeSamples(s16, 2), offset, block, 0xEE));
+        const auto d = decodeForm(f, "AIFF");
+        Check(d && d.audio.samples == s16, "SSND offset " + std::to_string(offset) + " blockSize " + std::to_string(block));
+    }
+    // Zero frames: an empty SSND, or no SSND at all (permitted by AIFF when numSampleFrames is 0).
+    Form noSound; noSound.Chunk("COMM", Comm(2, 0, 16, rate));
+    const auto ns = decodeForm(noSound, "AIFF");
+    Check(ns && ns.audio.frames == 0 && ns.audio.samples.empty(), "zero-frame AIFF without SSND");
+    // Padding bits below sampleSize must be zero.
+    Form pad; pad.Chunk("COMM", Comm(1, 2, 12, rate)); pad.Chunk("SSND", Ssnd(Bytes{std::byte{0x10}, std::byte{0x00}, std::byte{0x10}, std::byte{0x01}}));
+    const auto padded = decodeForm(pad, "AIFF");
+    ExpectError(padded.issue.code, Error::invalid_sample_padding, "non-zero AIFF padding bits");
+    Check(padded.issue.byteOffset == pad.Finish().size() - 2, "padding error offset names the sample");
+    Form padLe; padLe.Chunk("COMM", Comm(1, 1, 20, rate, "sowt")); padLe.Chunk("SSND", Ssnd(Bytes{std::byte{0x01}, std::byte{0x00}, std::byte{0x10}}));
+    ExpectError(decodeForm(padLe, "AIFC").issue.code, Error::invalid_sample_padding, "non-zero sowt padding bits");
+}
+
+void AiffMalformed() {
+    const auto good = audio::EncodeAiff(Make(44100, 2, 16, 100, Signal::sine)).bytes;
+    const auto rate = RateBytes(44100);
+    ExpectError(audio::DecodeAiff({}).issue.code, Error::truncated, "empty AIFF");
+    ExpectError(audio::DecodeAiff(Bytes(good.begin(), good.begin() + 10)).issue.code, Error::truncated, "10-byte AIFF");
+    auto magic = good; magic[0] = std::byte{'X'};
+    ExpectError(audio::DecodeAiff(magic).issue.code, Error::wrong_magic, "wrong FORM magic");
+    auto type = good; std::memcpy(type.data() + 8, "WAVE", 4);
+    ExpectError(audio::DecodeAiff(type).issue.code, Error::wrong_magic, "FORM type WAVE");
+    auto lower = good; std::memcpy(lower.data() + 8, "aiff", 4);
+    ExpectError(audio::DecodeAiff(lower).issue.code, Error::wrong_magic, "lowercase form type");
+    ExpectError(audio::DecodeAiff(audio::EncodeWav(Make(44100, 2, 16, 10, Signal::sine)).bytes).issue.code, Error::wrong_magic, "WAV given to AIFF decoder");
+    ExpectError(audio::DecodeAiff(audio::EncodeFlac(Make(44100, 2, 16, 10, Signal::sine)).bytes).issue.code, Error::wrong_magic, "FLAC given to AIFF decoder");
+    ExpectError(audio::DecodeWav(good).issue.code, Error::wrong_magic, "AIFF given to WAV decoder");
+    ExpectError(audio::DecodeFlac(good).issue.code, Error::wrong_magic, "AIFF given to FLAC decoder");
+    for (std::size_t cut = 0; cut < good.size(); ++cut) {
+        const auto r = audio::DecodeAiff(Bytes(good.begin(), good.begin() + std::ptrdiff_t(cut)));
+        if (r) { Check(false, "truncated AIFF accepted at " + std::to_string(cut)); break; }
+    }
+    auto trailing = good; trailing.push_back(std::byte{0});
+    ExpectError(audio::DecodeAiff(trailing).issue.code, Error::invalid_layout, "bytes after FORM extent");
+    const auto build = [](std::initializer_list<std::pair<const char*, Bytes>> chunks, const char* form = "AIFF") {
+        Form f; for (const auto& [id, body] : chunks) f.Chunk(id, body); return f.Finish(form);
+    };
+    const auto comm = Comm(1, 2, 16, rate);
+    const auto ssnd = Ssnd(Data(4));
+    ExpectError(audio::DecodeAiff(build({{"SSND", ssnd}})).issue.code, Error::invalid_layout, "missing COMM");
+    ExpectError(audio::DecodeAiff(build({{"COMM", comm}})).issue.code, Error::invalid_layout, "missing SSND with frames");
+    ExpectError(audio::DecodeAiff(build({{"COMM", comm}, {"COMM", comm}, {"SSND", ssnd}})).issue.code, Error::invalid_layout, "duplicate COMM");
+    ExpectError(audio::DecodeAiff(build({{"COMM", comm}, {"SSND", ssnd}, {"SSND", ssnd}})).issue.code, Error::invalid_layout, "duplicate SSND");
+    ExpectError(audio::DecodeAiff(build({{"COMM", Bytes(comm.begin(), comm.begin() + 17)}, {"SSND", ssnd}})).issue.code, Error::invalid_header, "17-byte COMM");
+    ExpectError(audio::DecodeAiff(build({{"COMM", comm}, {"SSND", ssnd}}, "AIFC")).issue.code, Error::invalid_header, "AIFC COMM without compressionType");
+    auto longName = Comm(1, 2, 16, rate, "NONE", "ab"); longName[22] = std::byte{40};
+    ExpectError(audio::DecodeAiff(build({{"COMM", longName}, {"SSND", ssnd}}, "AIFC")).issue.code, Error::invalid_header, "compressionName past COMM");
+    ExpectError(audio::DecodeAiff(build({{"COMM", Comm(1, 3, 16, rate)}, {"SSND", ssnd}})).issue.code, Error::invalid_header, "COMM frames above SSND data");
+    ExpectError(audio::DecodeAiff(build({{"COMM", Comm(1, 1, 16, rate)}, {"SSND", ssnd}})).issue.code, Error::invalid_header, "COMM frames below SSND data");
+    ExpectError(audio::DecodeAiff(build({{"COMM", Comm(1, 2, 24, rate)}, {"SSND", ssnd}})).issue.code, Error::invalid_header, "partial frame in SSND");
+    ExpectError(audio::DecodeAiff(build({{"COMM", comm}, {"SSND", Data(6)}})).issue.code, Error::invalid_header, "SSND shorter than its header");
+    ExpectError(audio::DecodeAiff(build({{"COMM", comm}, {"SSND", Ssnd(Data(4), 0)}})).issue.code, Error::none, "control: well-formed");
+    auto badOffset = Ssnd(Data(4)); badOffset[3] = std::byte{5};
+    ExpectError(audio::DecodeAiff(build({{"COMM", comm}, {"SSND", badOffset}})).issue.code, Error::invalid_header, "SSND offset past its data");
+    auto hugeOffset = Ssnd(Data(4)); hugeOffset[0] = std::byte{0xFF};
+    ExpectError(audio::DecodeAiff(build({{"COMM", comm}, {"SSND", hugeOffset}})).issue.code, Error::invalid_header, "SSND offset near 2^32");
+    ExpectError(audio::DecodeAiff(build({{"COMM", Comm(0, 2, 16, rate)}, {"SSND", ssnd}})).issue.code, Error::channel_limit, "zero channels");
+    ExpectError(audio::DecodeAiff(build({{"COMM", Comm(0xFFFF, 2, 16, rate)}, {"SSND", ssnd}})).issue.code, Error::channel_limit, "negative channels");
+    for (const std::uint16_t bits : {std::uint16_t(0), std::uint16_t(1), std::uint16_t(3), std::uint16_t(33), std::uint16_t(64), std::uint16_t(0xFFF0)})
+        ExpectError(audio::DecodeAiff(build({{"COMM", Comm(1, 2, bits, rate)}, {"SSND", ssnd}})).issue.code, Error::unsupported_bit_depth,
+            "sampleSize " + std::to_string(bits));
+    Form unpadded; unpadded.Chunk("COMM", comm); unpadded.Chunk("SSND", ssnd); unpadded.Chunk("NAME", Data(3), false);
+    ExpectError(audio::DecodeAiff(unpadded.Finish()).issue.code, Error::truncated, "odd final chunk without pad byte");
+    Form oddSound; oddSound.Chunk("COMM", Comm(1, 1, 8, rate)); oddSound.Chunk("SSND", Ssnd(Data(1)), false);
+    ExpectError(audio::DecodeAiff(oddSound.Finish()).issue.code, Error::truncated, "odd SSND without pad byte");
+    Form big; big.Chunk("COMM", comm); big.Tag("SSND"); big.Be(1000, 4); big.b.resize(big.b.size() + 12);
+    ExpectError(audio::DecodeAiff(big.Finish()).issue.code, Error::truncated, "SSND extends past FORM");
+    auto formSize = build({{"COMM", comm}, {"SSND", ssnd}}); formSize[7] = std::byte(std::to_integer<int>(formSize[7]) + 2);
+    ExpectError(audio::DecodeAiff(formSize).issue.code, Error::truncated, "FORM size past the end");
+    // Single-byte corruption anywhere in an AIFC with extra chunks: never a crash, and
+    // anything accepted is a canonically valid Audio (run under ASan/UBSan too).
+    Form mutate; mutate.Chunk("FVER", Data(4, 1)); mutate.Chunk("COMM", Comm(2, 3, 20, rate, "sowt", "x"));
+    mutate.Chunk("NAME", Data(3, 'n')); mutate.Chunk("SSND", Ssnd(Data(18), 2, 4));
+    const auto mutable_ = mutate.Finish("AIFC");
+    int invalid = 0;
+    for (std::size_t i = 0; i < mutable_.size(); ++i)
+        for (const std::uint8_t x : {std::uint8_t(0x01), std::uint8_t(0x80), std::uint8_t(0xFF)}) {
+            auto m = mutable_; m[i] ^= std::byte(x);
+            const auto r = audio::DecodeAiff(m);
+            if (r && audio::ValidateAudio(r.audio) != Error::none) ++invalid;
+        }
+    Check(invalid == 0, "byte-flipped AIFC never yields invalid audio");
+    // Convert never pretends: a WAV handed in as AIFF is a decode issue.
+    ExpectError(audio::Convert(audio::Container::aiff, audio::Container::wav, audio::EncodeWav(Make(8000, 1, 16, 4, Signal::sine)).bytes).decodeIssue.code,
+        Error::wrong_magic, "Convert(aiff) of a WAV");
+}
+
+void AiffLimits() {
+    const auto a = Make(44100, 2, 16, 3000, Signal::mixed);
+    const auto aiff = audio::EncodeAiff(a).bytes;
+    audio::Limits l;
+    l.maximumSourceBytes = aiff.size() - 1;
+    ExpectError(audio::DecodeAiff(aiff, l).issue.code, Error::input_too_large, "AIFF source bytes");
+    l.maximumSourceBytes = aiff.size();
+    Check(bool(audio::DecodeAiff(aiff, l)), "AIFF exactly at source limit");
+    l = {}; l.maximumTotalSamples = 5999;
+    ExpectError(audio::DecodeAiff(aiff, l).issue.code, Error::sample_limit, "AIFF total samples");
+    ExpectError(audio::EncodeAiff(a, l).error, Error::sample_limit, "EncodeAiff total samples");
+    l.maximumTotalSamples = 6000;
+    Check(bool(audio::DecodeAiff(aiff, l)), "AIFF exactly at sample limit");
+    // A COMM claiming 2^32-1 frames is rejected before any allocation.
+    Form claim; claim.Chunk("COMM", Comm(2, 0xFFFFFFFFu, 16, RateBytes(44100))); claim.Chunk("SSND", Ssnd(Data(4)));
+    ExpectError(audio::DecodeAiff(claim.Finish()).issue.code, Error::sample_limit, "huge COMM frame count");
+    l = {}; l.maximumChannels = 1;
+    ExpectError(audio::DecodeAiff(aiff, l).issue.code, Error::channel_limit, "AIFF channels");
+    ExpectError(audio::EncodeAiff(a, l).error, Error::channel_limit, "EncodeAiff channels");
+    l = {}; l.maximumChannels = 16;
+    const auto nine = Make(48000, 9, 24, 10, Signal::noise);
+    const auto nineAiff = audio::EncodeAiff(nine, l);
+    Check(nineAiff && audio::DecodeAiff(nineAiff.bytes, l) && Same(audio::DecodeAiff(nineAiff.bytes, l).audio, nine), "9-channel AIFF within raised limit");
+    l = {}; l.minimumSampleRate = 48000;
+    ExpectError(audio::DecodeAiff(aiff, l).issue.code, Error::sample_rate_limit, "AIFF minimum rate");
+    l = {}; l.maximumSampleRate = 22050;
+    ExpectError(audio::DecodeAiff(aiff, l).issue.code, Error::sample_rate_limit, "AIFF maximum rate");
+    ExpectError(audio::EncodeAiff(a, l).error, Error::sample_rate_limit, "EncodeAiff maximum rate");
+    // Chunk size and count limits apply to every chunk except SSND.
+    Form bigChunk; bigChunk.Chunk("COMT", Data(2048)); bigChunk.Chunk("COMM", Comm(1, 1, 16, RateBytes(8000))); bigChunk.Chunk("SSND", Ssnd(Data(2)));
+    l = {}; l.maximumMetadataBlockBytes = 1024;
+    ExpectError(audio::DecodeAiff(bigChunk.Finish(), l).issue.code, Error::metadata_limit, "AIFF chunk size");
+    l.maximumMetadataBlockBytes = 2048;
+    Check(bool(audio::DecodeAiff(bigChunk.Finish(), l)), "AIFF chunk exactly at size limit");
+    l = {}; l.maximumMetadataBlockBytes = 64;
+    Check(bool(audio::DecodeAiff(aiff, l)), "SSND is not bounded by the metadata chunk limit");
+    Form many; many.Chunk("COMM", Comm(1, 1, 16, RateBytes(8000)));
+    for (int i = 0; i < 20; ++i) many.Chunk("MARK", Data(2));
+    many.Chunk("SSND", Ssnd(Data(2)));
+    l = {}; l.maximumMetadataBlocks = 10;
+    ExpectError(audio::DecodeAiff(many.Finish(), l).issue.code, Error::metadata_limit, "AIFF chunk count");
+    l.maximumMetadataBlocks = 22;
+    const auto counted = audio::DecodeAiff(many.Finish(), l);
+    Check(counted && counted.report.skippedChunks == 20, "AIFF chunk count exactly at limit");
+    // Output.
+    l = {}; l.maximumOutputBytes = aiff.size() - 1;
+    ExpectError(audio::EncodeAiff(a, l).error, Error::output_limit, "AIFF output bytes");
+    l.maximumOutputBytes = aiff.size();
+    const auto exact = audio::EncodeAiff(a, l);
+    Check(exact && exact.bytes == aiff, "AIFF exactly at output limit");
+    l = {}; l.maximumOutputBytes = 64;
+    ExpectError(audio::Convert(audio::Container::wav, audio::Container::aiff, audio::EncodeWav(a).bytes, l).encodeError, Error::output_limit,
+        "Convert to AIFF honours the output limit");
+    // Canonical audio validation.
+    auto range = a; range.samples[17] = 32768;
+    ExpectError(audio::EncodeAiff(range).error, Error::invalid_audio, "AIFF sample above range");
+    auto size = a; size.samples.pop_back();
+    ExpectError(audio::EncodeAiff(size).error, Error::invalid_audio, "AIFF sample count mismatch");
+    auto bits = a; bits.bitsPerSample = 3;
+    ExpectError(audio::EncodeAiff(bits).error, Error::unsupported_bit_depth, "EncodeAiff 3-bit");
+}
+
+void AiffDeterminism() {
+    const auto a = Make(48000, 2, 24, 48000 * 3, Signal::mixed, std::nullopt, 3);
+    const auto first = audio::EncodeAiff(a);
+    (void)audio::EncodeAiff(Make(8000, 1, 8, 777, Signal::noise));
+    const auto second = audio::EncodeAiff(a);
+    Check(first && second && first.bytes == second.bytes, "AIFF encode twice is byte-identical");
+    const auto wav = audio::EncodeWav(a), flac = audio::EncodeFlac(a);
+    const auto fromWav = audio::Convert(audio::Container::wav, audio::Container::aiff, wav.bytes);
+    const auto fromFlac = audio::Convert(audio::Container::flac, audio::Container::aiff, flac.bytes);
+    Check(fromWav && fromWav.bytes == first.bytes, "Convert(wav->aiff) equals EncodeAiff");
+    Check(fromFlac && fromFlac.bytes == first.bytes, "Convert(flac->aiff) equals EncodeAiff");
+    const auto toFlac = audio::Convert(audio::Container::aiff, audio::Container::flac, first.bytes);
+    Check(toFlac && toFlac.bytes == flac.bytes, "Convert(aiff->flac) equals EncodeFlac of the same samples");
+    const auto toWav = audio::Convert(audio::Container::aiff, audio::Container::wav, first.bytes);
+    Check(toWav && toWav.bytes == wav.bytes, "Convert(aiff->wav) equals EncodeWav of the same samples");
+    // A declared mask cannot be stored in AIFF: the samples convert, the drop is reported.
+    const auto surround = Make(48000, 6, 16, 1000, Signal::mixed, 0x3F);
+    const auto masked = audio::Convert(audio::Container::wav, audio::Container::aiff, audio::EncodeWav(surround).bytes);
+    const auto back = audio::DecodeAiff(masked.bytes);
+    Check(masked && masked.droppedChannelMask && back && SameSamples(back.audio, surround) && !back.audio.channelMask,
+        "WAV channel mask dropped by AIFF and reported");
+    const auto flacMasked = audio::Convert(audio::Container::flac, audio::Container::aiff, audio::EncodeFlac(surround).bytes);
+    Check(flacMasked && flacMasked.droppedChannelMask && flacMasked.bytes == masked.bytes, "FLAC channel mask dropped by AIFF and reported");
+    Check(!audio::Convert(audio::Container::aiff, audio::Container::wav, masked.bytes).droppedChannelMask, "no drop reported for other destinations");
+    std::uint64_t h = 1469598103934665603ull;
+    for (auto b : first.bytes) h = (h ^ std::to_integer<std::uint64_t>(b)) * 1099511628211ull;
+    char text[17]; std::snprintf(text, sizeof text, "%016llx", static_cast<unsigned long long>(h));
+    std::cout << "AIFF fingerprint: " << text << " bytes=" << first.bytes.size() << '\n';
+    Check(!Name(Error::unsupported_sample_rate).empty() && Name(Error::unsupported_sample_rate) != "unknown audio error", "new error has a message");
+    Check(!audio::Convert(audio::Container(4), audio::Container::aiff, first.bytes), "Convert rejects an unknown container");
+}
+
 // --- independent interoperability support (driven by tests/interop.cmake) ---
 bool WriteFile(const std::string& path, const Bytes& b) {
     std::ofstream out(path, std::ios::binary);
@@ -561,17 +1074,24 @@ Bytes Raw(const audio::Audio& a) { // packed little-endian, container = ceil(bit
 int Emit(const std::string& dir) {
     const auto s16 = Make(44100, 2, 16, 44100 * 2, Signal::mixed, std::nullopt, 16);
     const auto s24 = Make(96000, 2, 24, 96000, Signal::mixed, std::nullopt, 24);
+    const auto s8 = Make(22050, 1, 8, 22050, Signal::mixed, std::nullopt, 8);
+    const auto s32 = Make(48000, 2, 32, 48000, Signal::mixed, std::nullopt, 32);
     bool ok = true;
     for (const auto& [name, a] : {std::pair{"s16", s16}, std::pair{"s24", s24}}) {
-        ok &= WriteFile(dir + "/" + name + ".raw", Raw(a));
         ok &= WriteFile(dir + "/" + name + ".wav", audio::EncodeWav(a).bytes);
         ok &= WriteFile(dir + "/" + name + ".flac", audio::EncodeFlac(a).bytes);
+    }
+    const auto odd = Make(11127, 1, 16, 11127, Signal::mixed, std::nullopt, 11127); // non-standard rate
+    for (const auto& [name, a] : {std::pair{"s8", s8}, std::pair{"s16", s16}, std::pair{"s24", s24}, std::pair{"s32", s32},
+             std::pair{"odd", odd}}) {
+        ok &= WriteFile(dir + "/" + name + ".raw", Raw(a));
+        ok &= WriteFile(dir + "/" + name + ".aiff", audio::EncodeAiff(a).bytes);
     }
     return ok ? 0 : 1;
 }
 int Compare(const std::string& container, const std::string& file, const std::string& raw, std::uint32_t rate, std::uint32_t channels, std::uint32_t bits) {
     const auto bytes = ReadFile(file);
-    const auto r = container == "flac" ? audio::DecodeFlac(bytes) : audio::DecodeWav(bytes);
+    const auto r = container == "flac" ? audio::DecodeFlac(bytes) : container == "aiff" ? audio::DecodeAiff(bytes) : audio::DecodeWav(bytes);
     if (!r) { std::cerr << file << ": " << audio::ErrorMessage(r.issue.code) << '\n'; return 1; }
     if (r.audio.sampleRate != rate || r.audio.channels != channels || r.audio.bitsPerSample != bits) {
         std::cerr << file << ": parameters " << r.audio.sampleRate << '/' << r.audio.channels << '/' << r.audio.bitsPerSample << '\n';
@@ -582,6 +1102,20 @@ int Compare(const std::string& container, const std::string& file, const std::st
               << ", ignored FLAC blocks " << r.report.ignoredMetadataBlocks << '\n';
     return 0;
 }
+// An independent encoder's file that Arken must reject with a specific typed error.
+int ExpectRejected(const std::string& file, const std::string& expected) {
+    const auto r = audio::DecodeAiff(ReadFile(file));
+    const std::pair<std::string_view, Error> names[] = {{"unsupported_float", Error::unsupported_float},
+        {"unsupported_encoding", Error::unsupported_encoding}};
+    for (const auto& [name, code] : names)
+        if (name == expected) {
+            if (r.issue.code == code) { std::cout << file << ": rejected as " << name << '\n'; return 0; }
+            std::cerr << file << ": expected " << name << ", observed '" << audio::ErrorMessage(r.issue.code) << "'\n";
+            return 1;
+        }
+    std::cerr << "unknown expected error " << expected << '\n';
+    return 2;
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -591,15 +1125,17 @@ int main(int argc, char** argv) {
             return 0;
         }
     if (argc == 3 && std::string_view(argv[1]) == "--emit") return Emit(argv[2]);
+    if (argc == 4 && std::string_view(argv[1]) == "--expect-aiff-error") return ExpectRejected(argv[2], argv[3]);
     if (argc == 8 && std::string_view(argv[1]) == "--compare")
         return Compare(argv[2], argv[3], argv[4], std::uint32_t(std::stoul(argv[5])), std::uint32_t(std::stoul(argv[6])), std::uint32_t(std::stoul(argv[7])));
     const std::pair<std::string_view, std::function<void()>> checks[] = {
         {"WavRoundTrip", WavRoundTrip}, {"FlacRoundTrip", FlacRoundTrip}, {"ChannelMask", ChannelMask},
         {"Malformed", Malformed}, {"Limits", LimitsCheck}, {"Determinism", Determinism},
-        {"LongSignal", LongSignal}, {"Conversion", Conversion}};
+        {"LongSignal", LongSignal}, {"Conversion", Conversion}, {"AiffRate", AiffRate}, {"AiffRoundTrip", AiffRoundTrip},
+        {"AiffVariants", AiffVariants}, {"AiffMalformed", AiffMalformed}, {"AiffLimits", AiffLimits}, {"AiffDeterminism", AiffDeterminism}};
     std::string_view selected;
     if (argc == 3 && std::string_view(argv[1]) == "--check") selected = argv[2];
-    else if (argc != 1) { std::cerr << "usage: arken-audio-codec-tests [--check NAME | --version | --emit DIR | --compare ...]\n"; return 2; }
+    else if (argc != 1) { std::cerr << "usage: arken-audio-codec-tests [--check NAME | --version | --emit DIR | --compare ... | --expect-aiff-error FILE ERROR]\n"; return 2; }
     bool ran = false;
     for (const auto& [name, run] : checks)
         if (selected.empty() || selected == name) { run(); ran = true; }
