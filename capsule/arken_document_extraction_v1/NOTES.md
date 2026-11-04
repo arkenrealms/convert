@@ -381,3 +381,391 @@ These steps are in owners this capsule must not edit. They are for the integrato
 6. **README.** Document the four tools, their limits (8 MiB source and output;
    the expansion and XML limits above), the supported profile, and the
    limitations section above.
+
+## Tabular (`tabular.hpp`, namespace `arken::document::v1::tabular`)
+
+Bounded, memory-only conversion between tabular formats: CSV, TSV, JSON, XLSX
+and ODS are read into one rectangular `Table`, which is written out as CSV, TSV
+or JSON. It shares the capsule's ZIP reader, XML parser and UTF-8 helpers
+through `src/detail.hpp` and does not change them. Revision string:
+`arken-document-tabular-v1-r1`. Like the rest of the capsule it takes bytes and
+returns bytes: no files, network, processes, clock or Office, and **no formula
+evaluation**. A failed read never returns a partial table, and a failed write
+never returns partial text.
+
+Files: `tabular.hpp` (public), `src/tabular_detail.hpp` (internal),
+`src/tabular.cpp` (CSV/TSV/JSON and the public entry points), `src/xlsx.cpp`,
+`src/ods.cpp`, `tests/tabular_tests.cpp`.
+
+### Ownership boundary for CSV/TSV/JSON
+
+The monorepo may already have `arken_data_*` capsules that own CSV and JSON.
+This repository does not contain them. So all CSV/TSV/JSON code is kept in
+`src/tabular.cpp`, behind four internal functions:
+`TableFromDelimited(text, delimiter, inferTypes, limits, report)`,
+`TableFromJson(text, limits, report)`,
+`DelimitedFromTable(table, delimiter, options)` and
+`JsonFromTable(table, options, renamed)`.
+That is Table in and bytes out, or the reverse. The XLSX and ODS readers depend
+only on the `Table` model, the `SparseTable`/`TextBudget` helpers in
+`src/tabular_detail.hpp` and the package helpers in `src/detail.hpp`. They never
+call the delimited or JSON code. If that owner is exported later, re-point those
+four functions (or `ReadTable`/`WriteTable` for csv/tsv/json) at it. `xlsx.cpp`
+and `ods.cpp` need no change, and the tests for those groups keep their meaning.
+
+### Model
+
+- `Table{rows, columns}` is always rectangular. Short rows are padded with empty
+  cells, and the source widths that differed are counted in
+  `TableReport::raggedRows`.
+- `TableCell{kind, value, formatted}`. The kinds are `empty`, `text`, `number`,
+  `boolean`, `date` and `error`.
+  - `value` is canonical. A number keeps its source lexical form (CSV field,
+    JSON number, XLSX `<v>`, ODS `office:value`). A spreadsheet boolean is
+    `TRUE`/`FALSE`. A date is ISO 8601: `YYYY-MM-DD`,
+    `YYYY-MM-DDThh:mm:ss[.fff]` or `hh:mm:ss[.fff]`.
+  - `formatted` keeps the original source text only when it differs from
+    `value`: the XLSX serial behind a date, the `1`/`0` behind a boolean, or the
+    ODS `text:p` display such as `1,234.50` or `50%`.
+  - `WriteOptions::formattedText` writes `Display()` (the formatted text if
+    present, otherwise the value) instead of `value`.
+
+### CSV/TSV (RFC 4180)
+
+Reader:
+- Delimiter `,`, `;` or tab. TSV always uses tab with the same quoting grammar.
+- Quoted fields may hold the delimiter, `""` and line breaks. Line breaks inside
+  quotes are kept verbatim, CRLF included.
+- Records end at CRLF, LF or a lone CR. The last record may lack a terminator.
+  An optional UTF-8 BOM is stripped and reported.
+- Strict UTF-8 is required (`csv_encoding`). An unterminated quoted field, or
+  text after a closing quote, is `csv_malformed`. A bare `"` inside an unquoted
+  field is kept literally.
+- A blank line is one empty field.
+- Type inference (`inferTypes`, on by default): a field matching the JSON number
+  grammar is a `number`, and `true`/`false` (any case) is a `boolean`. Anything
+  else, including `007`, `1,5` and dates, stays `text`.
+
+Writer:
+- RFC 4180 quoting. A field is quoted only when it contains the delimiter, `"`,
+  CR or LF, or when it is the single empty field of a one-column row (so it
+  cannot read back as a blank line).
+- UTF-8, LF by default (`crlf` option), no BOM by default (`byteOrderMark` option).
+- There is no protection against spreadsheet formula injection (`=`, `+`, `-`,
+  `@` prefixes). The data is written as is.
+
+### JSON (RFC 8259)
+
+The parser is written for this capsule and has no dependencies. It is strict:
+- No comments, trailing commas, leading zeros, `+` signs or raw control
+  characters. Escapes are checked, and a lone surrogate is `json_malformed`.
+- Duplicate member names, and nesting deeper than 64, are `json_malformed`.
+- Invalid UTF-8 is `json_encoding`. An optional BOM is accepted.
+
+Accepted shapes are an array of scalar arrays, or an array of flat objects with
+scalar values. For objects, the header row is the union of the keys in
+first-seen order, and missing members are empty cells. In cells, `null` becomes
+empty, `""` becomes empty, strings become text, numbers become number (lexical
+kept) and `true`/`false` become boolean. Any other valid JSON is
+`json_not_table`: a top-level object or scalar, nested values in cells, or
+arrays mixed with objects.
+
+Writer:
+- Output is deterministic: `[`, one row per line, `]`, LF. An empty table is `[]`.
+- `JsonShape::arrays` (default) writes an array of arrays. `JsonShape::objects`
+  writes an array of objects keyed by the first row, in column order. An empty
+  header becomes `column_N`, and a duplicate gains `_2`, `_3`... (counted in
+  `renamedKeys`).
+- A cell is a JSON number only when its kind is `number` and its value is
+  already the shortest binary64 round-trip text (`std::to_chars`). So `1`,
+  `0.1`, `-0`, `1e+21` and `1e-07` are numbers, while `1.50`, `1e3`, `1E5` and
+  `12345678901234567890` are strings, and no consumer can see a different number.
+- Booleans are JSON booleans. Everything else is a string escaped per RFC 8259:
+  `\" \\ \b \f \n \r \t` and `\u00XX` for the other C0 controls. Non-ASCII is
+  written as raw UTF-8.
+- Empty cells are `""`, or `null` with `emptyAsNull`.
+
+### XLSX profile (`src/xlsx.cpp`)
+
+Package checks:
+- An OLE compound file is `ole_compound_file`. That covers a legacy `.xls` and
+  a password-protected Office file, which cannot be told apart without OLE
+  parsing.
+- `EncryptedPackage`/`EncryptionInfo` members are `package_encrypted`.
+- `vbaProject.bin`, `vbaData.xml`, a VBA override or an `.xlsm`/`.xltm`/`.xlam`
+  main content type is `package_macro_enabled`.
+- `[Content_Types].xml`, `_rels/.rels` and `xl/_rels/workbook.xml.rels` are
+  validated as for DOCX (`package_invalid`). The single `officeDocument` part
+  must be the SpreadsheetML workbook or template type. XLSB and other documents
+  are `not_spreadsheet`.
+- Transitional and Strict namespaces are both accepted.
+
+Workbook and supporting parts:
+- `workbook.xml`: sheet names, order and `state` (`visible`, `hidden`,
+  `veryHidden`), plus `workbookPr date1904`. Every sheet's `r:id` must resolve.
+  Chart, dialog and macro sheets are listed with their `SheetKind`. Selecting
+  one is `sheet_unsupported`.
+- Sheet selection is by zero-based index, by exact name, or by default the first
+  visible worksheet (otherwise the first worksheet). `sheet_not_found`
+  otherwise. `TableReport::sheets` lists every sheet.
+- `sharedStrings.xml`: `si/t` or rich-text `r/t` runs are concatenated, and
+  phonetic `rPh` is skipped. `xml:space="preserve"` is honoured. Without it,
+  edge spaces, tabs and LFs are trimmed. `_xHHHH_` escapes are decoded and
+  `_x005F_` escapes an underscore. The table is bounded by `maximumSharedStrings`.
+- `styles.xml`: `cellXfs/xf@numFmtId` with `numFmts`. These built-in IDs are dates:
+  - 14-17: date.
+  - 22: date-time.
+  - 18-21 and 45-47: time.
+
+  A custom format is a date or time when its first section contains `y`, `d`,
+  `e`, `g`, `h`, `s`, `AM/PM`, `A/P` or elapsed `[h]`/`[m]`/`[s]` tokens,
+  outside quotes, escapes, `_x`/`*x` padding and bracketed colours or locales.
+  `General` and scientific `E+`/`E-` are excluded. A lone `m` is a month; next
+  to `h` or `s` it is minutes.
+- Serial dates use the 1900 system, including Excel's fictitious 1900-02-29, or
+  the 1904 system when declared. Times round to the millisecond. Serial 60
+  (1900 system), day 0 of a pure date format, negative serials and years past
+  9999 stay numbers. A time format on a serial of one day or more is written as
+  a date-time.
+
+Worksheet:
+- `dimension` is reported as declared.
+- Rows use `r`, or the previous row plus one. Cells use their A1 `r`, or the
+  previous column plus one. A reference must lie within XFD1048576 and in its
+  own row, and a duplicate position is `xlsx_malformed`. Sparse cells are placed
+  by reference. Leading empty rows and columns are kept, and trailing styled
+  empty cells do not extend the table.
+- Cell types:
+  - `n` and absent: number, or date via the style.
+  - `s`: shared string; the index is checked.
+  - `str`: formula string.
+  - `inlineStr`: `is`.
+  - `b`: `0`/`1`/`true`/`false`.
+  - `e`: the error literal.
+  - `d`: ISO text as stored.
+
+  Anything else, or a non-numeric `n`, is `xlsx_malformed`.
+- Formulas (`f`) are counted. Their cached `<v>` is used. A formula with no
+  cached value is an empty cell, counted in `formulasWithoutValue`.
+- `mergeCells/mergeCell@ref` ranges are validated and reported, never expanded.
+  Only the anchor cell holds the value.
+
+### ODS profile (`src/ods.cpp`)
+
+Package checks:
+- The `mimetype` member must exist and be
+  `application/vnd.oasis.opendocument.spreadsheet` (or `-template`). Another
+  ODF type is `not_spreadsheet`, and anything else is `package_invalid`. Its
+  position and compression are not checked.
+- `META-INF/manifest.xml` must exist, and its `/` entry must repeat the
+  mimetype. Any `manifest:encryption-data` is `package_encrypted`.
+- `content.xml` is required (`package_missing_part`).
+
+Tables:
+- `office:spreadsheet/table:table` elements are listed with their names.
+- A table whose automatic `table`-family style has `table:display="false"` is
+  reported hidden. Selection works as for XLSX.
+
+Rows and cells:
+- `table:table-row` is read directly or inside `table-header-rows`,
+  `table-rows` and `table-row-group`.
+- `table:table-cell` and `table:covered-table-cell` both occupy a column.
+  Covered cells are empty placeholders, and a covering cell's
+  `number-columns-spanned`/`number-rows-spanned` is reported as a merged range.
+- `number-rows-repeated` and `number-columns-repeated` must be 1 to 2^31.
+  Repeats holding data are expanded. Their size is checked against the row,
+  column and cell limits **before** expansion (`row_limit`, `column_limit`,
+  `cell_limit`).
+- Empty repeats are never materialized. Those beyond the final data extent are
+  counted in `trimmedRepeatedRows`, and in `trimmedRepeatedCells` (empty cell
+  runs in data rows past the last data column, times their row repeat).
+- Values by `office:value-type`:
+  - `float`, `percentage` and `currency` read `office:value` as a number.
+  - `date` reads `office:date-value` as stored.
+  - `time` reads `office:time-value`. The ISO duration `PnDTnHnMn.nS` becomes
+    `hh:mm:ss[.fff]` with total hours.
+  - `boolean` reads `office:boolean-value` as `TRUE`/`FALSE`.
+  - `string` reads `office:string-value`, otherwise the paragraphs.
+  - No type (or `void`) uses the paragraph text as text.
+  - `calcext:value-type="error"` takes the paragraph text as the error literal.
+  - A missing or invalid typed value is `ods_malformed`.
+- Paragraph text: `text:p`/`text:h` are joined with LF. `text:s` (`c` bounded by
+  the cell limit), `text:tab`, `text:line-break`, spans and links are kept.
+  `office:annotation` and `text:note` are dropped.
+- `table:formula` is counted (per materialized repeat), and the cached value is used.
+
+### Explicit limitations
+
+- No formula evaluation, ever. XLSX `<v>` and ODS `office:value` are the
+  values the producer last cached. A file saved without recalculation, or by a
+  library that writes formulas without values, gives empty or stale cells.
+- No formatting: number formats are used only to recognize dates. Currency,
+  percent, thousands separators, decimals, fonts, colours, conditional formats,
+  column widths and hidden rows or columns are not applied. ODS display text is
+  available through `formattedText`.
+- No charts, drawings, images, comments or notes, pivot tables, data
+  validation, defined names, external links or hyperlinks. Rich-text runs are
+  flattened.
+- Merged ranges are reported, not expanded.
+- One sheet per conversion.
+- Not supported:
+  - XLSB (`not_spreadsheet`).
+  - XLS/BIFF and other OLE files (`ole_compound_file`).
+  - Encrypted or macro-enabled workbooks.
+  - Flat ODS (`.fods`).
+  - CSV encodings other than UTF-8.
+- XLSX `t="d"` and ODS `date-value` strings are passed through without
+  calendar validation.
+- CSV dates are not inferred, and CSV booleans keep their source spelling.
+- Processing is resident, not streaming. The DOM-shaped XML parser holds the
+  worksheet's node tree.
+
+### Limits (`ReadOptions`/`WriteOptions` defaults)
+
+| Limit | Default | Error |
+|---|---|---|
+| Source bytes | 32 MiB | `source_limit` |
+| Rows | 1,048,576 | `row_limit` |
+| Columns | 16,384 | `column_limit` |
+| Cells (dense rows x columns, and cells read) | 2,000,000 | `cell_limit` |
+| One cell (value + formatted) | 1 MiB | `cell_size_limit` |
+| All cell text | 64 MiB | `text_limit` |
+| XLSX shared strings | 2,000,000 | `cell_limit` |
+| ODS repeat attribute | 1 to 2^31 | `ods_malformed` |
+| JSON nesting | 64 | `json_malformed` |
+| XML nodes per part (tabular default) | 8,000,000 | `xml_limit` |
+| Other ZIP/XML limits | as `ZipLimits`/`XmlLimits` above | `zip_*`, `xml_*` |
+| Output bytes | 64 MiB | `output_limit` |
+
+The dense-table check runs **before** allocation. A single XLSX cell at
+`XFD1048576` is therefore `cell_limit`, not a 17-billion-cell allocation.
+
+Measured on GCC 13 -O2 (Linux x86-64, one run each, recorded 2026-11-04) with a
+scratch harness linking the static library. The figures cover the whole process,
+including the harness's own copies of the input, with the ZIP/XML limits raised
+for the run:
+- XLSX, 200,000 rows x 5 columns (1,000,000 cells; a 44 MB stored worksheet
+  part) to JSON: 3.2 s, peak RSS 748 MB.
+- CSV, 400,000 rows x 5 columns (14 MB) to JSON: 0.42 s, peak RSS 282 MB.
+
+So the XLSX path costs about 15 to 17 bytes of memory per byte of worksheet XML,
+dominated by the XML node tree. With the default 32 MiB per-member expansion
+budget, one XLSX call can approach 550 MB. The standalone MCP should set
+`zip.maximumEntryExpandedBytes` to 16 MiB (about 280 MB per call) unless its
+process budget is larger. A streaming worksheet reader would remove this cost,
+and is the main follow-up if larger sheets matter.
+
+### Verification
+
+`tests/tabular_tests.cpp` builds the `arken-document-tabular-tests` executable.
+Its ctest groups are `DocumentTabular.{csv,json,xlsx,ods,limits,determinism,mutation}`
+and `DocumentTabular.Version`. XLSX and ODS fixtures are authored in the test,
+using a stored ZIP writer and a stored-block deflate writer (method 8), with
+DOCX/encrypted packages from `test_support/docx_fixtures.hpp`.
+
+All groups pass under GCC 13 with `-Wall -Wextra -Wpedantic -Werror`, and under
+`-fsanitize=address,undefined` (plus a local `mutation 10000` campaign: 80,000
+conversions).
+
+**No Excel-, LibreOffice-, Numbers- or Google-Sheets-produced file has been run
+yet.** Before admitting the MCP methods, add a small corpus of real workbooks
+(shared strings, styles with date formats, the 1904 system, merged cells,
+LibreOffice repeat runs) with reviewed expected CSV/JSON bytes.
+
+### Remaining steps to expose tabular conversion through the standalone MCP
+
+These steps are in owners this capsule must not edit. They are for the integrator.
+`arken_file_conversion_v1` already depends on this capsule, so no module-graph
+change is needed. The new sources are added to the existing library target in
+`CMakeLists.txt`.
+
+1. **Conversion owner.** Add `capsule/arken_file_conversion_v1/tables.hpp` and
+   `src/table.cpp`, mirroring `documents.hpp`:
+   ```cpp
+   namespace arken::file_conversion::v1 {
+   namespace tabular = arken::document::v1::tabular;
+   inline constexpr std::uint32_t maximumTableSourceBytes = 32u * 1024u * 1024u;
+   inline constexpr std::uint32_t maximumTableEntryExpandedBytes = 16u * 1024u * 1024u;
+   inline constexpr std::uint32_t maximumTableOutputBytes = 64u * 1024u * 1024u;
+   struct TableResult { Error error = Error::none; tabular::Error tableError = tabular::Error::none;
+       tabular::TableReport report; std::uint64_t renamedKeys = 0; std::vector<std::byte> bytes;
+       explicit operator bool() const noexcept { return error == Error::none; } };
+   [[nodiscard]] tabular::ConvertOptions StandaloneTableOptions() noexcept;
+   [[nodiscard]] TableResult ConvertStandaloneTable(tabular::TableFormat in, tabular::TableFormat out,
+       std::span<const std::byte>, const tabular::ConvertOptions&) noexcept;
+   [[nodiscard]] std::string_view TableErrorMessage(Error) noexcept;
+   }
+   ```
+   - Apply the source, member and output bounds above.
+   - Map errors as follows:
+     - `source_limit`, `row_limit`, `column_limit`, `cell_limit`,
+       `cell_size_limit`, `text_limit`, `zip_size_limit`, `zip_entry_limit`
+       and `xml_limit` go to `input_limit`.
+     - `output_limit` goes to `encode_failed`.
+     - `allocation_failed` stays `allocation_failed`.
+     - `invalid_options` goes to the existing invalid-arguments path.
+     - Everything else goes to `decode_failed`, keeping `tableError` for the message.
+   - Add `src/table.cpp` to `cmake/ArkenFileConversionImages.cmake` next to
+     `src/document.cpp`.
+2. **Schema** (`arken_file_conversion_commands_v1/schema/conversion_files.arken-schema`).
+   Use the next free ids, after any taken by the concurrent PPTX/ODT/EPUB work
+   (enum 7+, semantic type after the last, type 10+, command 25+ at the time of
+   writing).
+   - Enums:
+     - `table_input_kind {csv, tsv, json, xlsx, ods}`.
+     - `table_output_kind {csv, tsv, json}`.
+     - `json_shape_kind {arrays, objects}`.
+     - `delimiter_kind {comma, semicolon, tab}`.
+   - `model table_request`:
+     - `source_path`, `output_path`, `input_format`, `output_format`;
+     - optional `delimiter` (CSV input and output);
+     - optional `sheet_name: text` and `sheet_index: count` (mutually exclusive;
+       if neither is given, the first visible sheet);
+     - optional `json_shape` (default `arrays`; `objects` uses the first row as keys);
+     - optional `formatted_text: boolean`.
+   - `model table_result`:
+     - `output_path`, `media_type`, `output_bytes`, `sha256`, `durable`;
+     - `rows`, `columns`, `sheet_count: count`, `sheet_names: text` (JSON array
+       text, or a repeated field if the schema language allows);
+     - `selected_sheet: count`, `ragged_rows`, `merged_ranges: count`,
+       `formulas`, `formulas_without_value`, `trimmed_repeats: count`,
+       `renamed_keys: count`.
+   - Commands, all `errors command_error; idempotency none; streaming unary; targets cpp;`:
+     - `convert_table` (`table_request`), the generic one.
+     - `xlsx_to_csv`, `xlsx_to_json`, `ods_to_csv`, `csv_to_json`, `json_to_csv`
+       and `csv_to_tsv`, each with `file_request` (or a reduced request with
+       the sheet selector for the XLSX/ODS ones), returning `table_result`.
+3. **Commands** (`src/commands.cpp`):
+   - Add a `tablePairs` table with descriptions that state the profile. For
+     example: "Convert the first visible worksheet of an .xlsx to UTF-8 CSV
+     (RFC 4180, LF). Cached formula values only (never recalculated); dates as
+     ISO 8601; merged cells reported, not expanded; no formatting. Encrypted,
+     macro-enabled, XLSB and XLS files are rejected. Limits: 32 MiB input, 2M
+     cells, 64 MiB output."
+   - Dispatch before the image pairs. Read with
+     `impl_->files->read(path, C::maximumTableSourceBytes)` and convert. On
+     failure, return `error(id, "conversionFailed",
+     TableErrorMessage(error) + ": " + tabular::ErrorMessage(tableError))`,
+     optionally with `tabular::ErrorCode` as `reason`.
+   - Set `media_type` from `tabular::MediaType(output)`:
+     `text/csv; charset=utf-8`, `text/tab-separated-values` or `application/json`.
+   - Write with the existing exclusive `impl_->files->create`, which never overwrites.
+   - Extend the server description where it lists families: "tables (CSV,
+     TSV, JSON, XLSX, ODS; 32 MiB)".
+4. **Tests.** In `capsule/arken_file_conversion_commands_v1/tests/commands.cpp`:
+   - Update the tool count and names.
+   - For each tool, write a stored-ZIP XLSX/ODS (reuse this capsule's fixture
+     builders, or move them into `test_support/`) and CSV/JSON sources into the
+     temporary root. Call each tool through the stdio server and compare the
+     output bytes, `sha256`, `output_bytes`, `media_type` and report fields.
+   - Cover no-overwrite, traversal rejection, an `.xlsm` (`conversionFailed`
+     naming macros), a hidden-sheet selection, `sheet_not_found`, and a source
+     over 32 MiB.
+   - Add an `arken_file_conversion_v1` unit test for the error mapping.
+5. **Manifest/README.**
+   - Add the capabilities `bounded_csv_tsv_json_tables`,
+     `xlsx_cached_value_extraction` and `ods_cached_value_extraction` to this
+     capsule's `capsule.manifest.json`. They were left out here to avoid
+     conflicting with concurrent edits.
+   - Document the seven tools, their limits and the limitations above in the
+     standalone README.
