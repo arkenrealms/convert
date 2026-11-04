@@ -204,8 +204,13 @@ void IccPolicy(const Bytes& lossless,const Bytes& lossy,const Bytes& body) {
     auto lying=icc;PutBe(lying,0,std::uint32_t(icc.size()+4));
     Check(Code(Riff({Vp8x(0x30,31,17),Serial("ICCP",lying),body}))==E::invalid_layout,"ICC size mismatch admitted");
     Check(Code(Riff({Vp8x(0x30,31,17),Serial("ICCP",{}),body}))==E::invalid_layout,"empty ICCP admitted");
-    Check(Code(Riff({Vp8x(0x30,31,17),body}))==E::invalid_layout,"ICC flag without ICCP admitted");
-    Check(Code(Riff({Vp8x(0x10,31,17),Serial("ICCP",icc),body}))==E::invalid_layout,"ICCP without flag admitted");
+    // Flag leniency: a flag without ICCP is ignored; ICCP without the flag (even
+    // in a file without VP8X) is still applied.
+    const auto plain=I::DecodeImage(I::Format::webp,lossless).image.rgba8;
+    Check(I::DecodeImage(I::Format::webp,Riff({Vp8x(0x30,31,17),body})).image.rgba8==plain,"ICC flag without ICCP not ignored");
+    const auto converted=PngWithIcc(31,17,plain,icc).image.rgba8;
+    Check(I::DecodeImage(I::Format::webp,Riff({Vp8x(0x10,31,17),Serial("ICCP",icc),body})).image.rgba8==converted,"ICCP without flag not applied");
+    Check(I::DecodeImage(I::Format::webp,Riff({Serial("ICCP",icc),body})).image.rgba8==converted,"ICCP in simple file not applied");
     Check(Code(Riff({Vp8x(0x30,31,17),body,Serial("ICCP",icc)}))==E::invalid_layout,"ICCP after image admitted");
     Check(Code(Riff({Vp8x(0x30,31,17),Serial("ICCP",icc),Serial("ICCP",icc),body}))==E::invalid_layout,"duplicate ICCP admitted");
     Bytes huge(4*1024*1024+2);PutBe(huge,0,std::uint32_t(huge.size()));
@@ -222,8 +227,11 @@ void MetadataPolicy(const std::vector<std::uint8_t>& pixels,const Bytes& body,co
     const auto icc=Icc();
     const auto both=Riff({Vp8x(0x3c,31,17),Serial("ICCP",icc),body,Serial("EXIF",exif),Serial("XMP ",xmp)});
     Check(I::DecodeImage(I::Format::webp,both).image.rgba8==PngWithIcc(31,17,pixels,icc).image.rgba8,"ICC with EXIF/XMP failed");
-    Check(Code(Riff({Vp8x(0x10,31,17),body,Serial("EXIF",exif)}))==E::invalid_layout,"EXIF without flag admitted");
-    Check(Code(Riff({Vp8x(0x18,31,17),body}))==E::invalid_layout,"EXIF flag without chunk admitted");
+    // Flag leniency: metadata chunks without flags, and flags without chunks, are ignored.
+    Check(I::DecodeImage(I::Format::webp,Riff({Vp8x(0x10,31,17),body,Serial("EXIF",exif),Serial("XMP ",xmp)})).image.rgba8==pixels,"EXIF/XMP without flags rejected");
+    Check(I::DecodeImage(I::Format::webp,Riff({body,Serial("EXIF",exif),Serial("XMP ",xmp)})).image.rgba8==pixels,"EXIF/XMP in simple file rejected");
+    Check(I::DecodeImage(I::Format::webp,Riff({Vp8x(0x1c,31,17),body})).image.rgba8==pixels,"EXIF/XMP flags without chunks rejected");
+    Check(Code(Riff({Vp8x(0x14,31,17),body,Serial("XMP ",xmp),Serial("XMP ",xmp)}))==E::invalid_layout,"duplicate XMP admitted");
     Check(Code(Riff({Vp8x(0x18,31,17),body,Serial("EXIF",exif),Serial("EXIF",exif)}))==E::invalid_layout,"duplicate EXIF admitted");
     Check(Code(Riff({Vp8x(0x18,31,17),Serial("EXIF",exif),body}))==E::none,"EXIF before image rejected");
     // Unknown chunks are skipped in simple and extended files, but never between ALPH and VP8.
@@ -254,7 +262,7 @@ void AnimationPolicy(const Bytes& body) {
     };
     const auto expect=[&](bool blend,const std::vector<std::uint8_t>& source){
         std::vector<std::uint8_t> out(40*30*4);
-        for(std::size_t i=0;i<out.size();i+=4)std::copy(background.begin(),background.end(),out.begin()+std::ptrdiff_t(i));
+        // Canvas is transparent black; the ANIM background colour is only a hint.
         for(unsigned y=0;y<19;++y)for(unsigned x=0;x<17;++x){
             const auto* s=source.data()+(y*17+x)*4;auto* d=out.data()+((4+y)*40+6+x)*4;
             if(!blend){std::copy(s,s+4,d);continue;}
@@ -267,6 +275,11 @@ void AnimationPolicy(const Bytes& body) {
     const auto still=build(false,firstBody,3);
     const auto d=I::DecodeImage(I::Format::webp,still);
     Check(bool(d)&&d.image.width==40&&d.image.height==30&&d.image.frameCount==3,"animated WebP canvas/frameCount wrong");
+    Check(std::all_of(d.image.rgba8.begin(),d.image.rgba8.begin()+4*40*4,[](auto v){return v==0;}),"canvas outside first frame not transparent black");
+    {   // Animation flag on a plain still (no ANIM/ANMF) decodes as that still.
+        const auto s=I::DecodeImage(I::Format::webp,Riff({Vp8x(0x12,17,19),firstBody}));
+        Check(bool(s)&&s.image.frameCount==1&&s.image.width==17&&s.image.rgba8==frame,"animation-flagged still rejected");
+    }
     Check(d.image.rgba8==expect(false,frame),"animated first frame (no blend) composition wrong");
     const auto blended=I::DecodeImage(I::Format::webp,build(true,firstBody,2));
     const auto reference=expect(true,frame);bool close=bool(blended)&&blended.image.frameCount==2;
@@ -289,6 +302,8 @@ void AnimationPolicy(const Bytes& body) {
     Check(Code(Riff({Vp8x(0x12,40,30),Anim(background),Anim(background),Anmf(6,4,17,19,false,firstBody)}))==E::invalid_layout,"duplicate ANIM admitted");
     Check(Code(Riff({Vp8x(0x12,40,30),Anim(background),body}))==E::invalid_layout,"top-level image in animation admitted");
     Check(Code(Riff({Vp8x(0x10,40,30),Anim(background),Anmf(6,4,17,19,false,firstBody)}))==E::invalid_layout,"ANIM without animation flag admitted");
+    Check(Code(Riff({Vp8x(0x12,40,30),body,Anim(background),Anmf(6,4,17,19,false,firstBody)}))==E::invalid_layout,"image before ANIM admitted");
+    Check(Code(Riff({Vp8x(0x12,40,30),Anim(background),Anmf(6,4,17,19,false,firstBody),body}))==E::invalid_layout,"image after ANMF admitted");
     Check(Code(Riff({Vp8x(0x12,40,30),Anim(background),Anmf(6,4,17,19,false,{})}))==E::invalid_layout,"empty frame admitted");
     I::DecodeOptions o;o.maximumPixels=40*30-1;Check(Code(still,o)==E::invalid_dimensions,"canvas pixel limit ignored");
     o={};o.maximumDimension=39;Check(Code(still,o)==E::invalid_dimensions,"canvas dimension limit ignored");
@@ -300,7 +315,7 @@ void AnimationPolicy(const Bytes& body) {
     for(unsigned i=0;i<4096;++i)many.insert(many.end(),f.begin(),f.end());
     Put(many,4,std::uint32_t(many.size()-8));
     const auto most=I::DecodeImage(I::Format::webp,many);
-    Check(bool(most)&&most.image.frameCount==4096&&most.image.rgba8[(2*40+2)*4]==9&&most.image.rgba8[0]==10,"4096-frame animation rejected");
+    Check(bool(most)&&most.image.frameCount==4096&&most.image.rgba8[(2*40+2)*4]==9&&most.image.rgba8[0]==0&&most.image.rgba8[3]==0,"4096-frame animation rejected");
     many.insert(many.end(),f.begin(),f.end());Put(many,4,std::uint32_t(many.size()-8));
     Check(Code(many)==E::resource_limit,"unbounded frame count admitted");
     Bytes chunky=Riff({body});const auto empty=Serial("abcd",{});
@@ -392,8 +407,11 @@ void Test() {
     bad=Extended(e.bytes,31,17,0x10);Check(bool(I::DecodeImage(I::Format::webp,bad)),"valid extended alpha rejected");
     auto wrong=bad;Put(wrong,24,32,3);Check(!I::DecodeImage(I::Format::webp,wrong),"mismatched canvas admitted");
     wrong=bad;wrong[21]=std::byte{1};Check(!I::DecodeImage(I::Format::webp,wrong),"reserved header admitted");
-    // Flags declaring animation, EXIF or ICC without the matching chunks are malformed.
-    for(auto flag:{0x02,0x08,0x20}){wrong=bad;wrong[20]|=std::byte(flag);Check(I::DecodeImage(I::Format::webp,wrong).issue.code==I::DecodeError::invalid_layout,"inconsistent metadata/frame flag admitted");}
+    // Flags are hints: animation/XMP/EXIF/ICC flags without matching chunks decode the plain still.
+    for(auto flag:{0x02,0x04,0x08,0x20,0x2e}){
+        wrong=bad;wrong[20]|=std::byte(flag);const auto d=I::DecodeImage(I::Format::webp,wrong);
+        Check(bool(d)&&d.image.frameCount==1&&d.image.rgba8==pixels,"chunkless metadata/animation flag not ignored");
+    }
     const std::array<std::byte,1> metadata{std::byte{1}};
     Chunk(bad,"note",metadata);Check(bool(I::DecodeImage(I::Format::webp,bad)),"unknown bounded metadata rejected");
     bad.back()=std::byte{1};Check(!I::DecodeImage(I::Format::webp,bad),"nonzero padding admitted");
