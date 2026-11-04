@@ -1,4 +1,5 @@
 #include "reader.hpp"
+#include <algorithm>
 #include <array>
 
 namespace arken::image::v1::detail {
@@ -52,49 +53,62 @@ DecodeResult Dib(Bytes bytes,const Entry& entry,const DecodeOptions& options) {
     if(hasAlpha)return result;
     for(std::uint32_t y=0;y<entry.height;++y)for(std::uint32_t x=0;x<entry.width;++x){
         const auto mask=U8(bytes,maskOffset+(entry.height-1-y)*maskStride+x/8)&(0x80u>>(x%8));
-        const auto pixel=(std::size_t(y)*entry.width+x)*4;
-        // A nonzero XOR color under an AND bit depends on the destination.
-        // It has no faithful background-independent RGBA representation.
-        if(mask&&(result.image.rgba8[pixel]||result.image.rgba8[pixel+1]||result.image.rgba8[pixel+2]))
-            return Failure(DecodeError::unsupported_content,maskOffset+(entry.height-1-y)*maskStride+x/8);
-        result.image.rgba8[pixel+3]=mask?0:255;
+        // Every AND-masked pixel is fully transparent. A nonzero XOR colour
+        // under the mask (a screen-inverting cursor pixel) depends on the
+        // destination; RGBA has no such operation, and the colour under a
+        // zero alpha is irrelevant to RGBA consumers, so it is kept as decoded.
+        result.image.rgba8[(std::size_t(y)*entry.width+x)*4+3]=mask?0:255;
     }
     return result;
 }
 }
+// ICO (type 1) and CUR (type 2) share the directory. A cursor entry stores its
+// hotspot where an icon stores planes/bit count; the hotspot is not image data
+// and is ignored. Renditions are ordered largest area first, then deeper bit
+// count, then directory order: frameIndex 0 is the preferred (largest)
+// rendition and frameCount reports how many renditions the file holds.
 DecodeResult DecodeIco(Bytes bytes,const DecodeOptions& options) {
-    if(options.frameIndex||options.directionIndex||options.mipIndex)
+    if(options.directionIndex||options.mipIndex)
         return Failure(DecodeError::selection_out_of_range);
     if(bytes.size()<6)return Failure(DecodeError::truncated);
-    if(U16(bytes,0)!=0||U16(bytes,2)!=1)return Failure(DecodeError::wrong_magic);
+    const auto type=U16(bytes,2);
+    if(U16(bytes,0)!=0||(type!=1&&type!=2))return Failure(DecodeError::wrong_magic);
+    const bool cursor=type==2;
     const auto count=U16(bytes,4);
     if(!count)return Failure(DecodeError::invalid_layout,4);
     if(count>256)return Failure(DecodeError::resource_limit,4);
     const std::uint64_t directoryEnd=6+std::uint64_t(count)*16;
     if(!Range(bytes,6,directoryEnd-6))return Failure(DecodeError::truncated,6);
-    Entry selected;
+    std::vector<Entry> entries;entries.reserve(count);
     for(unsigned i=0;i<count;++i){
         const auto p=6+std::size_t(i)*16;
-        if(U8(bytes,p+3)||U16(bytes,p+4)>1)return Failure(DecodeError::invalid_layout,p+3);
+        if(U8(bytes,p+3)||(!cursor&&U16(bytes,p+4)>1))return Failure(DecodeError::invalid_layout,p+3);
         Entry entry{U8(bytes,p)?U8(bytes,p):256u,U8(bytes,p+1)?U8(bytes,p+1):256u,
-            U16(bytes,p+6),U32(bytes,p+12),U32(bytes,p+8)};
+            cursor?0u:U16(bytes,p+6),U32(bytes,p+12),U32(bytes,p+8)};
         if(!entry.length||entry.offset<directoryEnd||!Range(bytes,entry.offset,entry.length))
             return Failure(DecodeError::invalid_layout,p+8);
-        const auto area=entry.width*entry.height,selectedArea=selected.width*selected.height;
-        if(area>selectedArea||(area==selectedArea&&entry.depth>selected.depth))selected=entry;
+        entries.push_back(entry);
     }
+    std::stable_sort(entries.begin(),entries.end(),[](const Entry& a,const Entry& b){
+        const auto left=a.width*a.height,right=b.width*b.height;
+        return left!=right?left>right:a.depth>b.depth;
+    });
+    if(options.frameIndex>=entries.size())return Failure(DecodeError::selection_out_of_range);
+    const auto& selected=entries[options.frameIndex];
     if(!Dimensions(selected.width,selected.height,options))return Failure(DecodeError::invalid_dimensions,selected.offset);
     const auto payload=bytes.subspan(selected.offset,selected.length);
     constexpr std::array signature{std::byte{137},std::byte{'P'},std::byte{'N'},std::byte{'G'},
         std::byte{13},std::byte{10},std::byte{26},std::byte{10}};
     const bool png=payload.size()>=signature.size()&&std::equal(signature.begin(),signature.end(),payload.begin());
     auto bounded=options;
+    bounded.frameIndex=0;
     bounded.maximumPixels=std::uint64_t(selected.width)*selected.height;
     bounded.maximumDimension=std::max(selected.width,selected.height);
     auto result=png?DecodeRaster(Format::png,payload,bounded):Dib(payload,selected,bounded);
     if(!result){result.issue.byte_offset+=selected.offset;return result;}
     if(result.image.width!=selected.width||result.image.height!=selected.height)
         return Failure(DecodeError::invalid_dimensions,selected.offset);
+    result.image.frameCount=count;
     return result;
 }
 }

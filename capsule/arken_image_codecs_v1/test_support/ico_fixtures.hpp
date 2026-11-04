@@ -14,6 +14,14 @@ inline Bytes Container(const std::vector<Entry>& entries){
         Put32(out,p+8,e.bytes.size());Put32(out,p+12,out.size());out.insert(out.end(),e.bytes.begin(),e.bytes.end());
     }return out;
 }
+// CUR shares the ICO directory; entries store a hotspot in place of planes/bits.
+inline Bytes Cursor(Bytes ico,unsigned hotspotX,unsigned hotspotY){
+    Put16(ico,2,2);
+    for(unsigned i=0;i<(std::to_integer<unsigned>(ico[4])|(std::to_integer<unsigned>(ico[5])<<8));++i){
+        Put16(ico,6+i*16+4,hotspotX+i);Put16(ico,6+i*16+6,hotspotY+i);
+    }
+    return ico;
+}
 struct DibImage {Entry entry;std::vector<std::uint8_t> pixels;};
 inline DibImage Dib(unsigned bits=32,bool alpha=true,unsigned width=9,unsigned height=7){
     const unsigned colors=bits<=8?1u<<bits:0;
