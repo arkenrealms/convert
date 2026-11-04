@@ -436,7 +436,9 @@ CMakeLists although it ships one.
   `HAVE_STRCHR`, `HAVE_MEMCPY`, `ieee754_float32_t=float`,
   `LAME_LIBRARY_BUILD`) with `HAVE_CONFIG_H` left undefined (every upstream
   `#include <config.h>` is guarded by it). `TAKEHIRO_IEEE754_HACK` and
-  `USE_FAST_LOG` stay undefined (portable arithmetic). The library's
+  `USE_FAST_LOG` stay undefined (portable arithmetic); with this
+  configuration libmp3lame has no mutable global state (its only mutable
+  statics are under `DEBUG`, `USE_FAST_LOG` or `HAVE_MPGLIB`). The library's
   report callbacks are set to a no-op so it never writes to stderr. GCC 13
   warns `-Wstringop-overflow` in `quantize.c` (a 15-element `frameBits`
   passed to a parameter declared `[16]`); every index is bounded by
