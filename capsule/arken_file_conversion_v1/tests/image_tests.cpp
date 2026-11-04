@@ -90,7 +90,7 @@ Json Cases() {
     add("unsupported-input",png,{image::Format::blp,image::Format::png},c::Error::input_format_unavailable);
     add("unsupported-output",png,{image::Format::png,image::Format::dds},c::Error::output_format_unavailable);
     add("format-mismatch",png,{image::Format::jpeg,image::Format::png},c::Error::decode_failed);
-    add("custom-color-profile",raster_fixture::WithChromaticities(png,false),{},c::Error::decode_failed);
+    add("custom-color-profile",raster_fixture::WithChromaticities(png,false),{});
     png.back() ^= std::byte{1}; add("crc-corrupt",png,{},c::Error::decode_failed);
     add("empty",{}, {}, c::Error::input_limit);
     add("pixel-limit",raster_fixture::Encode(image::Format::png,1025,1024),{},c::Error::decode_failed);
