@@ -1,0 +1,30 @@
+cmake_minimum_required(VERSION 3.25)
+project(ArkenMarkupConversionTests LANGUAGES CXX)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+get_filename_component(workspace "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+# The module graph is resolved from this project's own lib.manifest.json. The
+# capsule has no external dependencies, so only first-party resolution runs.
+include("${workspace}/sdk/arken_sdk_dev/cmake/ArkenModuleGraph.cmake")
+arken_resolve_enabled_capsules(modules ROOT_MANIFEST "${CMAKE_CURRENT_LIST_DIR}/lib.manifest.json"
+  CAPSULE_ROOT "${workspace}/capsule")
+if(NOT modules STREQUAL "arken_markup_conversion_v1")
+  message(FATAL_ERROR "Markup conversion qualification must resolve only arken_markup_conversion_v1, not: ${modules}")
+endif()
+add_subdirectory("${workspace}/capsule/arken_markup_conversion_v1" "capsule")
+
+add_executable(arken-markup-conversion-tests markup_tests.cpp)
+target_compile_features(arken-markup-conversion-tests PRIVATE cxx_std_20)
+target_link_libraries(arken-markup-conversion-tests PRIVATE arken::markup_conversion_v1)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(arken-markup-conversion-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+enable_testing()
+add_test(NAME MarkupConversion.Version COMMAND arken-markup-conversion-tests --version --invalid)
+set_tests_properties(MarkupConversion.Version PROPERTIES TIMEOUT 5 PASS_REGULAR_EXPRESSION "arken-markup-conversion-v1-r1")
+foreach(group html_tokenizer html_markdown html_security markdown_blocks markdown_inlines markdown_security
+    srt_vtt vtt_srt limits determinism mutation)
+  add_test(NAME MarkupConversion.${group} COMMAND arken-markup-conversion-tests ${group})
+  set_tests_properties(MarkupConversion.${group} PROPERTIES TIMEOUT 60)
+endforeach()
