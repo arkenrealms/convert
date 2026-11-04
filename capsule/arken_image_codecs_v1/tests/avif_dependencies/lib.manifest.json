@@ -1,0 +1,7 @@
+{
+  "schemaVersion":1,"key":"arken_image_avif_dependencies",
+  "public_dependencies":[],"private_dependencies":[],"test_dependencies":[],
+  "external_dependencies":[
+    {"recipe":"libheif-1.23.7-av1-v1","scope":"private","components":["codec"],"reason":"Qualify the exact memory-only AV1 still-image decode/encode dependency before public image admission."}
+  ]
+}

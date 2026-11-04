@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 1,
+  "recipeId": "libheif-1.23.7-hevc-av1-v1",
+  "packageId": "libheif-hevc-av1",
+  "upstreamVersion": "1.23.7",
+  "dependencyClass": "source-package",
+  "supportedPlatforms": [
+    "macos",
+    "linux",
+    "web"
+  ],
+  "source": {
+    "kind": "archive",
+    "urls": [
+      "https://github.com/strukturag/libheif/releases/download/v1.23.7/libheif-1.23.7.tar.gz"
+    ],
+    "sha256": "f7483e818503ea6224c8863e4a56ac02c7089021a98472c811c12aa19faf2475",
+    "subdirectory": "libheif-1.23.7",
+    "files": [
+      {
+        "path": "COPYING",
+        "sha256": "fa81ce652315b013359d6e8e4744335f31a50c7c192907176d3632f78a3b4596"
+      },
+      {
+        "path": "CMakeLists.txt",
+        "sha256": "fe463bd898ee340e62568449f98af07d1748a9d068990b712962287819deefcb"
+      },
+      {
+        "path": "libheif/CMakeLists.txt",
+        "sha256": "ef110c3ff9722f54f7f58e515a052803f4203a2f60237c4b54e930e92178464d"
+      },
+      {
+        "path": "libheif/plugins/decoder_libde265.cc",
+        "sha256": "acfa43c361b8b620188e7c2932dc0eeadbbc8e68f3c7e140c423e4c7e83442ad"
+      },
+      {
+        "path": "examples/example.heic",
+        "sha256": "7f8b363e4936c0666a25f64f3a92fda10bd8e5453be4592530b65a55dd98f3f2"
+      },
+      {
+        "path": "libheif/plugins/decoder_aom.cc",
+        "sha256": "c895a5928ae7cb26a444e730220669e4cab753e49f7f3fed6cb39d227530e906"
+      },
+      {
+        "path": "libheif/plugins/encoder_aom.cc",
+        "sha256": "52fcabdb0757075609fcd9bf5dc5e99b390025f1fc066407f6417e2c828db399"
+      },
+      {
+        "path": "examples/example.avif",
+        "sha256": "54a0dc31d02b6f5d9d4b66027d4787861b7af15ffd8fab8eab963d10c5411469"
+      },
+      {
+        "path": "tests/data/clap_cropped_irot_imir.avif",
+        "sha256": "15d854779bb939ee34e887ad69ab57c8837b74ffe2e394e4f40453dc04bbbf9d"
+      },
+      {
+        "path": "tests/data/simple_osm_tile_alpha.avif",
+        "sha256": "6d78af07fbad358f4240820331074fff215ae8559bf4756ec480c6a6be2a68d9"
+      }
+    ],
+    "maxArchiveBytes": 8388608,
+    "maxEntries": 4096,
+    "maxExtractedBytes": 67108864,
+    "allowSafeSymlinks": false
+  },
+  "patches": [
+    {
+      "path": "patches/generated/libheif-1.23.7-av1/CMakeLists.txt",
+      "sha256": "f4852157314d03574ad811e83ce67b29121d5568f5f313ed2c0d21990069afe9",
+      "replacementPath": "CMakeLists.txt",
+      "expectedSourceSha256": "fe463bd898ee340e62568449f98af07d1748a9d068990b712962287819deefcb"
+    },
+    {
+      "path": "patches/generated/libheif-1.23.7/libheif/CMakeLists.txt",
+      "sha256": "15877dc9bf6cb17fcec086c87d3016f7a11ac2a439d060a69d3733e128fc028b",
+      "replacementPath": "libheif/CMakeLists.txt",
+      "expectedSourceSha256": "ef110c3ff9722f54f7f58e515a052803f4203a2f60237c4b54e930e92178464d"
+    },
+    {
+      "path": "patches/generated/libheif-1.23.7/libheif/plugins/decoder_libde265.cc",
+      "sha256": "18e3f081bad0d737de9da25e1e1749fded89b974d292f98ac4350a8d4318b24d",
+      "replacementPath": "libheif/plugins/decoder_libde265.cc",
+      "expectedSourceSha256": "acfa43c361b8b620188e7c2932dc0eeadbbc8e68f3c7e140c423e4c7e83442ad"
+    },
+    {
+      "path": "patches/generated/libheif-1.23.7/libheif/box.cc",
+      "sha256": "44ea92bef06bb436c7a24f5f67529aaec234265423075cbd68a81900f8bf391f",
+      "replacementPath": "libheif/box.cc",
+      "expectedSourceSha256": "e12f23fa1e0da440b271427336cf8b3c5086589f5f2f10dfec5dcf9a03da8a09"
+    },
+    {
+      "path": "patches/generated/libheif-1.23.7/libheif/box.h",
+      "sha256": "439c567fd20e6f60c5da13432114f6123f1625587243ea0aac1c471aeee4a91a",
+      "replacementPath": "libheif/box.h",
+      "expectedSourceSha256": "1be7aed90654b23949b2a22a8af68eff4fce16a00341cbbbb9edb1c237935c85"
+    },
+    {
+      "path": "patches/generated/libheif-1.23.7/libheif/file.cc",
+      "sha256": "f611f3179c51149fac62822047f5554230eff702cbff95a2c529bbd5becfc637",
+      "replacementPath": "libheif/file.cc",
+      "expectedSourceSha256": "5fc534dc6ad18ab563981b631eb248808da5c2ea80601e7d7028f84295bfb564"
+    }
+  ],
+  "adapter": {
+    "kind": "cmake-source",
+    "version": 1,
+    "options": {
+      "BUILD_SHARED_LIBS": false,
+      "BUILD_FRAMEWORK": false,
+      "ENABLE_PLUGIN_LOADING": false,
+      "WITH_LIBDE265": true,
+      "WITH_LIBDE265_PLUGIN": false,
+      "WITH_X265": false,
+      "WITH_KVAZAAR": false,
+      "WITH_UVG266": false,
+      "WITH_VVDEC": false,
+      "WITH_VVENC": false,
+      "WITH_X264": false,
+      "WITH_OpenH264_DECODER": false,
+      "WITH_DAV1D": false,
+      "WITH_AOM_DECODER": true,
+      "WITH_AOM_DECODER_PLUGIN": false,
+      "WITH_AOM_ENCODER": true,
+      "WITH_AOM_ENCODER_PLUGIN": false,
+      "WITH_SvtEnc": false,
+      "WITH_RAV1E": false,
+      "WITH_JPEG_DECODER": false,
+      "WITH_JPEG_ENCODER": false,
+      "WITH_OpenJPEG_ENCODER": false,
+      "WITH_OpenJPEG_DECODER": false,
+      "WITH_FFMPEG_DECODER": false,
+      "WITH_OPENJPH_ENCODER": false,
+      "WITH_UNCOMPRESSED_CODEC": false,
+      "WITH_WEBCODECS": false,
+      "WITH_LIBSHARPYUV": false,
+      "WITH_LIBSHARPYUV_INTERNAL": false,
+      "WITH_HEADER_COMPRESSION": false,
+      "ENABLE_MULTITHREADING_SUPPORT": false,
+      "ENABLE_PARALLEL_TILE_DECODING": false,
+      "ENABLE_EXPERIMENTAL_FEATURES": false,
+      "WITH_EXAMPLES": false,
+      "WITH_EXAMPLE_HEIF_THUMB": false,
+      "WITH_EXAMPLE_HEIF_VIEW": false,
+      "WITH_GDK_PIXBUF": false,
+      "BUILD_TESTING": false,
+      "BUILD_DEVELOPMENT_TOOLS": false,
+      "BUILD_DOCUMENTATION": false,
+      "WITH_FUZZERS": false,
+      "ENABLE_COVERAGE": false
+    }
+  },
+  "license": {
+    "spdx": "LGPL-3.0-or-later",
+    "distribution": "redistributable",
+    "files": [
+      {
+        "path": "COPYING",
+        "sha256": "fa81ce652315b013359d6e8e4744335f31a50c7c192907176d3632f78a3b4596"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "codec",
+      "target": "arken::external_heif_v1",
+      "kind": "static",
+      "upstreamTarget": "heif",
+      "compileOptions": [
+        "-ffp-contract=off",
+        "$<$<PLATFORM_ID:Generic>:-D__EMSCRIPTEN_STANDALONE_WASM__=1>"
+      ]
+    }
+  ],
+  "dependencies": [
+    "libde265-1.1.3-v2",
+    "libaom-3.15.3-v1"
+  ]
+}
