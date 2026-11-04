@@ -12,7 +12,8 @@
 // receives bytes. Every malformed, encrypted, macro-enabled or over-budget
 // input is a typed error, never an empty successful document.
 namespace arken::document::v1 {
-inline constexpr std::string_view revision="arken-document-extraction-v1-r1";
+// r2: the model gains block quotes, thematic breaks and code blocks (see Block).
+inline constexpr std::string_view revision="arken-document-extraction-v1-r2";
 
 enum class SourceFormat : std::uint32_t {docx=1, rtf=2};
 enum class OutputFormat : std::uint32_t {text=1, markdown=2};
@@ -94,13 +95,19 @@ struct Run {
 };
 using Cell=std::vector<Run>;
 using Row=std::vector<Cell>;
-enum class BlockKind : std::uint8_t {paragraph, heading, list_item, table};
+// block_quote: one quoted paragraph (consecutive quote blocks form one quotation).
+// thematic_break: a section separator; it has no runs.
+// code_block: preformatted text kept exactly (runs' text joined; formatting and links are
+// ignored), with an optional language label.
+// DOCX and RTF produce only paragraph, heading, list_item and table; EPUB produces all.
+enum class BlockKind : std::uint8_t {paragraph, heading, list_item, table, block_quote, thematic_break, code_block};
 struct Block {
     BlockKind kind=BlockKind::paragraph;
     std::uint8_t level=0;   // heading: 1..6; list_item: 0..8 nesting depth.
     bool ordered=false;     // list_item only.
-    std::vector<Run> runs;  // paragraph, heading, list_item.
+    std::vector<Run> runs;  // paragraph, heading, list_item, block_quote, code_block.
     std::vector<Row> rows;  // table.
+    std::string language;   // code_block only, as authored; the Markdown serializer admits [A-Za-z0-9_+.#-]{1,32}.
 };
 struct Document {
     std::vector<Block> blocks;
@@ -123,10 +130,13 @@ struct ConvertOptions {
 [[nodiscard]] ExtractResult ExtractDocx(std::span<const std::byte>,const ExtractOptions& ={}) noexcept;
 [[nodiscard]] ExtractResult ExtractRtf(std::span<const std::byte>,const ExtractOptions& ={}) noexcept;
 // TXT: UTF-8, LF, one blank line between blocks, tabs preserved, table rows as
-// tab-separated lines. Always ends with LF unless the document is empty.
+// tab-separated lines. Block quotes are plain paragraphs, a thematic break is one extra
+// blank line, code blocks are verbatim. Always ends with LF unless the document is empty.
 [[nodiscard]] TextResult SerializeText(const Document&,const SerializeOptions& ={}) noexcept;
 // Markdown (CommonMark/GFM subset): escaped text, ATX headings, nested lists,
-// pipe tables only when rectangular, links only for http/https/mailto. Never raw HTML.
+// pipe tables only when rectangular, links only for http/https/mailto, "> " block
+// quotes, "---" thematic breaks and fenced code (a backtick fence longer than any
+// backtick run in the code; unescaped content). Never raw HTML.
 [[nodiscard]] TextResult SerializeMarkdown(const Document&,const SerializeOptions& ={}) noexcept;
 [[nodiscard]] TextResult Convert(SourceFormat,OutputFormat,std::span<const std::byte>,
     const ConvertOptions& ={}) noexcept;

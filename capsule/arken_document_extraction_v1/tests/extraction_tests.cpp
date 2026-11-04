@@ -645,6 +645,36 @@ void MarkdownTests() {
         ExpectText(doc::SerializeMarkdown(document),"| a\\|b c | **- x** |\n| --- | --- |\n|  | \\<i\\> |\n","pipe table escaping");
         ExpectText(doc::SerializeText(document),"a|b c\t- x\n\t<i>\n","TXT table");
     }
+    {   // Block quotes, thematic breaks and code blocks (r2 model).
+        doc::Document document;
+        const auto block=[&](doc::BlockKind kind,std::vector<doc::Run> runs,std::string language={}) {
+            doc::Block b;b.kind=kind;b.runs=std::move(runs);b.language=std::move(language);document.blocks.push_back(std::move(b));
+        };
+        const auto run=[](std::string text,bool bold=false,std::string link={}) {return doc::Run{std::move(text),std::move(link),bold,false};};
+        block(doc::BlockKind::thematic_break,{});                       // Leading break: nothing.
+        block(doc::BlockKind::block_quote,{run("Quoted "),run("bold",true),run("\n> not a nested quote")});
+        block(doc::BlockKind::block_quote,{run("second "),run("link",false,"https://q.test/")});
+        block(doc::BlockKind::thematic_break,{});
+        block(doc::BlockKind::thematic_break,{});                       // Repeated break: one.
+        block(doc::BlockKind::code_block,{run("  int a = 1;  \n"),run("s = \"``` ````\";\n\n",true)},"c++");
+        block(doc::BlockKind::code_block,{run("plain")},"bad lang`");    // Unsafe label dropped.
+        block(doc::BlockKind::code_block,{run(" \n ")});                 // Whitespace-only: dropped.
+        block(doc::BlockKind::paragraph,{run("after")});
+        block(doc::BlockKind::thematic_break,{});                       // Trailing break: nothing.
+        ExpectText(doc::SerializeMarkdown(document),
+            "> Quoted **bold**\\\n> \\> not a nested quote\n>\n> second [link](https://q.test/)\n\n---\n\n"
+            "`````c++\n  int a = 1;  \ns = \"``` ````\";\n`````\n\n```\nplain\n```\n\nafter\n","Markdown quote, break and code");
+        ExpectText(doc::SerializeText(document),
+            "Quoted bold\n> not a nested quote\n\nsecond link (https://q.test/)\n\n\n"
+            "  int a = 1;  \ns = \"``` ````\";\n\nplain\n\nafter\n","TXT quote, break and code");
+        // A break between lists ends the list in both serializers.
+        doc::Document lists;
+        for(const auto kind:{doc::BlockKind::list_item,doc::BlockKind::thematic_break,doc::BlockKind::list_item}) {
+            doc::Block b;b.kind=kind;b.ordered=true;if(kind!=doc::BlockKind::thematic_break)b.runs={run("x")};lists.blocks.push_back(b);
+        }
+        ExpectText(doc::SerializeMarkdown(lists),"1. x\n\n---\n\n1. x\n","Markdown break restarts numbering");
+        ExpectText(doc::SerializeText(lists),"1. x\n\n\n1. x\n","TXT break restarts numbering");
+    }
 }
 
 void LimitTests() {

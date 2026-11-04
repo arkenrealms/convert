@@ -472,14 +472,14 @@ const std::string epubText=
     "- Item A\n  - Inner bold\n- Para one\n  Para two\n1. First\n2. Second\n\n"
     "Data\n\nK\tV\na\tn1 n2\n\n"
     "Links: web (https://example.net/), chapter two, mail (mailto:a@b.c), bad.\n\n"
-    "  code line 1\n    indented\n\nDiv text\n\nAfter rule\n\n"
+    "  code line 1\n    indented\n\nDiv text\n\n\nAfter rule\n\n"
     "The Second Chapter\n\nSecond chapter body.\n";
 const std::string epubMarkdown=
-    "# Beginning\n\nSome *emphasis* and **strength**.\\\nNew line.\n\nQuoted text\n\n"
+    "# Beginning\n\nSome *emphasis* and **strength**.\\\nNew line.\n\n> Quoted text\n\n"
     "- Item A\n  - Inner **bold**\n- Para one\\\n  Para two\n1. First\n2. Second\n\n"
     "Data\n\n| K | V |\n| --- | --- |\n| a | n1 n2 |\n\n"
     "Links: [web](https://example.net/), chapter two, [mail](mailto:a@b.c), bad.\n\n"
-    "code line 1\\\nindented\n\nDiv text\n\nAfter rule\n\n"
+    "```\n  code line 1\n    indented\n```\n\nDiv text\n\n---\n\nAfter rule\n\n"
     "# The Second Chapter\n\nSecond chapter body.\n";
 
 const std::string xhtml11="<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">";
@@ -510,6 +510,29 @@ void EpubTests() {
     ExpectConvert(TextDocumentFormat::epub,Zip(Epub2Members()),
         "Start\u00a0here\n\nDash \u2014 \u00a9 \u00a9 &\n\nMiddle part\n\nNo heading here.\n",
         "## Start\u00a0here\n\nDash \u2014 \u00a9 \u00a9 \\&\n\n# Middle part\n\nNo heading here.\n","EPUB 2 with NCX and XHTML 1.1 entities");
+
+    // Block quotes, thematic breaks and code blocks (r2 model): multi-paragraph quotes stay
+    // one quotation, a heading inside a quote stays a heading, the code language comes from
+    // a language- class, and inside a list item each degrades to text of that item.
+    {
+        auto quoted=Epub3Members();
+        for(auto& [name,data]:quoted)if(name=="OEBPS/Text/ch1.xhtml")data=Xhtml(
+            "<h1>Quotes</h1><hr/><blockquote><p>One <em>a</em></p><p>Two<br/>three</p><h2>Inner</h2></blockquote>"
+            "<pre class=\"x\"><code class=\"language-python other\">print(\"`x`\")\n  pass\n</code></pre>"
+            "<pre class=\"lang-sh\">ls</pre><hr/><hr/><ul><li>Item<pre>a\n b</pre><hr/><blockquote><p>q</p></blockquote></li></ul><hr/>");
+        const auto quotedBytes=Zip(quoted);
+        ExpectConvert(TextDocumentFormat::epub,quotedBytes,
+            "Quotes\n\n\nOne a\n\nTwo\nthree\n\nInner\n\nprint(\"`x`\")\n  pass\n\nls\n\n\n- Item\n  a\n   b\n  q\n\n\n"
+            "The Second Chapter\n\nSecond chapter body.\n",
+            "# Quotes\n\n---\n\n> One *a*\n>\n> Two\\\n> three\n\n## Inner\n\n```python\nprint(\"`x`\")\n  pass\n```\n\n```sh\nls\n```\n\n---\n\n"
+            "- Item\\\n  a\\\n  b\\\n  q\n\n---\n\n# The Second Chapter\n\nSecond chapter body.\n","EPUB quotes, breaks and code");
+        const auto extracted=doc::ExtractTextDocument(TextDocumentFormat::epub,std::as_bytes(std::span<const char>(quotedBytes.data(),quotedBytes.size())));
+        std::size_t quotes=0,breaks=0,code=0;
+        for(const auto& block:extracted.document.blocks) {
+            quotes+=block.kind==doc::BlockKind::block_quote;breaks+=block.kind==doc::BlockKind::thematic_break;code+=block.kind==doc::BlockKind::code_block;
+        }
+        Expect(extracted&&quotes==2&&breaks==4&&code==2,"EPUB model holds quotes, breaks and code blocks");
+    }
 
     // Without a navigation document or NCX, chapters are only separated by the usual blank line.
     auto members=Epub2Members();

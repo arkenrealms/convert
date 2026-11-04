@@ -226,21 +226,53 @@ void StripTrailingSpace(std::string& text) {
     out.resize(lineEnd);
     text=std::move(out);
 }
+// Code text exactly as held, without the trailing line breaks that end the block.
+std::string CodeText(const Block& block) {
+    auto text=Joined(block.runs);
+    while(!text.empty()&&(text.back()=='\n'||text.back()=='\r'))text.pop_back();
+    return text;
+}
+// A language label becomes a fence info string only when it is plainly a name.
+std::string_view InfoString(std::string_view language) {
+    if(language.empty()||language.size()>32)return {};
+    for(const char c:language)
+        if(!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='_'||c=='+'||c=='.'||c=='#'||c=='-'))return {};
+    return language;
+}
+std::string FencedCode(const Block& block) {
+    const auto code=CodeText(block);
+    if(!ModelBuilder::HasText(block.runs))return {};
+    // The fence is longer than any backtick run in the code, so no content line can close it.
+    std::size_t longest=0,run=0;
+    for(const char c:code) {run=c=='`'?run+1:0;longest=std::max(longest,run);}
+    const std::string fence(std::max<std::size_t>(3,longest+1),'`');
+    return fence+std::string(InfoString(block.language))+"\n"+code+"\n"+fence;
+}
 }
 
 std::string RenderText(const Document& document,const SerializeOptions& options) {
     Output out(options.maximumOutputBytes);
     ListCounters counters;
-    bool first=true,previousList=false;
+    // A thematic break is one extra blank line before the next block; leading, trailing
+    // and repeated breaks add nothing.
+    bool first=true,previousList=false,pendingBreak=false;
     for(const auto& block:document.blocks) {
         const bool list=block.kind==BlockKind::list_item;
         if(!list)counters.Reset();
-        if(!first)out.Put(list&&previousList?"\n":"\n\n");
-        first=false;previousList=list;
+        if(block.kind==BlockKind::thematic_break) {pendingBreak=!first;continue;}
+        if(block.kind==BlockKind::code_block&&!ModelBuilder::HasText(block.runs))continue;
+        if(!first)out.Put(pendingBreak?"\n\n\n":list&&previousList?"\n":"\n\n");
+        first=false;previousList=list;pendingBreak=false;
         switch(block.kind) {
             case BlockKind::paragraph:
             case BlockKind::heading:
+            case BlockKind::block_quote:
                 out.Put(PlainInline(block.runs));
+                break;
+            case BlockKind::code_block:
+                out.Put(CodeText(block));
+                break;
+            case BlockKind::thematic_break:
                 break;
             case BlockKind::list_item: {
                 const std::string indent(std::size_t(block.level)*2,' ');
@@ -271,13 +303,28 @@ std::string RenderMarkdown(const Document& document,const SerializeOptions& opti
     Output out(options.maximumOutputBytes);
     ListCounters counters;
     std::vector<std::size_t> offsets; // Content column of the open item at each effective level.
-    bool first=true,previousList=false;
+    // Thematic breaks are written before the next rendered block, so leading, trailing and
+    // repeated breaks add nothing (as in TXT).
+    bool first=true,previousList=false,previousQuote=false,pendingBreak=false;
     for(const auto& block:document.blocks) {
         const bool list=block.kind==BlockKind::list_item;
+        const bool quote=block.kind==BlockKind::block_quote;
         std::string rendered;
         switch(block.kind) {
             case BlockKind::paragraph:
                 rendered=MarkdownText(block.runs,Mode::block);
+                break;
+            case BlockKind::block_quote: {
+                // Hard breaks continue the quotation; '>' in the text is always escaped.
+                const auto body=MarkdownText(block.runs,Mode::block,"> ");
+                if(!body.empty())rendered="> "+body;
+                break;
+            }
+            case BlockKind::thematic_break:
+                if(!first) {pendingBreak=true;counters.Reset();offsets.clear();}
+                continue;
+            case BlockKind::code_block:
+                rendered=FencedCode(block);
                 break;
             case BlockKind::heading: {
                 const auto text=MarkdownText(block.runs,Mode::singleLine);
@@ -329,12 +376,14 @@ std::string RenderMarkdown(const Document& document,const SerializeOptions& opti
         }
         if(rendered.empty())continue;
         if(!list) {counters.Reset();offsets.clear();}
-        if(!first)out.Put(list&&previousList?"\n":"\n\n");
-        first=false;previousList=list;
+        // Trailing spaces are insignificant everywhere except inside code.
+        if(block.kind!=BlockKind::code_block)StripTrailingSpace(rendered);
+        if(pendingBreak) {out.Put("\n\n---");pendingBreak=false;previousList=previousQuote=false;}
+        if(!first)out.Put(list&&previousList?"\n":quote&&previousQuote?"\n>\n":"\n\n");
+        first=false;previousList=list;previousQuote=quote;
         out.Put(rendered);
     }
     if(!first)out.Put("\n");
-    StripTrailingSpace(out.Text());
     return std::move(out.Text());
 }
 }
