@@ -1,6 +1,7 @@
 add_executable(arken-convert-command-tests commands.cpp)
 target_link_libraries(arken-convert-command-tests PRIVATE arken_file_conversion_commands_v1
- arken_file_conversion_images_v1 arken_file_workspace_files_v1 arken_digest_v1)
+ arken_file_conversion_images_v1 arken_file_conversion_audio_v1 arken_file_conversion_documents_v1
+ arken_audio_codecs_v1 arken_document_extraction_v1 arken_file_workspace_files_v1 arken_digest_v1)
 add_dependencies(arken-convert-command-tests arken-convert-commands)
 target_compile_options(arken-convert-command-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_test(NAME ConvertFiles.Version COMMAND arken-convert-commands --stdio --root /nonexistent --version)
