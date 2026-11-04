@@ -2,15 +2,16 @@
 #include "arken_image_codecs_v1/api.hpp"
 
 namespace arken::image::v1::detail {
-// Memory-only HEIC/HEIF still-image import over the pinned libheif + libde265 decoder.
+// Memory-only HEIC/HEIF still-image import over the pinned libheif instance (libde265 for HEVC;
+// the same instance also carries libaom for the AVIF owner, which this wrapper never admits).
 // Admitted profile (every other variant rejects with a typed DecodeError; see HEIF_NOTES.md):
-//  - the container's primary item, which must be a coded HEVC image ('hvc1') or a grid the
-//    decoder assembles from its tiles. Sequences (image tracks) are rejected. A collection of
+//  - the container's primary item, which must be a coded HEVC image ('hvc1') or a grid of 'hvc1'
+//    tiles the decoder assembles. Sequences (image tracks) are rejected. A collection of
 //    several top-level images decodes only its primary item and says so: Image::frameCount
 //    carries the number of top-level images, so a consumer can refuse or label a partial
 //    conversion instead of mistaking the primary for the whole file. Thumbnails are never chosen.
-//  - 8-bit luma and chroma; an alpha auxiliary must be 8-bit, straight (non-premultiplied) and
-//    carry the same transformative properties as its master. Alpha is preserved in RGBA8.
+//  - 8-bit luma and chroma; an alpha auxiliary must be HEVC-coded, 8-bit, straight
+//    (non-premultiplied) and carry the same transformative properties as its master. Alpha is preserved in RGBA8.
 //  - container transforms (irot, imir, clap) are applied by the decoder in ipma order; Exif
 //    orientation is never consulted, so it is never applied twice. The decoded extent must equal
 //    the signalled post-transform extent or the image is rejected.

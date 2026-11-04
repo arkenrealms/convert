@@ -146,6 +146,26 @@ DecodeError DecideColour(const heif_image_handle* handle,Colour& colour) {
         default:return DecodeError::unsupported_content;
     }
 }
+// The shared libheif instance also decodes AV1, so HEIC admission names its codec explicitly: an
+// item is admitted when it is 'hvc1', or a 'grid' whose every 'dimg' tile is 'hvc1'.
+bool HevcCoded(const heif_context* context,heif_item_id item) {
+    const auto type=heif_item_get_item_type(context,item);
+    if(type==heif_fourcc('h','v','c','1'))return true;
+    if(type!=heif_fourcc('g','r','i','d'))return false;
+    bool tiles=false;
+    for(int index=0;index<int(maximumItems);++index) {
+        std::uint32_t reference=0;heif_item_id* targets=nullptr;
+        const auto count=heif_context_get_item_references(context,item,index,&reference,&targets);
+        bool hevc=true;
+        for(std::size_t i=0;i<count;++i)hevc=hevc&&heif_item_get_item_type(context,targets[i])==heif_fourcc('h','v','c','1');
+        heif_release_item_references(context,&targets);
+        if(!count)return tiles;
+        if(reference!=heif_fourcc('d','i','m','g'))continue;
+        if(!hevc)return false;
+        tiles=true;
+    }
+    return false;
+}
 // The item's transformative properties (irot, imir, clap) in application order, with values.
 std::vector<int> Transforms(const heif_context* context,const heif_image_handle* handle) {
     const auto item=heif_image_handle_get_item_id(handle);
@@ -188,6 +208,7 @@ DecodeError Alpha(const heif_context* context,const heif_image_handle* handle) {
         const bool alpha=name=="urn:mpeg:hevc:2015:auxid:1"||name=="urn:mpeg:mpegB:cicp:systems:auxiliary:alpha";
         heif_image_handle_release_auxiliary_type(auxiliary.get(),&type);
         if(!alpha)continue;
+        if(!HevcCoded(context,heif_image_handle_get_item_id(auxiliary.get())))return DecodeError::unsupported_content;
         if(heif_image_handle_get_luma_bits_per_pixel(auxiliary.get())!=8)return DecodeError::unsupported_content;
         if(Transforms(context,auxiliary.get())!=Transforms(context,handle))return DecodeError::unsupported_content;
     }
@@ -204,7 +225,7 @@ DecodeResult DecodeHeif(Bytes bytes,const DecodeOptions& options) {
     if(bytes.size()<12)return Failure(DecodeError::truncated);
     if(std::memcmp(data+4,"ftyp",4)!=0)return Failure(DecodeError::wrong_magic);
     const auto brand=heif_read_main_brand(data,static_cast<int>(bytes.size()));
-    if(brand==heif_brand2_avif||brand==heif_brand2_avis)return Failure(DecodeError::unsupported_content); // AV1 is not enabled.
+    if(brand==heif_brand2_avif||brand==heif_brand2_avis)return Failure(DecodeError::unsupported_content); // AVIF is not this wrapper's format.
 
     Library library;
     if(library.status.code!=heif_error_Ok)return Failure(DecodeError::allocation_failed);
@@ -233,9 +254,8 @@ DecodeResult DecodeHeif(Bytes bytes,const DecodeOptions& options) {
     status=heif_context_get_primary_image_handle(context.get(),&rawHandle);
     if(status.code!=heif_error_Ok)return Failure(Map(status));
     Handle handle(rawHandle,heif_image_handle_release);
-    // Admitted primary items: a coded HEVC image or a grid the decoder assembles from its tiles.
-    const auto itemType=heif_item_get_item_type(context.get(),heif_image_handle_get_item_id(handle.get()));
-    if(itemType!=heif_fourcc('h','v','c','1')&&itemType!=heif_fourcc('g','r','i','d'))return Failure(DecodeError::unsupported_content);
+    // Admitted primary items: a coded HEVC image or a grid of HEVC tiles the decoder assembles.
+    if(!HevcCoded(context.get(),heif_image_handle_get_item_id(handle.get())))return Failure(DecodeError::unsupported_content);
     const auto luma=heif_image_handle_get_luma_bits_per_pixel(handle.get()),chroma=heif_image_handle_get_chroma_bits_per_pixel(handle.get());
     if(luma!=8||chroma!=8)return Failure(DecodeError::unsupported_content); // No high-bit-depth or HDR policy yet.
     if(heif_image_handle_is_premultiplied_alpha(handle.get()))return Failure(DecodeError::unsupported_content);

@@ -9,10 +9,22 @@ command. The dependency milestone it builds on is convert/r6364 (libheif 1.23.7 
 HEVC decoding only, no dynamic plugins, `-ffp-contract=off`).
 
 The decoder is compiled into `arken_image_codecs_v1` only when `ARKEN_IMAGE_CODECS_V1_HEIF` is ON
-(the root `CMakeLists.txt` of this repository sets it ON and `lib.manifest.json` resolves the
-`libheif-1.23.7-hevc-v1` recipe privately). Any in-process caller of `DecodeImage` can therefore
-reach it in this build; the conversion owners refuse `Format::heif` because no admission
-predicate lists it.
+(the root `CMakeLists.txt` of this repository sets it ON). The root `lib.manifest.json` resolves
+one combined libheif instance privately, `libheif-1.23.7-hevc-av1-v1` (target
+`arken::external_heif_v1`): the same archive and patches as the HEVC milestone, the AV1
+milestone's root `CMakeLists.txt` replacement (the HEVC replacement plus a pinned-libaom block
+guarded by `WITH_AOM_*`), libde265 1.1.3 and libaom 3.15.3 (decoder and encoder). Two libheif
+instances cannot share a CMake graph because both materialise the upstream target `heif`.
+libde265 and libaom also both define an upstream maintainer target `dist`, so the combined
+instance depends on `libde265-1.1.3-v2`: the v1 recipe plus a root `CMakeLists.txt` replacement
+that defines `dist` only in a top-level libde265 build (no compiled source changes). The
+dependency milestones `tests/heif_dependencies` and `tests/avif_dependencies` keep their
+single-codec recipes. Because the shared instance can decode AV1, this wrapper admits items by
+codec explicitly (`hvc1`, or a grid whose tiles are all `hvc1`); AVIF belongs to its own wrapper.
+The accepted HEIC fingerprint is unchanged with the AV1-enabled instance.
+
+Any in-process caller of `DecodeImage` can reach the HEIC decoder in this build; the conversion
+owners refuse `Format::heif` because no admission predicate lists it.
 
 ## 1. Admitted profile
 
@@ -24,8 +36,8 @@ pixels and zero dimensions.
 | --- | --- | --- |
 | Container | ISOBMFF with `ftyp`, parsed by libheif, including the low-overhead `mini` form | missing `ftyp` (`wrong_magic`); `avif`/`avis` major brand, image sequences/tracks (`unsupported_content`) |
 | Selected item | the primary item (`pitm`) only | `frameIndex`/`directionIndex`/`mipIndex` other than 0 (`selection_out_of_range`) |
-| Primary item type | `hvc1`, or `grid` (tiles assembled by libheif) | `iden`, `iovl`, `av01`, `avc1`, `vvc1`, `jpeg`, `j2k1`, `unci` and anything else (`unsupported_content`) |
-| Bit depth | 8-bit luma and chroma; 8-bit alpha auxiliary | anything else (`unsupported_content`) |
+| Primary item type | `hvc1`, or `grid` whose `dimg` tiles are all `hvc1` (assembled by libheif) | `iden`, `iovl`, `av01`, a grid with any non-`hvc1` tile, `avc1`, `vvc1`, `jpeg`, `j2k1`, `unci` and anything else (`unsupported_content`) |
+| Bit depth | 8-bit luma and chroma; 8-bit HEVC-coded alpha auxiliary | anything else (`unsupported_content`) |
 | Alpha | straight alpha auxiliary carrying the master's transforms | premultiplied alpha; alpha whose `irot`/`imir`/`clap` differ from the master's (`unsupported_content`) |
 | Transforms | `clap`, `irot`, `imir` applied by libheif in `ipma` order | decoded extent different from the signalled post-transform extent (`invalid_dimensions`) |
 | Colour | SDR, see section 2.4 | HDR transfers, unadmitted primaries/matrices, non-RGB ICC |
@@ -120,10 +132,12 @@ matrix/range conversion results from it. Primaries and transfer are then handled
 ### 2.5 HDR and gain maps
 
 There is no HDR policy. Every high-bit-depth image rejects at the 8-bit gate before decoding, and
-HDR transfers reject in rule 2, so no highlight is clipped and no tone curve is invented. Gain-map
-auxiliaries (for example Apple's `urn:com:apple:photo:2020:aux:hdrgainmap`) are not decoded or
-applied: the output is the SDR primary image as stored. That is a deliberate first-release choice
-(it neither rejects nor tone-maps); it is documented here, not qualified on a real file. libheif
+HDR transfers reject in rule 2, so no highlight is clipped and no tone curve is invented.
+
+Gain maps (decision confirmed by the coordinator): the wrapper ignores the gain-map auxiliary
+(for example Apple's `urn:com:apple:photo:2020:aux:hdrgainmap`) and returns the stored SDR base
+image. That is neither clipping nor tone mapping, and the base rendition is what the format
+defines for SDR consumers. This disposition is not yet exercised on a real file. libheif
 1.23.7 has no `tmap` (ISO 21496-1) image item; a `tmap` primary is not `hvc1`/`grid` and rejects.
 
 ### 2.6 Arithmetic
@@ -147,7 +161,8 @@ fingerprint.
   334,661 of 718,114 bytes; every prefix tested either decodes exactly the full primary or
   rejects with no pixels, and the tested cuts below that prefix (1, 64 and 1024 bytes short, half
   and an eighth) reject. Single-bit flips at every third offset of the first 640 bytes never leak
-  pixels. PNG bytes reject as `wrong_magic`.
+  pixels. PNG bytes reject as `wrong_magic`; `examples/example.avif` rejects as
+  `unsupported_content` although the shared instance has an AV1 decoder.
 - **Fixtures from the pinned trees.** `colors-no-alpha`, `colors-with-alpha` (alpha kept, colour
   equal to the opaque fixture), primaries chosen over 64x64 thumbnails (72x72), `hevc32.heif`
   (clap 64->32), `hevc32-mini.heif` and `lightning_mini.heif` (`mini` container),
@@ -213,7 +228,9 @@ fingerprint.
 - **Memory and time.** No peak-memory or timing measurement exists for this wrapper.
 - **Browser.** The wrapper has not been compiled to Wasm or run in a browser; only the dependency
   check has (r6364).
-- **LGPL distribution.** libheif and libde265 are LGPL-3.0-or-later (recipes record `COPYING`
+- **LGPL distribution.** libheif and libde265 are LGPL-3.0-or-later; the combined instance also
+  links libaom (BSD-2-Clause with the AOM patent licence, see its recipe) into the binary, whose
+  notices must ship too (recipes record `COPYING`
   digests and patches). Statically linking them into the standalone binary creates source/relink
   obligations (notices, exact upstream sources, the pinned patches and build configuration, and
   the materials to relink against a modified library) that are not yet met. Nothing here
