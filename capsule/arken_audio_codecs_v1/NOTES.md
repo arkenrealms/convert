@@ -1,10 +1,13 @@
 # arken_audio_codecs_v1
 
-Status: native codec milestone (handoff section 9, plan-task d85e2c6cc4a2f945).
-It covers the WAV, FLAC and AIFF/AIFF-C codec owner and its native qualification.
-AIFF (`DecodeAiff`, `EncodeAiff`, `Container::aiff`) is implemented and
-qualified in the capsule but not yet exposed through the MCP server; see
-"Remaining steps to expose AIFF" at the end.
+Status: native codec milestone (handoff sections 9 and 10, plan-task d85e2c6cc4a2f945).
+It covers the WAV, FLAC and AIFF/AIFF-C codec owner, the lossy Ogg Vorbis,
+Ogg Opus and MP3 codecs, and their native qualification.
+AIFF (`DecodeAiff`, `EncodeAiff`, `Container::aiff`) and the lossy formats
+(`Container::vorbis/opus/mp3`) are implemented and qualified in the capsule
+but not yet exposed through the MCP server; see "Remaining steps to expose
+AIFF" and "Remaining steps to expose the lossy formats" at the end. The lossy
+contract is in "Lossy codecs" below.
 
 Standalone MCP: exposed as `convert_audio`, `wav_to_flac` and `flac_to_wav`
 through `ConvertStandaloneAudio` in `arken_file_conversion_v1` (component
@@ -24,7 +27,9 @@ Canonical model (`Audio`): interleaved `int32` samples, right-justified and
 sign-extended, `bitsPerSample` significant bits (4..32), sample rate, channel
 count, frame count and an optional raw WAVE_FORMAT_EXTENSIBLE `channelMask`.
 Integer PCM is carried exactly; nothing is dithered, rescaled, resampled,
-downmixed or reordered. 8-bit WAV's unsigned storage (and AIFF-C `raw `)
+downmixed or reordered (the lossy formats are the documented exception: see
+"Lossy codecs" for their 16-bit output and the Vorbis/Opus multichannel
+order mapping). 8-bit WAV's unsigned storage (and AIFF-C `raw `)
 maps to signed by subtracting 128; 8-bit AIFF is already signed.
 
 WAV read (`DecodeWav`):
@@ -122,11 +127,141 @@ FLAC write (`EncodeFlac`), see "Determinism" for the exact configuration.
 1..8 channels, 4..32 bits, 1..1,048,575 Hz (FLAC__MAX_SAMPLE_RATE), at most
 2^36-1 frames.
 
-`Convert(source, destination, bytes, limits)` composes decode and encode under
-one `Limits` for any pair of `wav`, `flac` and `aiff` (including same-container
-re-encoding) and reports the decode issue, encode error, stream parameters,
-`DecodeReport` and `droppedChannelMask`. An unknown container value is
-rejected (`encodeError = invalid_audio`).
+`Convert(source, destination, bytes, [options,] limits)` composes decode and
+encode under one `Limits` for any pair of `wav`, `flac`, `aiff`, `vorbis`,
+`opus` and `mp3` (including same-container re-encoding) and reports the
+decode issue, encode error, stream parameters (of the decoded audio: an Opus
+source reports 48 kHz), `DecodeReport`, `droppedChannelMask`, `lossyOutput`
+(destination is Vorbis/Opus/MP3) and `generationLoss` (source and destination
+both lossy). An unknown container value is rejected (`encodeError =
+invalid_audio`). `LossyOptions` defaults apply when no options are given.
+
+## Lossy codecs (Vorbis in Ogg, Opus in Ogg, MP3)
+
+"OGG" is a container, not a codec: the API never offers an ambiguous Ogg
+choice. `Container::vorbis` is Vorbis I in Ogg (`audio/ogg; codecs=vorbis`,
+`.ogg`), `Container::opus` is Opus in Ogg per RFC 7845 (`audio/ogg;
+codecs=opus`, `.opus`), `Container::mp3` is an MPEG-1/2/2.5 Layer III
+elementary stream (`audio/mpeg`, `.mp3`). Lossy output is never described as
+reversible: `ConvertResult::lossyOutput` labels every conversion into a lossy
+format and `generationLoss` every lossy-to-lossy conversion (quality is never
+restored); `DecodeReport::lossy` labels every lossy source.
+
+### Decoding (all three)
+
+- Output is canonical 16-bit PCM (`bitsPerSample = 16`). Float codec output
+  (Vorbis, Opus) is converted by one pure function: `clamp(floor(x * 32768 +
+  0.5), -32768, 32767)` in double precision; no dither, no noise shaping, no
+  soft clipping. MP3 uses minimp3's own int16 output (round to nearest with
+  saturation). 16 bits is the declared depth because every pinned decoder's
+  integer path and every downstream PCM consumer of these files is 16-bit;
+  more bits would only carry codec noise.
+- Channels: 1 and 2 keep `channelMask = nullopt` (as WAVE_FORMAT_PCM). Vorbis
+  and Opus mapping family 1 with 3..8 channels are reordered from Vorbis order
+  into WAVE order and given the standard mask: 3 `0x7`, 4 `0x33`, 5 `0x37`,
+  5.1 `0x3F`, 6.1 `0x70F`, 7.1 `0x63F`. This is a deliberate mapping (the
+  only remap in the capsule), proven by the FFmpeg 5.1 interop case.
+- Encoder delay and padding are removed using container data only, and
+  reported (`encoderDelayTrimmed`, `trimmedLeadingFrames`,
+  `trimmedTrailingFrames`):
+  - Vorbis: the final granule position trims the end (at most one long
+    block). A first audio page whose granule is below the frames decoded
+    through it trims the start, except when it is also the last page, where
+    it trims the end (Vorbis I A.2; libvorbis does the same). Vorbis has no
+    encoder delay.
+  - Opus: always decoded at 48 kHz; OpusHead pre-skip removed, OpusHead
+    output gain (Q7.8 dB) applied by libopus, final granule trims the end
+    (at most 120 ms). `originalSampleRate` reports OpusHead's input rate;
+    nothing is resampled back to it.
+  - MP3: a first frame carrying a Xing/Info tag is not audio. With a
+    LAME/Lavf/Lavc extension whose tag CRC is valid (LAME's convention: CRC
+    of the bytes before the field; FFmpeg's: first 190 bytes, field zeroed,
+    zero-extended), `start = delay + 529`, `kept = frames x samplesPerFrame -
+    delay - padding` (529 = Layer III decoder delay, the convention FFmpeg and
+    minimp3_ex use). A Xing frame count must equal the counted audio frames
+    (`length_mismatch`). Without such a tag nothing is trimmed and
+    `encoderDelayUnknown` is set: the output then begins with the encoder and
+    decoder delay (1105 frames for LAME 3.100) and ends with padding.
+- Metadata is never carried and only counted: Vorbis comments and OpusTags
+  entries (`droppedComments`, including `METADATA_BLOCK_PICTURE` album art),
+  MP3 ID3v2 (start, repeated), ID3v1 and APEv2 (end) (`skippedTags`). Album
+  art, ReplayGain, chapters and cue data are not promised.
+- Ogg demuxing (libogg page sync and CRC, then libogg packet assembly over the
+  admitted pages): the first bytes must be a page; every byte must belong to a
+  page with a valid CRC (no resynchronisation, no trailing bytes); page
+  version 0; all BOS pages first (grouped streams). The first logical stream
+  of the requested codec is decoded and other streams are skipped and counted
+  (`skippedStreams`); a BOS page after data pages is `chained_stream` when
+  every stream of the first link has ended (chained files are rejected
+  explicitly) and `invalid_layout` otherwise; a page of an unknown or ended
+  serial is `invalid_layout`; granule positions never decrease; the decoded
+  stream must end with an EOS page (`truncated` otherwise); page-sequence gaps
+  and partial packets are `corrupt_stream`/`truncated`. An Ogg file whose
+  first stream is the other admitted codec is `wrong_magic`; Ogg without
+  Vorbis/Opus (FLAC, Speex, Theora) is `unsupported_encoding`.
+- Vorbis: three header packets through libvorbis (`invalid_header` for the
+  identification header, `invalid_metadata` for comment/setup), 1..8
+  channels, every audio packet must synthesise (`corrupt_stream`).
+- Opus: OpusHead version major 0, channel count >= 1; family 0 (1-2
+  channels), family 1 (1-8 channels, stream/coupled counts and every table
+  entry checked); families 2, 3 (ambisonics), 255 and reserved values are
+  `unsupported_channel_mapping`. OpusTags lengths are checked
+  (`invalid_metadata`). Empty audio packets and libopus decode errors are
+  `corrupt_stream`. Final granule below pre-skip is `corrupt_stream`.
+- MP3: every byte between the tags is a consecutive Layer III frame with one
+  MPEG version, sample rate and mono/stereo kind (changes are
+  `corrupt_stream`); free format and Layer I/II are `unsupported_encoding`;
+  reserved version/layer/bitrate/rate/emphasis values are `wrong_magic` on the
+  first frame and `corrupt_stream` later; protected frames' CRC-16 (header
+  bytes 2-3 and side information) must match. minimp3 is called with exactly
+  one validated frame at a time. Leading frames whose bit reservoir points
+  before the stream (a cut file) are emitted as silence and counted
+  (`silencedFrames`); the same condition after a decoded frame is
+  `corrupt_stream`. MP3 has no mandatory checksum: a corrupted unprotected
+  frame can still decode (to canonical audio of the declared length).
+
+### Encoding and quality contract
+
+All three encoders accept 1 or 2 channels of any canonical bit depth (4..32;
+converted to float `s / 2^(bits-1)`), check `ValidateAudio`, never resample
+(`resampling_required` names the rates), reject out-of-range controls with
+`invalid_option` (never clamped), and enforce `maximumOutputBytes` on every
+page or LAME buffer (`output_limit`, no partial bytes). More than 2 channels
+is `channel_limit` (channel-order mapping on encode is not implemented).
+
+| | Vorbis in Ogg | Opus in Ogg | MP3 (LAME) |
+| --- | --- | --- | --- |
+| Control | `vorbisQuality` 0..100 (default 50) -> libvorbis VBR quality `-0.1 + 1.1 q / 100` | `opusBitrateKbps` 6..510 (default 128), unconstrained VBR | `mp3RateControl` CBR with `mp3BitrateKbps` (default 192; MPEG-1 rates: 32..320, MPEG-2/2.5 rates: 8..160, legal Layer III values only) or VBR (mtrh) with `mp3VbrQuality` 0..9 (LAME -V, default 2) |
+| Fixed settings | serial `0x41524B56`, comment header = libvorbis vendor string only, headers flushed so audio starts on a new page, libogg page boundaries | serial `0x41524B4F`, application AUDIO, complexity 10, 20 ms frames, signal/bandwidth/channels auto, FEC/DTX/loss 0, LSB depth = clamp(bits, 8, 24), OpusHead version 1, gain 0, family 0, OpusTags = `libopus 1.5.2` vendor only | algorithm quality 2, joint stereo (mono for 1 ch), no error protection, no ReplayGain analysis, no ID3, Info/Xing + LAME tag written in place of LAME's placeholder first frame |
+| Sample rates | any rate libvorbis has a mode for (tested 8000..48000; otherwise `sample_rate_limit`) | 8000, 12000, 16000, 24000, 48000 only | 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000 only |
+| Delay/padding written | none (Vorbis has none); final granule = exact input length | pre-skip = encoder lookahead = 312 at 48 kHz (also for lower input rates); final granule = pre-skip + input frames x 48000/rate | LAME tag: encoder delay 576, padding to whole frames |
+| What a decoder sees | exactly the input frames at the input rate (any Vorbis decoder honouring granules) | exactly input frames x 48000/rate at 48 kHz (RFC 7845 decoders) | exactly the input frames when the decoder honours the LAME tag (Arken, FFmpeg); otherwise +1105 leading frames and trailing padding |
+| Measured, 4 s programme, mono/stereo | q20: 45/65 kbps; q70: 85/166 kbps | 64k: 66/72 kbps; 160k: 162/177 kbps | CBR 128: 130 kbps; V0: 102/177 kbps |
+
+Quality evidence (`CompressedAudio.Quality`, waveform SNR of the decoded
+programme - speech-like voiced sound, a music chord, transients, silence -
+against the source, frames 0..3 s): Vorbis q20 >= 12.0 / q70 >= 24.9 dB,
+Opus 64k >= 12.3 / 160k >= 16.1 dB, MP3 CBR 128 >= 15.2 / V0 >= 23.9 dB
+(measured minima over mono and stereo; test floors are 3 dB lower: 9/21,
+9/13, 12/20). The higher setting is never worse, the decoded silence segment
+stays within 8 LSB, and the cross-correlation lag against the source is 0.
+Waveform SNR is a regression floor, not a perceptual-quality claim
+(perceptual codecs, Opus especially, do not preserve waveforms at high
+frequencies); no listening test was performed in this environment.
+
+Determinism: for a given build, each encoder's bytes are a pure function of
+the `Audio` and `LossyOptions` (fixed serials, no time, no randomness: libopus
+`rand()` calls are FUZZING-only and FUZZING is not defined, LAME and libvorbis
+use none). Tests encode twice with unrelated work between and compare bytes,
+and show `Convert(wav -> x)` equals `EncodeX`. Exact bytes across compilers,
+CPUs, libm implementations or the future Wasm build are **not** promised:
+libvorbis's `vorbis_ftoi` uses SSE2 `cvtsd2si` on x86-64 and `floor(x+0.5)`
+elsewhere, and all three encoders use float transcendental functions.
+
+Not promised: metadata or album art preservation, ReplayGain, gapless
+playback in players that ignore the LAME tag, bit-exact output across
+platforms, any perceptual quality level, multichannel encoding, resampling,
+chained or multiplexed Ogg output, seeking/streaming.
 
 ## Explicit rejections (typed `Error`)
 
@@ -152,6 +287,19 @@ rejected (`encodeError = invalid_audio`).
 | AIFF rate zero, >= 2^32 or outside the profile | `sample_rate_limit` |
 | AIFF COMM too short, compressionName past COMM, SSND < 8 bytes, SSND offset past data, SSND data != COMM frames | `invalid_header` |
 | Missing/duplicate COMM, duplicate SSND, missing SSND with frames > 0, bytes after FORM | `invalid_layout` |
+| Ogg: not starting with a page, or first stream of the other admitted codec; MP3: first frame header invalid | `wrong_magic` |
+| Ogg without a Vorbis/Opus stream; MP3 free format, Layer I/II | `unsupported_encoding` |
+| Ogg: a second chained link | `chained_stream` |
+| Ogg: BOS after data of an open stream, duplicate BOS serial, page of unknown/ended serial | `invalid_layout` |
+| Ogg: CRC mismatch, lost sync, page version != 0, sequence gap, decreasing granule; Vorbis/Opus packet errors; MP3 frame CRC, parameter change, minimp3 rejection | `corrupt_stream` |
+| Ogg: partial page, missing EOS, partial packet; MP3: partial frame | `truncated` |
+| Opus family 2/3/255/reserved, bad stream counts or table entries | `unsupported_channel_mapping` |
+| OpusHead major version != 0, family 0 with > 2 channels; Vorbis identification header | `invalid_header` |
+| Vorbis comment/setup header, OpusTags lengths, APEv2 size, non-syncsafe ID3v2 size | `invalid_metadata` |
+| Granule range not covered by decoded audio or end trim too long; Xing frame count mismatch; LAME delay/padding exceeding the stream | `length_mismatch` |
+| Encoding: Opus rate not 8/12/16/24/48 kHz, MP3 rate not a Layer III rate | `resampling_required` |
+| Encoding: a `LossyOptions` control out of range or an illegal MP3 bitrate | `invalid_option` |
+| Encoding lossy with more than 2 channels | `channel_limit` |
 
 Every strict prefix of a valid WAV or AIFF, and a sweep of prefixes of a valid
 FLAC, is rejected by the tests; none decodes as shorter audio.
@@ -167,6 +315,19 @@ FLAC, is rejected by the tests; none decodes as shorter audio.
 | `minimumSampleRate` .. `maximumSampleRate` | 1 .. 768,000 Hz | every container |
 | `maximumMetadataBlockBytes` | 1 MiB | each non-`data` RIFF chunk, each non-`SSND` AIFF chunk (COMM included), each FLAC block, the ID3v2 prefix |
 | `maximumMetadataBlocks` | 1024 | RIFF/AIFF chunks / FLAC blocks per source |
+
+Lossy formats use the same `Limits`: `maximumSourceBytes` on input;
+`maximumTotalSamples` is checked before decoding against the final Ogg granule
+(Vorbis), final granule minus pre-skip (Opus) or the counted frames (MP3), and
+again while decoding (raw decoded audio may exceed it by at most one codec
+block before the stream is rejected); `maximumChannels`; the sample-rate
+range (Opus output 48 kHz must be inside it); `maximumMetadataBlockBytes` for
+every Vorbis header packet, OpusTags, each ID3v2 tag and an APEv2 tag;
+`maximumMetadataBlocks` for the number of Ogg logical streams and of ID3v2
+tags; `maximumOutputBytes` on every encoder write. Decoding holds the source,
+the libogg page copy of one page, codec state and the decoded int32 PCM
+(trimmed in place, no second copy); encoding holds the source PCM, one chunk
+of float input and the output.
 
 The implementation is resident, not streaming: one call holds the source, the
 canonical PCM (4 bytes per sample) and the encoded output. Peak is roughly
@@ -220,6 +381,77 @@ profile; nothing here claims gigabyte streaming.
   as part of those objects. A Wasm build will need the same explicit-denial
   platform adapter approach used for HEIF (handoff section 6), or a patch, and
   an import-list check.
+
+## Lossy codec dependencies
+
+All five are pinned through the external package graph (recipes in
+`sdk/arken_sdk_dev/external_packages/recipes/`), built static with no tests,
+docs, programs, shared libraries, SIMD, intrinsics, runtime CPU detection or
+assembly, and `-ffp-contract=off` on every floating-point library. Each
+archive was downloaded twice with identical SHA-256. The selected-sources
+adapter is used for the four archives (explicit compiled file lists; no
+upstream CMake/autotools runs, so no forced build type, Git probe, CPU probe
+or generated config header), which is why libopus is not built through its
+CMakeLists although it ships one.
+
+| Recipe | Licence (SPDX) | Source | SHA-256 | Licence files (SHA-256) |
+| --- | --- | --- | --- | --- |
+| `libogg-1.3.6-v1` | BSD-3-Clause | `github.com/xiph/ogg/releases/download/v1.3.6/libogg-1.3.6.tar.xz` | `5c8253428e181840cd20d41f3ca16557a9cc04bad4a3d04cce84808677fa1061` | `COPYING` d2ab5758..f814, `AUTHORS` 6fcb33d0..9506 |
+| `libvorbis-1.3.7-v1` | BSD-3-Clause | `github.com/xiph/vorbis/releases/download/v1.3.7/libvorbis-1.3.7.tar.xz` | `b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b` | `COPYING` ec1815db..f43a, `AUTHORS` f5cab9f1..96d3 |
+| `opus-1.5.2-v1` | BSD-3-Clause | `github.com/xiph/opus/releases/download/v1.5.2/opus-1.5.2.tar.gz` | `65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1` | `COPYING` 01e1167d..9551, `AUTHORS` f9fd849e..438b |
+| `lame-3.100-v1` | LGPL-2.0-or-later | `downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz` | `ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e` | `COPYING` bfe4a52d..37fd, `LICENSE` 7a40cbd8..cae4 |
+| `minimp3-ea99364-v1` | CC0-1.0 | tracked source `sdk/arken_sdk_dev/third_party/minimp3` (`minimp3.h`, `minimp3_ex.h`, `LICENSE`), upstream `github.com/lieff/minimp3` commit `ea99364f61c14656440e8d77e9c233ccf3124633` | tree `3c0017c43be58f1415a2bd7095684223369e00be3e68033364c23f282913d025` | `LICENSE` 6a1ee543..0e01 |
+
+- xiph.org/downloads and downloads.xiph.org were not reachable from the
+  qualification host (proxy 403); the GitHub release assets of the xiph
+  repositories are the same release tarballs (digests match the published
+  ones). libopus 1.5.2 was the newest release whose asset could be fetched;
+  newer releases could not be enumerated from this host.
+- libogg: sources `src/bitwise.c`, `src/framing.c`. The release ships
+  `include/ogg/config_types.h.in` only; an exact-file replacement of
+  `include/ogg/os_types.h` (`patches/generated/libogg-1.3.6/`) pins the C99
+  `<stdint.h>` types configure/CMake would generate for Linux, macOS and Wasm.
+- libvorbis: libvorbis (19 files from `lib/Makefile.am`) and libvorbisenc
+  (`lib/vorbisenc.c`); no vorbisfile, no tools; `HAVE_ALLOCA_H`; depends on
+  `libogg-1.3.6-v1` (linked through `arken::external_ogg_v1`).
+- libopus: float build (`OPUS_BUILD`, `USE_ALLOCA`, `HAVE_LRINTF`,
+  `HAVE_LRINT`, `ENABLE_HARDENING`, `DISABLE_DEBUG_FLOAT`,
+  `PACKAGE_VERSION="1.5.2"`), the 137 C files of `CELT_SOURCES`,
+  `SILK_SOURCES`, `SILK_SOURCES_FLOAT`, `OPUS_SOURCES` and
+  `OPUS_SOURCES_FLOAT`; no `celt/x86`, `celt/arm`, `silk/x86`, `silk/arm`,
+  `dnn` (no DRED/OSCE/deep PLC), no custom modes. Without
+  `OPUS_X86_MAY_HAVE_*`/`OPUS_HAVE_RTCD` the portable C paths run on every
+  host (the fixed-point build was not chosen: the float encoder is the
+  reference-quality path; determinism comes from the fixed configuration and
+  `-ffp-contract=off`, not from integer arithmetic).
+- LAME (MP3 encode outcome: **included**): the 20 `libmp3lame` C files of
+  `libmp3lame_la_SOURCES` (including `mpglib_interface.c`, which compiles to
+  stubs without `HAVE_MPGLIB`); no frontend, no mpglib decoder, no
+  `vector/xmm_quantize_sub.c`, no NASM, no `DECODE_ON_THE_FLY`. LAME's
+  release has no CMake and its `config.h` comes from configure; the
+  selected-sources patch mechanism can only replace existing files, so the
+  hand-pinned configuration is the recipe's reviewed `compileDefinitions`
+  list (`STDC_HEADERS`, `HAVE_ERRNO_H`, `HAVE_FCNTL_H`, `HAVE_INTTYPES_H`,
+  `HAVE_STDINT_H`, `HAVE_LIMITS_H`, `HAVE_STDLIB_H`, `HAVE_STRING_H`,
+  `HAVE_STRCHR`, `HAVE_MEMCPY`, `ieee754_float32_t=float`,
+  `LAME_LIBRARY_BUILD`) with `HAVE_CONFIG_H` left undefined (every upstream
+  `#include <config.h>` is guarded by it). `TAKEHIRO_IEEE754_HACK` and
+  `USE_FAST_LOG` stay undefined (portable arithmetic). The library's
+  report callbacks are set to a no-op so it never writes to stderr. GCC 13
+  warns `-Wstringop-overflow` in `quantize.c` (a 15-element `frameBits`
+  passed to a parameter declared `[16]`); every index is bounded by
+  `vbr_max_bitrate_index <= 14`, so no access is out of bounds.
+  Licence: LGPL-2.0-or-later, statically linked. Distributing a binary
+  requires offering LAME's source and allowing relinking with a modified
+  LAME (e.g. by providing the capsule's object files or its source, which
+  this repository does); integrators that cannot meet that must build
+  without MP3 encoding. Patents on MP3 have expired.
+- minimp3: one first-party C file (`src/minimp3.c`) defines
+  `MINIMP3_IMPLEMENTATION`; `MINIMP3_NO_SIMD` and `MINIMP3_ONLY_MP3` come
+  from the interface target, so Layer I/II and SSE/NEON code are compiled
+  out. The pinned commit includes upstream's March 2026 fixes for
+  out-of-bounds reads in VBR-tag parsing; Arken parses the Xing/LAME tag
+  itself and calls only `mp3dec_init`/`mp3dec_decode_frame`.
 
 ## Determinism
 
@@ -318,6 +550,82 @@ Not yet covered: the Xiph/RFC 9639 conformance corpus, real recorded music
 files, AIFF files from Apple tools (Logic, GarageBand, `afconvert`) or Pro
 Tools rather than FFmpeg, cancellation (the API is a single bounded call with no cancellation
 hook), and any browser build.
+
+### Lossy qualification
+
+`tests/compressed_audio_tests.cpp` (`arken-compressed-audio-tests`) and
+`tests/lossy_interop.cmake`, registered as `CompressedAudio.*`:
+
+- `Quality`: Vorbis, Opus, MP3 x mono/stereo x two settings on 4 s of
+  programme material: exact frame count, 16-bit/rate/channel parameters,
+  canonical audio, lossy flag, cross-correlation lag 0, SNR floors (see the
+  quality contract), higher setting not worse, decoded silence within 8 LSB.
+- `Gapless`: a 1 s 440 Hz tone at 44.1 kHz through MP3 CBR and VBR (mono and
+  stereo) decodes to exactly 44100 frames with the LAME-tag delay (576 + 529
+  leading frames) and padding trimmed; Vorbis 44100 frames (end trim only);
+  Opus 48000 frames with pre-skip 312 trimmed; MP3 programme material at lag
+  0; the same MP3 without its Info frame keeps every decoded frame, reports
+  `encoderDelayUnknown` and shows the 1105-frame lag; Opus from 16 kHz decodes
+  to 48 kHz with exactly 3x the frames and `originalSampleRate` 16000;
+  single-page Vorbis/Opus streams trim the end, not the start; 0, 1, 575,
+  1153 and 4097-frame inputs round-trip to exactly that length in all three.
+- `Determinism`: identical bytes twice for each encoder; `Convert(wav -> x)`
+  equals `EncodeX`; decoding is repeatable.
+- `Reports`: wav->lossy sets `lossyOutput` only; lossy->wav sets
+  `report.lossy` and 16 bits; every lossy->lossy pair (9) sets
+  `generationLoss`; lossy->FLAC/AIFF; 24-bit FLAC->MP3; 44.1 kHz FLAC->Opus is
+  `resampling_required`; two OpusTags comments (one a picture) are counted.
+- `OggStructure`: wrong codec / non-Ogg / Ogg-as-FLAC errors; chained Vorbis
+  and chained Opus (`chained_stream`); a grouped Vorbis+Opus file decodes each
+  stream identically to its standalone file with `skippedStreams` 1; BOS after
+  data; missing EOS; a missing page; foreign serial; final granule -100
+  trims 100 frames, +5000 is `length_mismatch`; all Vorbis granules -300 trim
+  300 leading frames; OpusHead pre-skip +480 shifts the same samples; output
+  gain -6.02 dB halves the amplitude; version 0x10, family 255, family 2,
+  out-of-range table entry and family 0 with 3 channels rejected; family 1
+  with an explicit stereo table equals family 0 and a swapped table swaps
+  channels.
+- `Malformed`: for each format every strict prefix (stride 1 for the first
+  4 KiB, then 7) is rejected with no samples; a single-bit flip every 13 bytes
+  is always rejected for Ogg (page CRC) and for MP3 either rejected or decoded
+  to canonical audio; trailing bytes rejected; MP3 free format and Layer II
+  are `unsupported_encoding`; ID3v2 (with an APIC frame), APEv2 and ID3v1 are
+  skipped and counted with identical samples; non-syncsafe ID3v2 size; Xing
+  frame-count mismatch; a mid-stream sample-rate change.
+- `Limits`: source, sample, channel, output (exact limit accepted, one byte
+  less rejected with no bytes) and header-packet limits per format; 3-channel
+  encode; non-canonical input; every option boundary; Opus at 44.1/32/96/11.025
+  kHz and MP3 at 96/88.2/7.999/64 kHz are `resampling_required`; MP3 and
+  Vorbis round trips at all nine MP3 rates and Opus at all five Opus rates
+  return exactly the input length.
+- `Version`: `Xiph.Org libVorbis 1.3.7; libopus 1.5.2; LAME 3.100`.
+- `FfmpegInterop` (FFmpeg 6.1.1 on the host as an independent oracle; its
+  native Vorbis, Opus and MP3 decoders): FFmpeg decodes Arken's Vorbis, Opus,
+  MP3 CBR and MP3 VBR (mono and stereo) to exactly the source frame count at
+  lag 0 with SNR >= 10 dB (observed 14.9-21.5 dB); Arken decodes FFmpeg's
+  libvorbis q5, libopus 128k, libmp3lame 192k and -q:a 2 output (with FFmpeg's
+  ID3v2 and Xing/Lavc tag) to exactly the source frame count at lag 0 with
+  SNR >= 10 dB (observed 14.9-21.8 dB); Arken decodes FFmpeg's 5.1 Vorbis and
+  5.1 Opus (family 1) with each WAVE-order channel matching its own source
+  chirp (Vorbis 36.6-39.8 dB, Opus 38.3-44.4 dB per main channel; LFE 14.9 and
+  23.8 dB, band-limited by the encoders) and mask `0x3F`.
+
+Sanitizers: the whole suite (25 tests) also passed in a GCC 13 `-O0`
+ASan/UBSan build. ASan reported nothing. UBSan (in recover mode) reported
+only upstream code: left shifts of negative or overflowing values in
+libvorbis (`floor1.c:820`, `psy.c:319`, `sharedbook.c:425`) and LAME
+(`VbrTag.c:263-280`, `bitstream.c:181`, `quantize.c:898`), which GCC defines
+as two's-complement shifts, and libvorbis `psy.c:347` reading
+`noiseoff[j][17]` of a `[17]` row with weight `del = 0` (inside the
+`vorbis_info_psy` struct; the read value never contributes). None is in
+first-party code; none is patched.
+
+Not covered for the lossy formats: listening tests, files from encoders other
+than libvorbis/libopus/LAME (e.g. Apple, Fraunhofer, aoTuV), Ogg files with
+Skeleton or Theora streams (handled by the skip logic but not exercised),
+MP3 with CRC protection (no available encoder produced one; the CRC check is
+implemented but untested), MPEG-2.5 files from an independent encoder (LAME
+round trips at 8/11.025/12 kHz only), 6.1/7.1 decode, and the browser build.
 
 ## Remaining steps to expose wav_to_flac and flac_to_wav in the standalone MCP
 
@@ -423,3 +731,100 @@ changed. To expose it:
    new commands and `convert_audio` with `aiff` (success with digest and
    `media_type` `audio/aiff`, float AIFC rejection, existing-output refusal,
    limit rejection), then a fresh Waygate prepare/qualify.
+
+## Remaining steps to expose the lossy formats in the standalone MCP
+
+The codec side is complete: `Container::vorbis = 4`, `opus = 5`, `mp3 = 6`,
+`DecodeVorbis/Opus/Mp3`, `EncodeVorbis/Opus/Mp3`, `LossyOptions`,
+`Convert(source, destination, bytes, options, limits)`, the report fields
+(`lossy`, `droppedComments`, `skippedTags`, `skippedStreams`,
+`encoderDelayTrimmed`, `encoderDelayUnknown`, `trimmedLeadingFrames`,
+`trimmedTrailingFrames`, `silencedFrames`, `originalSampleRate`), the
+result labels (`lossyOutput`, `generationLoss`) and the errors
+(`chained_stream`, `unsupported_channel_mapping`, `resampling_required`,
+`invalid_option`). Nothing outside this capsule and the recipes has been
+changed. To expose them (after, or together with, the AIFF steps above):
+
+1. Composition: the root build resolves the five new recipes through this
+   capsule's manifest (no root `lib.manifest.json` change is needed, the
+   capsule is already selected through `arken_file_conversion_v1`); the
+   Waygate refresh profile must list the recipes, `patches/generated/libogg-1.3.6/`,
+   `sdk/arken_sdk_dev/third_party/minimp3/` and the test names
+   (`CompressedAudio.*`). LAME is LGPL-2.0-or-later and statically linked:
+   the server's notices must carry `COPYING`/`LICENSE` of LAME next to the
+   BSD notices of libogg/libvorbis/libopus and the CC0 notice of minimp3, and
+   distribution must keep the relinking/source offer (see "Lossy codec
+   dependencies").
+2. Conversion owner (`capsule/arken_file_conversion_v1`):
+   - `src/audio.cpp` `Known()`: admit `vorbis`, `opus`, `mp3` (and `aiff`).
+   - `ConvertStandaloneAudio` gains `const audio::LossyOptions&` and calls the
+     `Convert` overload that takes it. `StandaloneAudioLimits()` needs no
+     change, but the descriptions must say that for lossy sources the binding
+     limit is the 32 Mi sample budget, not the 64 MiB file size (about 6 min
+     20 s of 44.1 kHz stereo or 5 min 49 s of 48 kHz stereo decoded audio;
+     a 64 MiB MP3 is far longer and is rejected with `sample_limit`).
+   - `AudioResult`: add `bool lossySource` (`report.lossy`), `bool lossyOutput`,
+     `bool generationLoss`, `std::uint32_t commentsDropped`
+     (`report.droppedComments`), `std::uint32_t tagsSkipped`
+     (`report.skippedTags`), `std::uint32_t streamsSkipped`,
+     `bool encoderDelayTrimmed`, `bool encoderDelayUnknown`,
+     `std::uint32_t originalSampleRate`.
+   - Map `resampling_required` and `invalid_option` (encode errors) and
+     `chained_stream`/`unsupported_channel_mapping` (decode errors) through
+     `codecError`; `AudioErrorMessage` already falls back to
+     `audio::ErrorMessage`, whose texts name the cause.
+3. Command schema
+   (`capsule/arken_file_conversion_commands_v1/schema/conversion_files.arken-schema`):
+   - `enum audio_kind`: add `value vorbis @value_id(4); value opus
+     @value_id(5); value mp3 @value_id(6);` (the command layer casts
+     `audio_kind` to `audio::Container`, so the ids must stay 4/5/6; `aiff` is
+     3). Keep the value names `vorbis` and `opus`, never `ogg`.
+   - `enum mp3_rate_control`: `cbr @value_id(1)`, `vbr @value_id(2)`.
+   - `model audio_request` and a new `model lossy_file_request` (source_path,
+     output_path plus the options below) gain optional controls with the
+     next free `@field_id`s: `vorbis_quality` (count 0..100, default 50),
+     `opus_bitrate_kbps` (count 6..510, default 128), `mp3_rate_control`
+     (default cbr), `mp3_bitrate_kbps` (count, default 192), `mp3_vbr_quality`
+     (count 0..9, default 2). Options for another output format are rejected,
+     as the image commands do.
+   - `model audio_result`: `lossy_source`, `lossy_output`, `generation_loss`,
+     `encoder_delay_trimmed`, `encoder_delay_unknown` (booleans),
+     `comments_dropped_count`, `tags_skipped`, `streams_skipped`,
+     `original_sample_rate` (counts); keep `comments_dropped` (FLAC).
+   - Commands (next free `@command_id`s after the AIFF ones, coordinate with
+     other tracks), each `{ request file_request|lossy_file_request; response
+     audio_result; errors command_error; idempotency none; streaming unary;
+     targets cpp; }`: `wav_to_mp3`, `mp3_to_wav`, `wav_to_opus`,
+     `opus_to_wav`, `wav_to_vorbis`, `vorbis_to_wav`, `flac_to_mp3` (encoders
+     take `lossy_file_request`, decoders `file_request`); `convert_audio`
+     covers every other pair. Regenerate the bindings.
+4. Command layer (`src/commands.cpp`):
+   - `audioPairs` entries for the seven commands; media type by destination:
+     `audio/ogg; codecs=vorbis` (vorbis), `audio/ogg; codecs=opus` (opus),
+     `audio/mpeg` (mp3), alongside `audio/wav`, `audio/flac`, `audio/aiff`.
+   - Descriptions must state the quality contract, e.g. for `wav_to_mp3`:
+     "Lossy MP3 (LAME 3.100): CBR mp3_bitrate_kbps (default 192) or VBR
+     mp3_vbr_quality 0-9; joint stereo; 1-2 channels; sample rate must be
+     8-48 kHz MPEG Layer III rate, nothing is resampled; a LAME tag records
+     encoder delay and padding so gapless decoders return the exact length;
+     not reversible; tags are not written"; for `wav_to_opus`: "Ogg Opus,
+     opus_bitrate_kbps 6-510 (default 128) VBR; input must be 8, 12, 16, 24
+     or 48 kHz (44.1 kHz is rejected, not resampled); decoders play it at
+     48 kHz with the exact length"; for `wav_to_vorbis`: "Ogg Vorbis,
+     vorbis_quality 0-100 (default 50, libvorbis -0.1..1.0)"; for the
+     decoders: "decoded to 16-bit PCM; encoder delay/pre-skip and padding
+     removed from container data (encoder_delay_unknown for MP3 without a
+     LAME tag); Opus always decodes at 48 kHz; tags, comments and album art
+     are counted, not carried; chained Ogg and Opus mapping families other
+     than 0/1 are rejected". `convert_audio` lists all six formats.
+   - Set the new `audio_result` fields from the owner result.
+5. Tests in `arken_file_conversion_commands_v1/tests/commands.cpp`: each new
+   command (success with digest, media type, `lossy_output`/`lossy_source`,
+   exact frame count for a 1 s 44.1 kHz tone through `wav_to_mp3` then
+   `mp3_to_wav`), `wav_to_opus` of 44.1 kHz (`resampling_required`),
+   out-of-range options (`invalid_option`), chained Ogg (`chained_stream`),
+   existing-output refusal and limit rejection; then a fresh Waygate
+   prepare/qualify. Browser/Wasm builds of libvorbis, libopus, LAME and
+   minimp3 need their own qualification (stdio symbols in LAME's
+   `lame_mp3_tags_fid`/`id3tag.c` and libogg-free code paths must be checked
+   in the import list, as for libFLAC).
