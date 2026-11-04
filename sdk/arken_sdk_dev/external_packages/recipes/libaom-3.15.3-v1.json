@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "recipeId": "libaom-3.15.3-v1",
+  "packageId": "libaom",
+  "upstreamVersion": "3.15.3",
+  "dependencyClass": "source-package",
+  "supportedPlatforms": [
+    "macos",
+    "linux",
+    "web"
+  ],
+  "source": {
+    "kind": "archive",
+    "urls": [
+      "https://storage.googleapis.com/aom-releases/libaom-3.15.3.tar.gz"
+    ],
+    "sha256": "12c01dc731ed7b5a999e28120b45bf58a002ba3435a4ba2cfbc1e084a27c9c04",
+    "subdirectory": "libaom-3.15.3",
+    "files": [
+      {
+        "path": "LICENSE",
+        "sha256": "4764a286d8b2faeaf42f4418e7d7a28d58fc8fd4d00a3d0a7f44b0a4099de7f2"
+      },
+      {
+        "path": "PATENTS",
+        "sha256": "661fb8e504744e95587b556b94a58343448300606a41bea8c7a9b97125696e61"
+      },
+      {
+        "path": "CMakeLists.txt",
+        "sha256": "ba9e877515125a9cdf9321ec5f113bed9217d1a5051d1d0f80e5e93a2fc01155"
+      },
+      {
+        "path": "cmake/aom_configure.cmake",
+        "sha256": "6feaeee4e6782a02fe301f0d8215b338da5799821e2c9464ecdbea792a575fff"
+      },
+      {
+        "path": "cmake/aom_optimization.cmake",
+        "sha256": "f9f0796032449f4fe97dfc8f450e133d69860bf73b9c9f9f43530d9e6f7f54f6"
+      },
+      {
+        "path": "cmake/version.cmake",
+        "sha256": "f5ab9fbca3c30648611ac753cde5ca9fbcfdfcda3a28c351d5831e793a0d5958"
+      }
+    ],
+    "maxArchiveBytes": 8388608,
+    "maxEntries": 2048,
+    "maxExtractedBytes": 67108864,
+    "allowSafeSymlinks": false
+  },
+  "patches": [
+    {
+      "path": "patches/generated/libaom-3.15.3/CMakeLists.txt",
+      "sha256": "c85faa7cf364bf57fff14d0e601466c596dbe3f996a3d9103b4533fc35a5b15f",
+      "replacementPath": "CMakeLists.txt",
+      "expectedSourceSha256": "ba9e877515125a9cdf9321ec5f113bed9217d1a5051d1d0f80e5e93a2fc01155"
+    },
+    {
+      "path": "patches/generated/libaom-3.15.3/cmake/aom_configure.cmake",
+      "sha256": "040ae115f1df8007b26e9766ddb05087da2a8dd7f77aeca8223b0494cb66f251",
+      "replacementPath": "cmake/aom_configure.cmake",
+      "expectedSourceSha256": "6feaeee4e6782a02fe301f0d8215b338da5799821e2c9464ecdbea792a575fff"
+    },
+    {
+      "path": "patches/generated/libaom-3.15.3/cmake/aom_optimization.cmake",
+      "sha256": "0158565f876c8d21f2e8f0e79764b115ee136c4fe11279f6c4b1168c26168f38",
+      "replacementPath": "cmake/aom_optimization.cmake",
+      "expectedSourceSha256": "f9f0796032449f4fe97dfc8f450e133d69860bf73b9c9f9f43530d9e6f7f54f6"
+    },
+    {
+      "path": "patches/generated/libaom-3.15.3/cmake/version.cmake",
+      "sha256": "f9021f564c7e7049bd11bb4cd7f90559b8506f835198c15aa9894f38a4824046",
+      "replacementPath": "cmake/version.cmake",
+      "expectedSourceSha256": "f5ab9fbca3c30648611ac753cde5ca9fbcfdfcda3a28c351d5831e793a0d5958"
+    }
+  ],
+  "adapter": {
+    "kind": "cmake-source",
+    "version": 1,
+    "options": {
+      "BUILD_SHARED_LIBS": false,
+      "AOM_TARGET_CPU": "generic",
+      "AOM_EXTRA_C_FLAGS": "-ffp-contract=off",
+      "AOM_EXTRA_CXX_FLAGS": "-ffp-contract=off",
+      "ENABLE_APPS": false,
+      "ENABLE_DOCS": false,
+      "ENABLE_EXAMPLES": false,
+      "ENABLE_TESTS": false,
+      "ENABLE_TESTDATA": false,
+      "ENABLE_TOOLS": false,
+      "ENABLE_DECODE_PERF_TESTS": false,
+      "ENABLE_ENCODE_PERF_TESTS": false,
+      "ENABLE_NASM": false,
+      "ENABLE_CCACHE": false,
+      "ENABLE_DISTCC": false,
+      "ENABLE_GOMA": false,
+      "ENABLE_WERROR": false,
+      "CONFIG_AV1_DECODER": 1,
+      "CONFIG_AV1_ENCODER": 1,
+      "CONFIG_AV1_HIGHBITDEPTH": 0,
+      "CONFIG_REALTIME_ONLY": 0,
+      "CONFIG_RUNTIME_CPU_DETECT": 0,
+      "CONFIG_MULTITHREAD": 0,
+      "CONFIG_HIGHWAY": 0,
+      "CONFIG_EXCLUDE_SIMD_MISMATCH": 0,
+      "CONFIG_INTERNAL_STATS": 0,
+      "CONFIG_AV1_TEMPORAL_DENOISING": 0,
+      "CONFIG_WEBM_IO": 0,
+      "CONFIG_LIBYUV": 0,
+      "CONFIG_TUNE_VMAF": 0,
+      "CONFIG_TUNE_BUTTERAUGLI": 0,
+      "CONFIG_INSPECTION": 0,
+      "CONFIG_ACCOUNTING": 0,
+      "CONFIG_ANALYZER": 0,
+      "CONFIG_SIZE_LIMIT": 1,
+      "DECODE_WIDTH_LIMIT": 8192,
+      "DECODE_HEIGHT_LIMIT": 8192
+    }
+  },
+  "license": {
+    "spdx": "BSD-2-Clause AND LicenseRef-AOM-Patent-License-1.0",
+    "distribution": "redistributable",
+    "files": [
+      {
+        "path": "LICENSE",
+        "sha256": "4764a286d8b2faeaf42f4418e7d7a28d58fc8fd4d00a3d0a7f44b0a4099de7f2"
+      },
+      {
+        "path": "PATENTS",
+        "sha256": "661fb8e504744e95587b556b94a58343448300606a41bea8c7a9b97125696e61"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "codec",
+      "target": "arken::external_aom_v1",
+      "kind": "static",
+      "upstreamTarget": "aom"
+    }
+  ],
+  "dependencies": []
+}
