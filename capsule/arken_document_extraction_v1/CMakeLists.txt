@@ -18,3 +18,12 @@ if(NOT TARGET arken_document_extraction_v1)
         target_compile_options(arken_document_extraction_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
 endif()
+# Presentations, OpenDocument and EPUB (text_documents.hpp): PPTX, ODT, ODP and
+# EPUB extractors feeding the same model and serializers. Added once per build.
+get_property(arken_document_text_documents_added GLOBAL PROPERTY ARKEN_DOCUMENT_EXTRACTION_TEXT_DOCUMENTS)
+if(NOT arken_document_text_documents_added)
+    set_property(GLOBAL PROPERTY ARKEN_DOCUMENT_EXTRACTION_TEXT_DOCUMENTS TRUE)
+    target_sources(arken_document_extraction_v1 PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/text_documents.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/pptx.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/odf_text.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/epub.cpp")
+endif()

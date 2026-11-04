@@ -769,3 +769,371 @@ change is needed. The new sources are added to the existing library target in
      conflicting with concurrent edits.
    - Document the seven tools, their limits and the limitations above in the
      standalone README.
+
+## Presentations, OpenDocument and EPUB
+
+`text_documents.hpp` adds PPTX, ODT, ODP and EPUB 2/3 extraction. It fills the
+same `Document` model and is serialized by the unchanged `SerializeText` /
+`SerializeMarkdown`. The ZIP reader, the XML tokenizer and `ModelBuilder` are
+reused as they are. The new code is `src/text_documents.cpp` (API and errors),
+`src/text_documents_detail.hpp` (OPC helpers and the shared `Flow` block
+assembler), `src/pptx.cpp`, `src/odf_text.cpp` and `src/epub.cpp`. No existing
+source file or `api.hpp` was changed.
+
+Surface status: library only. Nothing is exposed through any MCP yet. The steps
+are listed at the end of this section.
+
+### API
+
+- `ExtractTextDocument(TextDocumentFormat, bytes, TextDocumentOptions)` returns a
+  `TextDocumentExtractResult` (error, `Document`, `TextDocumentReport`).
+- `ConvertTextDocument(TextDocumentFormat, OutputFormat, bytes, options)` returns
+  a `TextDocumentResult` (error, text, report).
+- `ErrorCode(TextDocumentError)`, `ErrorMessage(TextDocumentError)`,
+  `FormatName(TextDocumentFormat)`, `textDocumentsRevision`.
+- `TextDocumentOptions` holds `extract` (the existing `ExtractOptions`: source,
+  model, ZIP and XML budgets), `serialize`, `includeNotes` (default **off**),
+  `maximumItems` (slides or spine items, default 4096), `maximumNesting`
+  (structural recursion, default 128) and `maximumTableCells` (default 1,000,000).
+- `TextDocumentError` is one error space for all four formats. The ZIP, XML
+  and budget codes repeat `Error`'s names, with format-neutral messages (the
+  core messages say "DOCX"). Format codes are `pptx_*`, `odf_*` and `epub_*`.
+  `item_limit`, `nesting_limit` and `table_limit` are new budget codes.
+  `internal` is reported only if an unexpected exception escapes; it is never
+  expected.
+- `TextDocumentReport` counts `slides`, `chapters`, `notesIncluded`,
+  `tocHeadings` and `blocks`. `excluded` counts what was deliberately left out:
+  `images`, `graphics` (charts, SmartArt, OLE/objects, MathML, media, ink,
+  non-table graphic frames, ODT frames/text boxes), `notes` (speaker notes left
+  out, ODF footnotes/endnotes), `annotations`, `deletions` (ODF tracked
+  deletions), `placeholders` (date/footer/slide-number/header), `scripts`,
+  `navigation`, `nonLinear` and `unsupportedItems`. On failure the report is
+  reset along with the document.
+
+### Shared block assembly (`Flow`)
+
+All three extractors push through one assembler. A block boundary inside a
+list item becomes a line break inside that item, because the model has no
+multi-paragraph list items. A boundary inside a table cell becomes a space, as
+for DOCX. Nested tables are flattened into their cell. Nested lists end the
+enclosing item's text, and text after them in the same item becomes another
+item at the outer level. ODF and XHTML text uses whitespace collapsing: runs of
+space, tab, CR and LF become one space, and the space is dropped at a block or
+line start and at block end. Literal text (`text:s`, `text:tab`, DrawingML
+runs, `<pre>`) is kept exactly.
+
+### PPTX profile (`src/pptx.cpp`)
+
+- Package: an OLE compound file or `EncryptedPackage`/`EncryptionInfo` gives
+  `pptx_encrypted`. `vbaProject.bin`/`vbaData.xml`, a VBA override, or a
+  `.pptm`/`.ppsm`/`.potm`/add-in main type gives `pptx_macro_enabled`.
+  `[Content_Types].xml` and `_rels/.rels` are validated as for DOCX, and exactly
+  one internal `officeDocument` relationship is required. The main part must
+  be a presentation, slideshow (`.ppsx`) or template (`.potx`), otherwise
+  `pptx_not_presentation`. Transitional and Strict namespaces are both accepted.
+- Slides come from `p:presentation/p:sldIdLst` in document order. Each `r:id`
+  is resolved through `ppt/_rels/presentation.xml.rels` and must be an internal
+  `slide` relationship to a part whose content type is the slide type. Unknown
+  or duplicate ids give `pptx_invalid_package`. A missing slide part gives
+  `pptx_missing_part`. Hidden slides (`show="0"`) are included.
+- Each slide produces a level-1 heading `Slide N` (N is the position in
+  `sldIdLst`). If there is a `title`/`ctrTitle` placeholder (the first one in
+  shape-tree order, groups included), its text follows as a level-2 heading;
+  line breaks become spaces. The other shapes follow in shape-tree order.
+  `p:grpSp` groups are recursed, and only the `mc:Fallback` branch of
+  `mc:AlternateContent` is walked.
+- Paragraphs: `a:p` with `a:r`/`a:fld` `a:t` text (kept verbatim), `a:br` line
+  breaks, and `b`/`i` run attributes. `a:hlinkClick r:id` becomes a link when it
+  resolves to an **external** hyperlink relationship of the slide. Slide jumps
+  and other actions stay plain text.
+- Lists: `a:pPr lvl` (0-8) is the level. `buNone` makes a plain paragraph,
+  `buAutoNum` an ordered item, and `buChar`/`buBlip` a bullet item. With no
+  explicit bullet properties, paragraphs of body/content placeholders (`ph`
+  without a type, or `type="body"`/`"obj"`) are bullets and all other shapes
+  are plain paragraphs. This is a heuristic: layout and master inheritance is
+  not resolved.
+- Tables: `p:graphicFrame` holding `a:tbl/a:tr/a:tc`. Paragraphs in a cell are
+  joined with a space. `hMerge`/`vMerge` continuation cells are empty, so the
+  grid stays rectangular.
+- Speaker notes: with `includeNotes`, the slide's `notesSlide` relationship is
+  followed and the body placeholder's paragraphs are emitted after the slide
+  content as one paragraph, `**Notes:** first line` with further paragraphs on
+  following lines. Notes are neither read nor validated when the option is off,
+  and each slide with a notes relationship increments `excluded.notes`. Links
+  inside notes are plain text.
+- Excluded: `p:pic` (images), non-table `p:graphicFrame` (charts, SmartArt
+  diagrams, OLE, media), `p:contentPart` (ink), date/footer/slide-number/header
+  placeholders, connectors, slide masters and layouts (never read),
+  animations/timing, comments, and equations (`a14:m`).
+
+### ODT and ODP profile (`src/odf_text.cpp`)
+
+- Package: the `mimetype` member must be `application/vnd.oasis.opendocument.text`
+  or `-text-template` (ODT), or `presentation` or `presentation-template` (ODP).
+  Another `application/vnd.oasis.opendocument.*` type gives `odf_wrong_kind`.
+  Anything else, or no `mimetype` member, gives `odf_not_opendocument`. Its
+  position and compression in the ZIP are not checked. `META-INF/manifest.xml`
+  is required (`odf_missing_part`) and validated: root element, `full-path` on
+  every entry, and the `/` media type equal to `mimetype` when present.
+  `manifest:encryption-data` on any entry gives `odf_encrypted`, checked before
+  `content.xml` is read. `content.xml` must have `office:document-content/office:body`
+  with `office:text` (ODT) or `office:presentation` (ODP). Another
+  `office:*` body gives `odf_wrong_kind`. Flat XML (`.fodt`/`.fodp`) is not supported.
+- Styles: bold comes from `fo:font-weight` (`bold` or a value of 600 or more)
+  and italic from `fo:font-style` (`italic`/`oblique`; `normal` switches either
+  off). They are read from `style:style` (families `text` and `paragraph`) in
+  `content.xml` automatic styles and `styles.xml` `office:styles`, following
+  `style:parent-style-name` up to 16 steps. Paragraph styles give the base for a
+  paragraph, and `text:span` styles apply on top. Default styles and
+  `styles.xml` automatic styles are not read.
+- Lists: `text:list`/`text:list-item`/`text:list-header`, nested to any depth
+  (model level clamped to 0-8). A nested list without `text:style-name`
+  inherits its parent's style. A level is ordered when its `text:list-style`
+  (automatic in `content.xml`, or named in `styles.xml`) has a
+  `text:list-level-style-number` with a non-empty `style:num-format`. Bullet and
+  image levels, an empty number format, an unknown style and paragraph-style
+  list associations (`style:list-style-name`) all give **bullets**. `text:number`
+  labels are dropped because the serializer numbers items. `text:start-value`
+  and `continue-numbering` are ignored. `text:numbered-paragraph` is a list item
+  at `text:level`.
+- Text: `text:h` uses `text:outline-level` (default 1; 7-10 clamp to 6),
+  `text:p` makes a paragraph, `text:s` inserts `text:c` spaces (at most 10,000),
+  `text:tab` a tab and `text:line-break` a line break. `text:a xlink:href` makes
+  a link (only http/https/mailto are rendered by the serializers). `text:ruby`
+  keeps its base text. Fields (date, page number, references and others) keep
+  their displayed text. `text:section` and the `text:index-body` of TOCs and
+  indexes are walked.
+- Tracked changes: the body already holds accepted text. Inserted text sits
+  between `text:change-start`/`text:change-end` and is kept. Deleted text lives
+  only in `text:tracked-changes` and is skipped (each deletion region counts
+  in `excluded.deletions`), so the output reads as if all changes were accepted.
+- Tables: `table:table`, rows inside `table:table-header-rows`,
+  `table:table-rows` or `table:table-row-group`, and both `table:table-cell`
+  and `table:covered-table-cell` (merged cells are empty). `number-columns-repeated`
+  and `number-rows-repeated` are expanded (values clamp at 2^30). Trailing
+  empty cells and rows are dropped before expansion, as are the 1024- and
+  1,048,576-wide padding runs office suites write. Interior empty runs are
+  materialized and rows are padded to the widest row. Every materialized cell,
+  and each interior empty row, is charged against `maximumTableCells` *before*
+  allocation (`table_limit`).
+- Excluded (ODT): `text:note` (footnotes and endnotes), `office:annotation`,
+  `draw:*` frames (images, text boxes, objects, charts) and shapes,
+  `text:hidden-text`, bookmarks, reference/index marks, and declarations.
+- ODP: each `draw:page` is a slide. It produces a `Slide N` heading, then the
+  `presentation:class="title"` frame's text-box (searched inside `draw:g` too)
+  as a level-2 heading, then the page's frames and shapes in document order.
+  Text-boxes are walked like ODT body text (lists, tables, spans). A frame
+  holding `table:table` becomes a table. `draw:custom-shape` and the other
+  drawing shapes contribute their `text:p`/`text:list` children. Groups and
+  `draw:a` are recursed. Frames classed `header`/`footer`/`date-time`/`page-number`
+  are excluded placeholders, and image/object frames are excluded. Speaker
+  notes (`presentation:notes`, `notes` frame) behave as for PPTX: off by
+  default and counted when present.
+
+### EPUB profile (`src/epub.cpp`)
+
+- Package: the `mimetype` member must be `application/epub+zip` (trailing
+  whitespace tolerated), otherwise `epub_not_epub`. `META-INF/rights.xml`
+  gives `epub_drm`. `META-INF/encryption.xml` is parsed. Every `EncryptedData`
+  must use font obfuscation (`http://www.idpf.org/2008/embedding` or Adobe's
+  `http://ns.adobe.com/pdf/enc#RC`), which only scrambles fonts that are never
+  read; any other algorithm (or an unexpected root) gives `epub_drm`.
+  `META-INF/container.xml` must name a rootfile of type
+  `application/oebps-package+xml`. A missing container or an escaping path
+  gives `epub_invalid_package`, and a missing OPF gives `epub_missing_part`.
+- OPF (EPUB 2 and 3): `package` in the OPF namespace with `version` 2.x or 3.x.
+  `manifest` and `spine` are required. Items need `id`, `href` and
+  `media-type`, and ids must be unique. Hrefs are resolved relative to the OPF
+  directory with percent-decoding; a path escaping the root is invalid.
+  Remote (absolute IRI) items are kept without a part. Spine `idref`s must
+  exist. More than `maximumItems` itemrefs gives `item_limit`.
+- Spine processing in order: `linear="no"` items are skipped
+  (`excluded.nonLinear`). The navigation document (`properties="nav"`) and an
+  NCX in the spine are skipped (`excluded.navigation`). `text/html` gives
+  `epub_content_not_xhtml`. Any other non-XHTML type (SVG, DTBook, ...) is
+  skipped (`excluded.unsupportedItems`). A missing part gives `epub_missing_part`.
+- XHTML: each item is parsed by the capsule's XML tokenizer, so it must be
+  well-formed XML. A tokenizer `xml_malformed` becomes `epub_content_not_xhtml`,
+  as does a root other than XHTML `html`. There is no HTML parser. One adapter
+  runs before tokenizing, in `epub.cpp` only: a prolog DOCTYPE **without an
+  internal subset** naming `html` (HTML5 `<!DOCTYPE html>` or the XHTML 1.x
+  public identifiers) is blanked. A DOCTYPE with an internal subset is left
+  in, and the tokenizer rejects it (`xml_doctype`). When the DOCTYPE names an
+  XHTML DTD (`-//W3C//DTD XHTML`), 142 common named entities (Latin-1,
+  typographic punctuation, arrows, `euro`, `trade`, ...) are rewritten as
+  numeric references before parsing. Other named entities still give
+  `xml_entity`, and without that DTD every named entity does. The rewrite does
+  not distinguish CDATA or comments, so a literal `&nbsp;` inside CDATA in such
+  a document would be decoded.
+- Mapping (body only): `h1`-`h6` become headings. `p`, `div`, `blockquote`,
+  `section`, `article`, `header`, `footer`, `main`, `aside`, `figure`,
+  `figcaption`, `address`, `dl`/`dt`/`dd`, `details`/`summary`, `form`,
+  `fieldset` and `legend` are paragraph boundaries. `blockquote` is a **plain
+  paragraph** because the model has no quote block. `ul`/`ol`/`li` nest (a list
+  directly inside a list is accepted). `table` with
+  `thead`/`tbody`/`tfoot`/`tr`/`td`/`th` makes a table (`caption` becomes a
+  paragraph before it; `colspan`/`rowspan` are ignored, so spanned tables are
+  ragged and become paragraphs in Markdown). `br` is a line break and `hr` a
+  boundary. `em`/`i` are italic and `strong`/`b` bold. `pre` text is kept
+  exactly (a leading newline is dropped); in Markdown its line-start
+  indentation is removed by the serializer's escaping. `code` is plain text.
+  `a href` stays a link only for http/https/mailto. Relative references point
+  into the package and become plain text, as do other schemes. Elements with
+  `hidden` are skipped.
+- Excluded: `img`/`picture` and inline SVG (`excluded.images`); MathML,
+  `video`, `audio`, `object`, `embed`, `iframe`, `canvas` and `map`
+  (`excluded.graphics`); `script`, `style`, `template` and `noscript` inside the
+  body (`excluded.scripts`); `nav` (`excluded.navigation`); `head`; and ruby
+  `rt`/`rp`. Image `alt` text is not extracted.
+- Chapter headings: titles are collected from the EPUB 3 navigation document's
+  `nav epub:type="toc"` links, or else from the EPUB 2 NCX `navMap` (the
+  spine's `toc` attribute). The first title per target part wins (fragments
+  are ignored). A spine item with **no h1-h6 of its own** gets that title as a
+  level-1 heading (`report.tocHeadings`). Without a title, chapters are only
+  separated by the usual blank line: the model has **no thematic break**.
+  The navigation document and NCX must themselves be well-formed when present.
+
+### Model gaps found (reported, handled by adapters, model unchanged)
+
+- No block quote: `blockquote` is a plain paragraph.
+- No thematic break: chapters and `hr` are plain boundaries. Missing chapter
+  titles are replaced from the TOC instead.
+- No multi-paragraph list items: extra paragraphs join the item with a line
+  break.
+- No code block: `pre` is a paragraph with literal text and line breaks.
+- The OPC helpers (`ParseRelationships`, `ParseContentTypes`, `ResolvePart`)
+  live in an anonymous namespace in `docx.cpp`. They are duplicated in
+  `src/text_documents_detail.hpp` with a caller-chosen error. Moving one copy
+  into `detail.hpp` would remove the duplication.
+- The core `ErrorMessage(Error)` texts name DOCX. `TextDocumentError` repeats
+  those codes with neutral messages instead of reusing them.
+
+### Explicit limitations
+
+- No layout, positions, z-order or reading-order analysis: shapes follow
+  document (shape-tree) order. Fonts, colours, sizes, underline, alignment and
+  slide transitions are not represented.
+- PPTX: no placeholder inheritance from layouts or masters (bullets use the
+  heuristic above, and title text exists only if it is on the slide). No
+  SmartArt or chart text, no comments, no hidden-slide filtering, no
+  `a:fld` recomputation. Slide-number fields keep their stored text.
+- ODF: no default styles, no `styles.xml` automatic styles (master-page
+  content: headers and footers are not extracted), no conditional styles, no
+  paragraph-style list associations, no list start values, no `text:alphabetical-index`
+  generation (index bodies are used as stored), no flat XML, no encrypted
+  documents, and ODP drawing-shape text is extracted while ODT drawing text is
+  excluded (consistent with DOCX text boxes).
+- EPUB: no HTML (non-XML) content documents, no CSS (`display:none`, generated
+  content and `text-transform` are ignored), no fixed-layout or SVG spine
+  items, no media overlays, no `epub:switch` (foreign markup skipped), and no
+  footnote popups (`aside epub:type="footnote"` is ordinary text).
+- Resident, not streaming: one part, its node tree and the model coexist in
+  memory. Each EPUB spine item is parsed and freed in turn. ODF repeats are
+  expanded into the model, which is bounded by `maximumTableCells`.
+
+### Limits
+
+| Limit | Default | Error |
+|---|---|---|
+| Source, ZIP, XML, model and output budgets | as in the table above (`ExtractOptions`, `SerializeOptions`) | the matching `TextDocumentError` |
+| Slides / ODP pages / spine itemrefs | 4096 (`maximumItems`) | `item_limit` |
+| Structural nesting (lists, spans, groups, divs, sections) | 128 (`maximumNesting`), independent of the XML depth | `nesting_limit` |
+| Table cells (including repeats, padding, nested and empty interior rows) | 1,000,000 (`maximumTableCells`) | `table_limit` |
+| ODF repeat attribute | clamped to 2^30 | via `table_limit` |
+| `text:s` count | 10,000 spaces | clamp |
+| Style parent chain | 16 | stops |
+| DOCTYPE length (EPUB adapter) | 2048 bytes | left for the tokenizer |
+
+Total input across all parts read (every slide, notes slide, `styles.xml`,
+every spine item, the navigation document) is bounded by
+`zip.maximumTotalExpandedBytes`, because each read is charged before
+inflation. Memory and time have **not** been measured for these formats. The
+DOCX figure above (about 8-10 times the largest expanded part) is the expected
+order of magnitude.
+
+### Verification
+
+`tests/text_documents_tests.cpp` (executable `arken-text-documents-tests`)
+authors every fixture with the stored-ZIP writer in
+`test_support/docx_fixtures.hpp` and compares exact TXT and Markdown bytes.
+Groups: `pptx`, `odt`, `odp`, `epub`, `errors`, `limits`, `determinism`,
+`mutation` (300 rounds per seed by default, or `mutation N`), plus `--version`.
+These are registered in ctest as `TextDocuments.*` with timeouts. They pass
+under GCC 13 with `-Wall -Wextra -Wpedantic -Werror`, and under
+`-fsanitize=address,undefined` including `mutation 8000` (80,000 conversions).
+**No PowerPoint-, LibreOffice-, Calibre- or publisher-produced file has been
+run.** Add a small real corpus with reviewed expected output before admitting
+the MCP tools, as for DOCX.
+
+### Remaining steps to expose `pptx_to_txt`, `pptx_to_markdown`, `odt_to_txt`, `odt_to_markdown`, `odp_to_txt`, `odp_to_markdown`, `epub_to_txt`, `epub_to_markdown`
+
+The DOCX/RTF integration already exists. Mirror it in owners this capsule must
+not edit:
+
+1. **Module graph.** No change is needed. `arken_file_conversion_v1` already
+   depends on this capsule, and the new sources are added by this capsule's
+   `CMakeLists.txt`. Optionally add capabilities
+   `pptx_slide_text_extraction`, `opendocument_text_extraction` and
+   `epub_xhtml_extraction` to this capsule's `capsule.manifest.json`, and
+   mention the formats in its description.
+2. **Conversion owner** (`capsule/arken_file_conversion_v1/documents.hpp`,
+   `src/document.cpp`): include `arken_document_extraction_v1/text_documents.hpp`
+   and add
+   `[[nodiscard]] DocumentResult ConvertStandaloneTextDocument(document::TextDocumentFormat, document::OutputFormat, std::span<const std::byte>) noexcept;`.
+   Build `TextDocumentOptions` from `StandaloneDocumentOptions()` (copy
+   `extract` and `serialize`) and keep `includeNotes=false`, unless a tool
+   argument is added. Call `ExtractTextDocument` and then
+   `SerializeText`/`SerializeMarkdown`, filling the same
+   paragraph/heading/list/table counts. Map `source_limit`, `text_limit`,
+   `zip_size_limit`, `zip_entry_limit`, `item_limit`, `nesting_limit` and
+   `table_limit` to `input_limit`, `output_limit` to `encode_failed`,
+   `allocation_failed` to `allocation_failed`, `invalid_options` to
+   `invalid_options`, and everything else to `decode_failed`. Add a
+   `document::TextDocumentError textDocumentError` field to `DocumentResult`
+   (or a parallel result type) so the message can append
+   `document::ErrorMessage(textDocumentError)`. Optionally also return the
+   report's `slides`, `chapters` and `excluded` counters.
+3. **Schema** (`capsule/arken_file_conversion_commands_v1/schema/conversion_files.arken-schema`):
+   extend `document_input_kind` with `value pptx @value_id(3); value odt
+   @value_id(4); value odp @value_id(5); value epub @value_id(6);` so
+   `convert_document` accepts them. Add eight unary commands with
+   `request file_request; response document_result; errors command_error;
+   idempotency none; streaming unary; targets cpp;` on the next free command
+   ids. These are 25-32 if nothing else has claimed them; the concurrent
+   XLSX/ODS/CSV/JSON track may also add commands, so allocate ids at merge
+   time: `pptx_to_txt`, `pptx_to_markdown`, `odt_to_txt`, `odt_to_markdown`,
+   `odp_to_txt`, `odp_to_markdown`, `epub_to_txt`, `epub_to_markdown`.
+   Optionally add `slides`, `chapters` and `excluded_*` count fields to
+   `document_result` with new field ids.
+4. **Commands** (`capsule/arken_file_conversion_commands_v1/src/commands.cpp`):
+   add the eight entries to `documentPairs`, carrying a
+   `document::TextDocumentFormat` (or a tagged source) next to the existing
+   DOCX/RTF ones. Route `convert_document` values 3-6 and the new ids to
+   `ConvertStandaloneTextDocument`, and extend the `command>=20&&command<=24`
+   dispatch range. Suggested descriptions:
+   - PPTX: "Extract slide text from a PowerPoint .pptx to UTF-8 plain text (or
+     Markdown): one 'Slide N' heading per slide in presentation order, the slide
+     title, body text with bullet levels, tables and http/https/mailto links.
+     Images, charts, SmartArt, masters/layouts and speaker notes are excluded.
+     Encrypted and macro-enabled files are rejected."
+   - ODT: "Extract the body of an OpenDocument .odt: headings, paragraphs,
+     nested lists, tables (repeats expanded), bold/italic and links; tracked
+     changes appear accepted. Footnotes, comments, frames and images are
+     excluded. Password-protected files are rejected."
+   - ODP: as PPTX, "OpenDocument .odp".
+   - EPUB: "Extract the reading-order text of an EPUB 2/3 book: well-formed
+     XHTML chapters in spine order with headings, paragraphs, lists, tables and
+     external links; a chapter without a heading is titled from the table of
+     contents. Images, scripts, navigation and non-linear items are excluded.
+     DRM-protected books and HTML that is not XML are rejected."
+   Update the server description, which currently says "DOCX/RTF documents".
+5. **Tests.** In `capsule/arken_file_conversion_commands_v1/tests/commands.cpp`,
+   extend the expected tool-name set and count by eight, and add round trips
+   (write fixtures into the temporary root using builders like those in
+   `tests/text_documents_tests.cpp`, call each tool, and compare output bytes,
+   `sha256` and `output_bytes`). Also cover a DRM EPUB (`conversionFailed`
+   naming DRM), an encrypted ODT, an ODS given to `odt_to_txt`
+   (`odf_wrong_kind`), and the no-overwrite and traversal checks. Add an error
+   mapping test in `capsule/arken_file_conversion_v1/tests/media_tests.cpp`.
+6. **README.** List the eight tools with this profile, the limitations above,
+   and the 32 MiB source / 16 MiB member / 32 MiB output limits they inherit.
