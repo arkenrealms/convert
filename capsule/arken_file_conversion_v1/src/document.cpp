@@ -51,6 +51,9 @@ DocumentResult ConvertStandaloneDocument(document::SourceFormat source, document
             case document::BlockKind::heading: ++result.headings; break;
             case document::BlockKind::list_item: ++result.listItems; break;
             case document::BlockKind::table: ++result.tables; result.tableRows += std::uint32_t(block.rows.size()); break;
+            // DOCX and RTF never produce these (model r2 additions for EPUB).
+            case document::BlockKind::block_quote: case document::BlockKind::thematic_break:
+            case document::BlockKind::code_block: break;
             }
         }
         const auto* begin = reinterpret_cast<const std::byte*>(text.text.data());
