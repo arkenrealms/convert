@@ -62,3 +62,22 @@ Cloudflare, revenue and aggregate services are separate monorepo integrations.
 Waygate preserves selected source history. Its native refresh derives dependencies
 from the build and independently qualifies updates before applying them. Third-party
 notices remain with their owners; this package grants no new first-party licence.
+
+## HEIC development prerequisites
+
+The pinned libheif 1.23.7 / libde265 1.1.3 decoder and its qualification project
+are included for ongoing HEIC work. They do not add HEIC to the tool catalogue.
+
+```sh
+cmake -S capsule/arken_image_codecs_v1/tests/heif_dependencies -B build-heif -DCMAKE_BUILD_TYPE=Release
+cmake --build build-heif --target arken-heif-dependency-check -j 4
+ctest --test-dir build-heif --output-on-failure
+```
+
+Recipes admit macOS, Linux and the separately qualified browser target. Archive
+pins, decoder selection, normative deblocking/SAO and memory-only browser patches
+are preserved. Portable exact-file replacements live under
+`sdk/arken_sdk_dev/external_packages/recipes/patches/generated/`;
+the small original diffs remain as authoring references. LGPL notices stay in the
+verified upstream packages. Actual platform and product-format qualification
+must precede advertising HEIC support.

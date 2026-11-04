@@ -1,0 +1,7 @@
+{
+  "schemaVersion":1,"key":"arken_image_heif_dependencies",
+  "public_dependencies":[],"private_dependencies":[],"test_dependencies":[],
+  "external_dependencies":[
+    {"recipe":"libheif-1.23.7-hevc-v1","scope":"private","components":["decoder"],"reason":"Qualify the exact memory-only HEVC still-image dependency before public image admission."}
+  ]
+}

@@ -1,0 +1,66 @@
+diff --git a/libheif/box.cc b/libheif/box.cc
+--- a/libheif/box.cc
++++ b/libheif/box.cc
+@@ -43,5 +43,6 @@
+ #include <array>
+ #include <mutex>
++#include <stdexcept>
+ 
+ 
+ #if WITH_UNCOMPRESSED_CODEC
+@@ -1764,14 +1765,20 @@ Box_iloc::Box_iloc()
+ 
+ Box_iloc::~Box_iloc()
+ {
++#if !defined(__EMSCRIPTEN_STANDALONE_WASM__)
+   if (m_use_tmpfile) {
+     unlink(m_tmp_filename);
+   }
++#endif
+ }
+ 
+ 
+ void Box_iloc::set_use_tmp_file(bool flag)
+ {
++#if defined(__EMSCRIPTEN_STANDALONE_WASM__)
++  // This memory-only decoder has no temporary-file capability.
++  if (flag) throw std::logic_error("Temporary files are unavailable in the memory-only HEIF decoder");
++#else
+   m_use_tmpfile = flag;
+   if (flag) {
+ #if !defined(_WIN32)
+@@ -1788,6 +1795,7 @@ void Box_iloc::set_use_tmp_file(bool flag)
+ #  endif
+ #endif
+   }
++#endif
+ }
+ 
+ 
+diff --git a/libheif/box.h b/libheif/box.h
+--- a/libheif/box.h
++++ b/libheif/box.h
+@@ -648,3 +648,7 @@
++#if defined(__EMSCRIPTEN_STANDALONE_WASM__)
++  static constexpr bool m_use_tmpfile = false;
++#else
+   bool m_use_tmpfile = false;
++#endif
+   int m_tmpfile_fd = 0;
+   char m_tmp_filename[20];
+diff --git a/libheif/file.cc b/libheif/file.cc
+--- a/libheif/file.cc
++++ b/libheif/file.cc
+@@ -109,3 +109,7 @@
+ Error HeifFile::read_from_file(const char* input_filename)
+ {
++#if defined(__EMSCRIPTEN_STANDALONE_WASM__)
++  (void)input_filename;
++  return Error(heif_error_Unsupported_feature, heif_suberror_Unspecified, "Path reads are unavailable in the memory-only HEIF decoder");
++#else
+ #if defined(__MINGW32__) || defined(__MINGW64__) || defined(_MSC_VER)
+@@ -122,3 +126,4 @@ Error HeifFile::read_from_file(const char* input_filename)
+   auto input_stream = std::make_shared<StreamReader_istream>(std::move(input_stream_istr));
+   return read(input_stream);
++#endif
+ }

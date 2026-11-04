@@ -1,0 +1,46 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -135,7 +135,12 @@ endmacro()
+ 
+ plugin_option(LIBDE265 "libde265 HEVC decoder" ON OFF)
+ if (WITH_LIBDE265)
+-    find_package(LIBDE265)
++    if(NOT TARGET arken::external_de265_v1)
++        message(FATAL_ERROR "The pinned libde265 recipe must be resolved before libheif")
++    endif()
++    set(LIBDE265_FOUND TRUE)
++    set(LIBDE265_LIBRARIES "$<BUILD_INTERFACE:arken::external_de265_v1>")
++    set(LIBDE265_INCLUDE_DIRS "")
+ endif()
+ 
+ # x265
+diff --git a/libheif/plugins/decoder_libde265.cc b/libheif/plugins/decoder_libde265.cc
+--- a/libheif/plugins/decoder_libde265.cc
++++ b/libheif/plugins/decoder_libde265.cc
+@@ -210,9 +210,8 @@ heif_error libde265_new_decoder2(void** dec, const heif_decoder_plugin_options* opti
+ #endif
+ 
+ #if defined(__EMSCRIPTEN__)
+-  // Speed up decoding from JavaScript.
+-  de265_set_parameter_bool(decoder->ctx, DE265_DECODER_PARAM_DISABLE_DEBLOCKING, 1);
+-  de265_set_parameter_bool(decoder->ctx, DE265_DECODER_PARAM_DISABLE_SAO, 1);
++  // Browser execution is single-threaded, but retains the same normative
++  // deblocking and SAO filters as native decoding.
+ #else
+   int nThreads = (options->num_threads ? options->num_threads : 1);
+ 
+diff --git a/libheif/CMakeLists.txt b/libheif/CMakeLists.txt
+--- a/libheif/CMakeLists.txt
++++ b/libheif/CMakeLists.txt
+@@ -220,8 +220,8 @@ target_include_directories(heif PRIVATE ${libheif_BINARY_DIR} ${libheif_SOURCE_DIR}/l
+ # Propagate include/libheif to consume the headers from other projects
+ target_include_directories(heif
+         PUBLIC
+-        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}>
+-        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
++        $<BUILD_INTERFACE:${libheif_SOURCE_DIR}/libheif/api>
++        $<BUILD_INTERFACE:${libheif_BINARY_DIR}>
+         $<INSTALL_INTERFACE:include>)
+ 
+ set_target_properties(heif
