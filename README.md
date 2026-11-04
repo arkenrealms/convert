@@ -1,12 +1,12 @@
 # Arken Convert
 
-Seven MCP tools for image conversion. No account, wallet or cloud service required.
+Fifteen MCP tools for image conversion. No account, wallet or cloud service required.
 Files stay on the machine running the server.
 
 ## Build
 
 Requires CMake 3.25+, a C++20 compiler and a POSIX host. Native qualification is
-performed on macOS; Windows support is not included.
+performed on macOS and on Linux with GCC; Windows support is not included.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -38,13 +38,24 @@ Discover with `tools/list`, then call a tool with relative paths. For example:
 
 ## Tools and limits
 
-- `convert_image`: PNG, JPEG, BMP, TGA or supported DDS to PNG, JPEG, BMP or TGA.
+- `convert_image`: PNG, JPEG, BMP, TGA, GIF, ICO, TIFF, still WebP or supported DDS
+  to PNG, JPEG, BMP, TGA, ICO, TIFF or lossless WebP.
 - `png_to_jpeg`, `jpeg_to_png`, `bmp_to_png`, `bmp_to_jpeg`, `tga_to_png`, `dds_to_png`.
+- `webp_to_png`, `webp_to_jpeg`, `png_to_webp`, `gif_to_png`, `tiff_to_png`,
+  `png_to_tiff`, `ico_to_png`, `png_to_ico`.
 
 The generic tool also takes `input_format` and `output_format`. JPEG output accepts
 `jpeg_quality` (1–100, default 95) and `alpha_policy` (`preserve` or `flatten_white`).
 Transparency is never discarded without explicit consent. Other outputs preserve
 admitted alpha and do not accept JPEG options.
+
+Format profiles are deliberately narrow. WebP input is a complete still VP8 or VP8L
+image; animation, ICC and Exif are rejected. WebP output is lossless with exact RGBA.
+GIF converts its first frame only, so an animated GIF never yields a sequence. TIFF
+input is one 8-bit RGB, RGBA or grayscale image stored uncompressed, PackBits or
+Deflate; TIFF output is one uncompressed RGBA image. ICO input uses the largest
+rendition in the file; ICO output is one PNG-backed rendition of at most 256×256,
+never resized. Rejections name the codec's reason in the error message.
 
 Input and output are each limited to 8 MiB; images to 1,048,576 pixels and 4096
 pixels per dimension. Paths must stay inside the selected folder. Symlinks,

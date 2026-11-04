@@ -20,11 +20,19 @@ constexpr Pair pairs[]{
  {5,I::Format::bmp,I::Format::png,"Convert BMP to PNG for compact lossless image storage. Uses relative source_path and a new output_path."},
  {6,I::Format::bmp,I::Format::jpeg,"Convert BMP to JPEG for smaller photo files. Uses relative source_path and new output_path; transparency needs explicit alpha_policy=flatten_white."},
  {7,I::Format::tga,I::Format::png,"Convert TGA to PNG for sharing and standard image workflows. Uses relative source_path and a new output_path; preserves admitted transparency."},
- {8,I::Format::dds,I::Format::png,"Convert a supported DDS texture to PNG for inspection and editing. Uses relative source_path and a new output_path; unsupported DDS profiles are rejected."}
+ {8,I::Format::dds,I::Format::png,"Convert a supported DDS texture to PNG for inspection and editing. Uses relative source_path and a new output_path; unsupported DDS profiles are rejected."},
+ {9,I::Format::webp,I::Format::png,"Convert a still WebP image to PNG for lossless subsequent edits. Uses relative source_path and a new output_path; preserves transparency. Animated WebP and files with ICC or Exif metadata are rejected."},
+ {10,I::Format::webp,I::Format::jpeg,"Convert a still WebP image to JPEG for smaller photo files. Uses relative source_path and new output_path; transparency needs explicit alpha_policy=flatten_white. Animated WebP is rejected."},
+ {11,I::Format::png,I::Format::webp,"Convert PNG to lossless WebP with exact pixels and transparency preserved. Uses relative source_path and a new output_path; this writer does not produce lossy WebP."},
+ {12,I::Format::gif,I::Format::png,"Convert the first frame of a GIF to PNG. Uses relative source_path and a new output_path; an animated GIF yields only its first frame, never a sequence."},
+ {13,I::Format::tiff,I::Format::png,"Convert a supported TIFF to PNG. Uses relative source_path and a new output_path; accepts one 8-bit RGB, RGBA or grayscale image stored uncompressed, PackBits or Deflate. Other TIFF variants are rejected."},
+ {14,I::Format::png,I::Format::tiff,"Convert PNG to an uncompressed RGBA TIFF for tools that require TIFF. Uses relative source_path and a new output_path; preserves transparency."},
+ {15,I::Format::ico,I::Format::png,"Convert a Windows ICO to PNG using its largest rendition. Uses relative source_path and a new output_path; preserves transparency."},
+ {16,I::Format::png,I::Format::ico,"Convert a PNG of at most 256x256 pixels to a single-image ICO. Uses relative source_path and a new output_path; larger images are rejected, never resized."}
 };
 std::vector<mcp::ToolPresentation> presentations() {
  std::vector<mcp::ToolPresentation> result{{2,false,false,false,
-  "Convert PNG, JPEG, BMP, TGA or supported DDS to PNG, JPEG, BMP or TGA. Relative source_path and new output_path stay inside the configured folder. No overwrites. Limits: 8 MiB input/output, 1,048,576 pixels, 4096 per dimension. JPEG transparency requires explicit flatten_white."}};
+  "Convert PNG, JPEG, BMP, TGA, GIF, ICO, TIFF, still WebP or supported DDS to PNG, JPEG, BMP, TGA, ICO, TIFF or lossless WebP. Relative source_path and new output_path stay inside the configured folder. No overwrites. Limits: 8 MiB input/output, 1,048,576 pixels, 4096 per dimension, 256 per dimension for ICO output. JPEG transparency requires explicit flatten_white. GIF converts its first frame only."}};
  for(const auto& p:pairs)result.push_back({p.id,false,false,false,p.description});
  return result;
 }
@@ -59,10 +67,22 @@ Input parse(std::uint32_t id,const Json& arguments) {
 }
 std::string media(I::Format format) {
  switch(format){case I::Format::png:return "image/png";case I::Format::jpeg:return "image/jpeg";
-  case I::Format::bmp:return "image/bmp";case I::Format::tga:return "image/x-tga";default:throw std::invalid_argument("output format");}
+  case I::Format::bmp:return "image/bmp";case I::Format::tga:return "image/x-tga";
+  case I::Format::ico:return "image/vnd.microsoft.icon";case I::Format::tiff:return "image/tiff";
+  case I::Format::webp:return "image/webp";default:throw std::invalid_argument("output format");}
 }
 Json error(const Json& id,std::string_view code,std::string_view message) {
  return mcp::toolReply(id,{{"code",code},{"message",message}},true);
+}
+// The codec owner names the exact rejection (animation, metadata, dimensions, matte) so a
+// client can act on it without guessing which limit the shared profile message refers to.
+std::string conversionMessage(const C::ImageResult& converted) {
+ std::string message{C::ErrorMessage(converted.error)};
+ if(converted.error==C::Error::decode_failed&&converted.decodeError!=I::DecodeError::none)
+  message.append(": ").append(I::ErrorMessage(converted.decodeError));
+ if(converted.error==C::Error::encode_failed&&converted.encodeError!=I::EncodeError::none)
+  message.append(": ").append(I::EncodeErrorMessage(converted.encodeError));
+ return message;
 }
 }
 struct Session::Impl {std::unique_ptr<arken::files::workspace::v1::NativeFiles> files;};
@@ -92,8 +112,8 @@ Json Session::request(std::string_view text) noexcept {
   const auto value=parse(plan.commandId,plan.arguments);
   const auto source=impl_->files->read(value.source,C::maximumSourceBytes);
   if(!source)return error(id,source.error,"Input must be a nonempty regular file inside the selected folder, no larger than 8 MiB.");
-  const auto converted=C::ConvertImage(source.bytes,value.options);
-  if(!converted)return error(id,"conversionFailed",C::ErrorMessage(converted.error));
+  const auto converted=C::ConvertStandaloneImage(source.bytes,value.options);
+  if(!converted)return error(id,"conversionFailed",conversionMessage(converted));
   const auto digest=arken::digest::v1::sha256(converted.bytes);std::array<char,71> hash{};
   J::require(digest&&arken::digest::v1::format_sha256(*digest,hash),"output digest");
   S::conversion_result result;result.output_path.value=value.output;result.media_type.value=media(value.options.output);

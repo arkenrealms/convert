@@ -38,6 +38,21 @@ struct ImageResult {
         ||format==image::Format::jpeg||format==image::Format::tga;
 }
 [[nodiscard]] ImageResult ConvertImage(std::span<const std::byte>, const ImageOptions& = {}) noexcept;
+// Separate standalone native MCP admission at the same bounded limits. Hosted ConvertImage
+// keeps its unchanged input and output sets; the client-launched standalone server also
+// admits the still-image codecs already qualified by arken_image_codecs_v1. GIF converts
+// its first frame only; ICO converts its largest rendition and writes one PNG-backed
+// rendition of at most 256x256; TIFF and WebP are still images without animation, ICC or Exif.
+[[nodiscard]] constexpr bool SupportsStandaloneInput(image::Format format) noexcept {
+    return format==image::Format::png||format==image::Format::bmp||format==image::Format::jpeg
+        ||format==image::Format::dds||format==image::Format::tga||format==image::Format::gif
+        ||format==image::Format::ico||format==image::Format::tiff||format==image::Format::webp;
+}
+[[nodiscard]] constexpr bool SupportsStandaloneOutput(image::Format format) noexcept {
+    return SupportsOutput(format)||format==image::Format::ico||format==image::Format::tiff
+        ||format==image::Format::webp;
+}
+[[nodiscard]] ImageResult ConvertStandaloneImage(std::span<const std::byte>, const ImageOptions& = {}) noexcept;
 // Separate resident browser profile. Hosted callers keep ConvertImage and its
 // unchanged limits; browser admission must not use this before runtime qualification.
 inline constexpr std::uint32_t browserMaximumSourceBytes=128u*1024u*1024u;
