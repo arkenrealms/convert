@@ -19,6 +19,10 @@ struct EncodeOptions {
     // with a losslessly coded alpha plane; transparent RGB is not preserved.
     bool webpLossless=true;
     std::uint32_t webpQuality=90;
+    // AVIF only (validated for every format, like jpegQuality): lossless reproduces exact RGBA;
+    // otherwise avifQuality 1-100 selects lossy 4:2:0 colour with lossless alpha.
+    bool avifLossless=true;
+    std::uint32_t avifQuality=60;
 };
 struct EncodeResult {
     EncodeError error=EncodeError::none;
@@ -33,6 +37,8 @@ struct EncodeResult {
 // WebP writes one still image: lossless by default, preserving exact RGBA including
 // transparent RGB; or lossy (webpLossless=false) at webpQuality, method 4, exact=0,
 // alpha kept exactly via a lossless alpha plane. Single-threaded and deterministic.
+// AVIF (where compiled in) writes one still image, lossless GBR 4:4:4 or lossy 4:2:0 with
+// lossless alpha, tagged sRGB NCLX.
 // JPEG transparency requires explicit white-matte consent. No I/O or metadata copy.
 [[nodiscard]] EncodeResult EncodeImage(Format,std::uint32_t width,std::uint32_t height,
     std::span<const std::uint8_t> rgba8,const EncodeOptions& options={}) noexcept;
