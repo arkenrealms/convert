@@ -6,13 +6,21 @@
 #include <string_view>
 #include <vector>
 
-// Portable, memory-only WAV, FLAC and AIFF audio codecs. Every call takes a complete
-// byte span and returns a complete result; nothing opens files, reads stdio,
-// starts threads or keeps global state. Integer PCM only: precision is never
-// reduced and floating-point sources are rejected, never quantized.
+// Portable, memory-only audio codecs. Every call takes a complete byte span and
+// returns a complete result; nothing opens files, reads stdio, starts threads or
+// keeps global state.
+//  - Lossless (WAV, FLAC, AIFF): integer PCM only; precision is never reduced and
+//    floating-point sources are rejected, never quantized.
+//  - Lossy (Vorbis in Ogg, Opus in Ogg, MP3): decoded to 16-bit canonical PCM with
+//    container-declared encoder delay/padding trimmed; encoded with explicit quality
+//    controls (LossyOptions). Lossy results are labelled (DecodeReport::lossy,
+//    ConvertResult::lossyOutput / generationLoss); see NOTES.md for the contract.
 namespace arken::audio::v1 {
 
-enum class Container : std::uint32_t { wav = 1, flac = 2, aiff = 3 };
+// Values are stable (cast from command-layer enums). "Ogg" alone is never a
+// container choice here: vorbis means Vorbis I in Ogg, opus means Opus in Ogg
+// (RFC 7845); mp3 means MPEG-1/2/2.5 Layer III elementary stream.
+enum class Container : std::uint32_t { wav = 1, flac = 2, aiff = 3, vorbis = 4, opus = 5, mp3 = 6 };
 
 // Canonical lossless sample model shared by every container.
 //  - samples: interleaved frames (frame-major), right-justified, sign-extended
@@ -28,7 +36,11 @@ enum class Container : std::uint32_t { wav = 1, flac = 2, aiff = 3 };
 //    WAVEFORMATEXTENSIBLE_CHANNEL_MASK comment (RFC 9639 default order applies),
 //    and always for AIFF, which has no mask field. EncodeAiff cannot store a
 //    mask and drops it (Convert reports this in droppedChannelMask).
-//    Channel order in `samples` is always the source order; nothing is remapped.
+//    Channel order in `samples` is the source order for WAV, FLAC and AIFF;
+//    nothing is remapped. The one deliberate mapping: Vorbis and Opus family 1
+//    streams with 3..8 channels are reordered from Vorbis order to WAVE order
+//    and given the standard WAVE mask (1-2 channels: no mask).
+//  - Lossy decoders (Vorbis, Opus, MP3) always produce bitsPerSample = 16.
 struct Audio {
     std::uint32_t sampleRate = 0;
     std::uint32_t channels = 0;
@@ -82,7 +94,11 @@ enum class Error : std::uint32_t {
     allocation_failed,
     codec_failed,           // libFLAC rejected a configuration or failed internally
     verify_failed,          // libFLAC's encoder self-verification found a mismatch
-    unsupported_sample_rate // AIFF 80-bit extended rate is not an exact positive integer (fraction, negative, NaN, infinity)
+    unsupported_sample_rate,// AIFF 80-bit extended rate is not an exact positive integer (fraction, negative, NaN, infinity)
+    chained_stream,         // Ogg: a further chained link (new BOS pages after every stream of the first link ended)
+    unsupported_channel_mapping, // Opus mapping family other than 0/1 (2, 3, 255, ...) or an inadmissible mapping table
+    resampling_required,    // lossy encoder: sample rate is not one the format codes natively; no resampling is performed
+    invalid_option          // lossy encoder: quality/bitrate control outside the documented range
 };
 
 struct Issue {
@@ -97,6 +113,41 @@ struct DecodeReport {
                                               // AIFF chunks other than COMM/SSND (FVER, MARK, INST, COMT, NAME, ...)
     std::uint32_t ignoredMetadataBlocks = 0;  // FLAC blocks other than STREAMINFO (tags, pictures, ...)
     bool ignoredComments = false;             // FLAC comments other than the channel mask
+    // Lossy sources (Vorbis, Opus, MP3).
+    bool lossy = false;                       // the source codec is lossy: decoded PCM is not the original signal
+    std::uint32_t droppedComments = 0;        // Vorbis comment / OpusTags entries (incl. METADATA_BLOCK_PICTURE art), not carried
+    std::uint32_t skippedTags = 0;            // MP3 ID3v2, ID3v1 and APEv2 tags skipped, not carried
+    std::uint32_t skippedStreams = 0;         // other Ogg logical streams multiplexed beside the decoded one
+    // Leading encoder delay (Opus pre-skip, MP3 LAME-tag delay + 529 decoder delay,
+    // Vorbis negative start granule) and trailing padding (final granule position,
+    // LAME-tag padding) were removed using container data.
+    bool encoderDelayTrimmed = false;
+    // MP3 without a usable LAME/Lavc gapless tag: nothing was trimmed, so the output
+    // still begins with the encoder + decoder delay and ends with padding.
+    bool encoderDelayUnknown = false;
+    std::uint64_t trimmedLeadingFrames = 0;   // frames removed at the start (container data)
+    std::uint64_t trimmedTrailingFrames = 0;  // frames removed at the end (container data)
+    std::uint32_t silencedFrames = 0;         // MP3 leading frames whose bit reservoir precedes the stream: emitted as silence
+    std::uint32_t originalSampleRate = 0;     // Opus: OpusHead input sample rate (informational; output is always 48 kHz)
+};
+
+enum class Mp3RateControl : std::uint32_t { cbr = 1, vbr = 2 };
+
+// Explicit quality controls of the lossy encoders. Out-of-range values are
+// Error::invalid_option, never clamped. Every encoder accepts 1 or 2 channels.
+struct LossyOptions {
+    // Vorbis: libvorbis VBR quality q = -0.1 + 1.1 * vorbisQuality / 100, i.e.
+    // 0 -> -0.1 (lowest, ~45 kbps stereo 44.1 kHz), 50 -> 0.45, 100 -> 1.0 (~500 kbps).
+    std::uint32_t vorbisQuality = 50;          // 0..100
+    // Opus: target bitrate of the whole stream, unconstrained VBR, complexity 10,
+    // application AUDIO, 20 ms frames.
+    std::uint32_t opusBitrateKbps = 128;       // 6..510
+    // MP3 (LAME): CBR at mp3BitrateKbps (a legal Layer III bitrate for the MPEG
+    // version implied by the sample rate) or VBR (new/mtrh) at quality mp3VbrQuality
+    // (LAME -V: 0 best .. 9 smallest). Joint stereo for 2 channels, mono for 1.
+    Mp3RateControl mp3RateControl = Mp3RateControl::cbr;
+    std::uint32_t mp3BitrateKbps = 192;
+    std::uint32_t mp3VbrQuality = 2;           // 0..9
 };
 
 struct DecodeResult {
@@ -120,6 +171,12 @@ struct ConvertResult {
     DecodeReport report;
     // The source declared a channel mask that the destination (AIFF) cannot store.
     bool droppedChannelMask = false;
+    // The destination is a lossy encoder (Vorbis, Opus, MP3): the output is an
+    // approximation, never a reversible conversion.
+    bool lossyOutput = false;
+    // Both source and destination are lossy: a second generation of coding loss
+    // applies on top of the source's; quality is never restored.
+    bool generationLoss = false;
     std::vector<std::byte> bytes;
     explicit operator bool() const noexcept {
         return decodeIssue.code == Error::none && encodeError == Error::none;
@@ -149,12 +206,47 @@ struct ConvertResult {
 // sampleSize) and SSND (offset 0, blockSize 0, big-endian left-justified
 // samples, even padding) only. Any channelMask is not representable and dropped.
 [[nodiscard]] EncodeResult EncodeAiff(const Audio&, const Limits& = {}) noexcept;
+// Ogg Vorbis (Vorbis I in Ogg). One logical stream: the first Vorbis stream of
+// the first link; other multiplexed streams are skipped (report.skippedStreams),
+// a chained second link is Error::chained_stream. Output: 16-bit, the stream's
+// rate; 3..8 channels are mapped from Vorbis order to WAVE order with the
+// standard channelMask. Granule positions trim the start and end.
+[[nodiscard]] DecodeResult DecodeVorbis(std::span<const std::byte>, const Limits& = {}) noexcept;
+// Ogg Opus (RFC 7845), channel mapping family 0 (1-2 ch) or 1 (1-8 ch, mapped to
+// WAVE order). Decoded at 48 kHz to 16 bits; pre-skip and output gain applied;
+// final granule position trims the end. report.originalSampleRate = OpusHead rate.
+[[nodiscard]] DecodeResult DecodeOpus(std::span<const std::byte>, const Limits& = {}) noexcept;
+// MPEG-1/2/2.5 Layer III. ID3v2 (start), ID3v1 and APEv2 (end) are skipped and
+// counted; every other byte must be consecutive frames of one version, rate and
+// mono/stereo kind; protected frames' CRC-16 is checked. A Xing/Info first frame
+// is not audio; with a LAME/Lavf/Lavc extension its delay and padding drive
+// gapless trimming (start = delay + 529), otherwise nothing is trimmed and
+// report.encoderDelayUnknown is set. Free-format and Layer I/II are unsupported_encoding.
+[[nodiscard]] DecodeResult DecodeMp3(std::span<const std::byte>, const Limits& = {}) noexcept;
+// Deterministic Ogg Vorbis: libvorbisenc VBR at LossyOptions::vorbisQuality, fixed
+// serial number, comment header carrying only libvorbis's vendor string.
+[[nodiscard]] EncodeResult EncodeVorbis(const Audio&, const LossyOptions& = {}, const Limits& = {}) noexcept;
+// Deterministic Ogg Opus: 8/12/16/24/48 kHz input only (other rates are
+// resampling_required), fixed serial, OpusHead pre-skip = encoder lookahead,
+// final granule = pre-skip + exact input length, OpusTags with the libopus version only.
+[[nodiscard]] EncodeResult EncodeOpus(const Audio&, const LossyOptions& = {}, const Limits& = {}) noexcept;
+// Deterministic MP3 via LAME: input rate must be an MPEG Layer III rate (8000,
+// 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000), no resampling, a
+// LAME Info/Xing tag frame with encoder delay and padding, no ID3 tags.
+[[nodiscard]] EncodeResult EncodeMp3(const Audio&, const LossyOptions& = {}, const Limits& = {}) noexcept;
 // Decode with `source`, re-encode with `destination` under the same limits.
 [[nodiscard]] ConvertResult Convert(Container source, Container destination,
     std::span<const std::byte>, const Limits& = {}) noexcept;
+[[nodiscard]] ConvertResult Convert(Container source, Container destination,
+    std::span<const std::byte>, const LossyOptions&, const Limits& = {}) noexcept;
+[[nodiscard]] bool IsLossy(Container) noexcept;
 
 [[nodiscard]] Error ValidateAudio(const Audio&, const Limits& = {}) noexcept;
 [[nodiscard]] std::string_view ErrorMessage(Error) noexcept;
 // Exact libFLAC identity compiled into this build, e.g. "reference libFLAC 1.5.0 20250211".
 [[nodiscard]] std::string_view FlacVendorString() noexcept;
+// Exact identities of the lossy codec libraries compiled into this build.
+[[nodiscard]] std::string_view VorbisVendorString() noexcept; // "Xiph.Org libVorbis 1.3.7"
+[[nodiscard]] std::string_view OpusVersionString() noexcept;  // "libopus 1.5.2"
+[[nodiscard]] std::string_view LameVersionString() noexcept;  // "3.100"
 } // namespace arken::audio::v1
