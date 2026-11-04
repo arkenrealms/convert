@@ -2,7 +2,7 @@
   "key": "arken_audio_codecs_v1",
   "name": "Arken Audio Codecs v1",
   "version": "1.0.0",
-  "description": "Portable bounded memory-only WAV and FLAC codecs over a canonical lossless integer PCM model. Integer PCM is preserved exactly; floating-point and compressed WAV are rejected rather than quantized. The codec never opens files, reads stdio or starts threads.",
+  "description": "Portable bounded memory-only WAV, FLAC and AIFF/AIFF-C codecs over a canonical lossless integer PCM model. Integer PCM is preserved exactly; floating-point and compressed WAV/AIFF-C are rejected rather than quantized. The codec never opens files, reads stdio or starts threads.",
   "public_dependencies": [],
   "private_dependencies": [],
   "test_dependencies": [],
@@ -21,6 +21,9 @@
     "bounded_riff_wave_integer_pcm_encode",
     "bounded_native_flac_decode",
     "bounded_deterministic_flac_encode",
+    "bounded_aiff_aifc_integer_pcm_decode",
+    "bounded_aiff_integer_pcm_encode",
+    "exact_aiff_extended_sample_rate",
     "lossless_integer_pcm_canonical_samples",
     "wave_extensible_channel_mask_preservation"
   ]
