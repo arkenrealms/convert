@@ -164,6 +164,34 @@ public:
         if(body)flow_.Paragraph([&] {Children(*body,{},false);});
     }
 private:
+    // The HTML convention for a code language: a "language-x" (or "lang-x") class on the
+    // pre element or on a code element that is its only element child. The serializer
+    // decides whether the label is safe to write.
+    std::string CodeLanguage(const XmlElement& pre) const {
+        const auto fromClass=[&](const XmlElement& e)->std::string {
+            const auto* classes=xml_.Attribute(e,"","class");
+            if(!classes)return {};
+            const std::string_view s(*classes);
+            for(std::size_t p=0;p<s.size();) {
+                while(p<s.size()&&Space(s[p]))++p;
+                auto q=p;
+                while(q<s.size()&&!Space(s[q]))++q;
+                const auto token=s.substr(p,q-p);
+                for(const std::string_view prefix:{std::string_view("language-"),std::string_view("lang-")})
+                    if(token.size()>prefix.size()&&token.substr(0,prefix.size())==prefix)return std::string(token.substr(prefix.size()));
+                p=q;
+            }
+            return {};
+        };
+        if(auto language=fromClass(pre);!language.empty())return language;
+        const XmlElement* code=nullptr;
+        for(const auto& c:pre.children) {
+            if(c.text)continue;
+            if(code)return {};
+            code=&xml_.elements[c.index];
+        }
+        return code&&Is(xml_,*code,xhtmlNs,"code")?fromClass(*code):std::string();
+    }
     static int HeadingLevel(std::string_view local) {
         return local.size()==2&&local[0]=='h'&&local[1]>='1'&&local[1]<='6'?local[1]-'0':0;
     }
@@ -196,16 +224,16 @@ private:
         if(n=="video"||n=="audio"||n=="object"||n=="embed"||n=="iframe"||n=="canvas"||n=="map") {++excluded.graphics;return;}
         if(n=="head"||n=="title"||n=="meta"||n=="link"||n=="base"||n=="rt"||n=="rp"||n=="colgroup"||n=="col")return;
         if(n=="br") {flow_.Break(f);return;}
-        if(n=="hr") {flow_.Boundary();return;}
+        if(n=="hr") {flow_.Rule();return;}
         if(const int level=HeadingLevel(n)) {flow_.Heading(level,[&] {Children(e,f,pre);});return;}
         if(n=="ul"||n=="ol") {List(e,n=="ol",f);return;}
         if(n=="table") {Table(e,f);return;}
-        if(n=="pre") {flow_.Paragraph([&] {Children(e,f,true);});return;}
-        if(n=="p"||n=="div"||n=="blockquote"||n=="section"||n=="article"||n=="header"||n=="footer"||n=="main"
+        if(n=="pre") {flow_.Code(CodeLanguage(e),[&] {Children(e,f,true);});return;}
+        if(n=="blockquote") {flow_.Quote([&] {Children(e,f,pre);});return;}
+        if(n=="p"||n=="div"||n=="section"||n=="article"||n=="header"||n=="footer"||n=="main"
             ||n=="aside"||n=="figure"||n=="figcaption"||n=="address"||n=="center"||n=="details"||n=="summary"
             ||n=="dl"||n=="dt"||n=="dd"||n=="hgroup"||n=="form"||n=="fieldset"||n=="legend"||n=="li"
             ||n=="caption"||n=="body") {
-            // Block quotes are plain paragraphs: the model has no quote block.
             flow_.Paragraph([&] {Children(e,f,pre);});
             return;
         }

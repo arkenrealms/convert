@@ -32,8 +32,10 @@ own admission decisions (handoff sections 3 and 13). Nothing here authorizes the
   `text/markdown; charset=utf-8`), `revision`.
 
 The common model is a list of blocks. A block is a paragraph, a heading
-(level 1-6), a list item (level 0-8, ordered flag) or a table (rows of cells).
-Paragraphs, headings and list items hold runs. A run is UTF-8 text with an
+(level 1-6), a list item (level 0-8, ordered flag), a table (rows of cells),
+and since model r2 a block quote, a thematic break or a code block (with an
+optional language label). Paragraphs, headings, list items, quotes and code
+blocks hold runs. DOCX and RTF produce only the first four kinds. A run is UTF-8 text with an
 optional raw link target and bold/italic flags. Both extractors fill this one
 model and both serializers read it. There are no format-specific serializers.
 
@@ -184,6 +186,10 @@ after any non-list block). Continuation lines are indented under the text.
 Table rows are tab-separated lines, and tabs or newlines inside a cell become
 spaces. A link with an http, https or mailto target is written `text (url)`
 unless the text already equals the URL. Other targets are dropped.
+Block quotes (model r2) are plain paragraphs, without a prefix. A thematic break
+adds one extra blank line before the next block (leading, trailing and repeated
+breaks add nothing). Code blocks are written verbatim, tabs and indentation
+included, without their trailing line breaks.
 
 Markdown (CommonMark plus GFM pipe tables):
 - `\ ` * _ [ ] < > | ~ & #` are always backslash-escaped. At the start of each
@@ -200,6 +206,17 @@ Markdown (CommonMark plus GFM pipe tables):
 - Tables become pipe tables only when every row has the same number of cells
   (the first row becomes the header). Any other table becomes one paragraph per
   row, with cells separated by ` \| `.
+- Block quotes (model r2) are `> ` lines; a hard break continues with `> `, and
+  consecutive quote blocks are joined by a `>` line into one quotation. Text
+  inside is escaped as everywhere else, so a literal `>` stays `\>`.
+- Thematic breaks are `---` between blank lines. Leading, trailing and repeated
+  breaks are dropped (the same rule as TXT, above), and a break ends any list.
+- Code blocks are fenced with backticks, one more than the longest backtick run in
+  the code (at least three), so no content line can close the fence. The content
+  is written verbatim, unescaped, including trailing spaces; trailing line breaks
+  of the block are dropped. The language label becomes the info string only when
+  it matches `[A-Za-z0-9_+.#-]{1,32}`; otherwise the fence has no info string.
+  Formatting and links inside code are not represented.
 - Links are `[text](destination)` only for `http://`, `https://` and `mailto:`
   targets (case-insensitive). The destination is percent-encoded outside the URI
   character set, including spaces, parentheses and `<>`. Every other scheme
@@ -968,15 +985,20 @@ runs, `<pre>`) is kept exactly.
 - Mapping (body only): `h1`-`h6` become headings. `p`, `div`, `blockquote`,
   `section`, `article`, `header`, `footer`, `main`, `aside`, `figure`,
   `figcaption`, `address`, `dl`/`dt`/`dd`, `details`/`summary`, `form`,
-  `fieldset` and `legend` are paragraph boundaries. `blockquote` is a **plain
-  paragraph** because the model has no quote block. `ul`/`ol`/`li` nest (a list
+  `fieldset` and `legend` are paragraph boundaries. `blockquote` (r2) makes
+  block-quote paragraphs; a heading, list or table inside it keeps its own kind
+  (the model has no nested containers), and inside a list item or table cell it
+  is item/cell text. `ul`/`ol`/`li` nest (a list
   directly inside a list is accepted). `table` with
   `thead`/`tbody`/`tfoot`/`tr`/`td`/`th` makes a table (`caption` becomes a
   paragraph before it; `colspan`/`rowspan` are ignored, so spanned tables are
-  ragged and become paragraphs in Markdown). `br` is a line break and `hr` a
-  boundary. `em`/`i` are italic and `strong`/`b` bold. `pre` text is kept
-  exactly (a leading newline is dropped); in Markdown its line-start
-  indentation is removed by the serializer's escaping. `code` is plain text.
+  ragged and become paragraphs in Markdown). `br` is a line break and `hr` (r2)
+  a thematic break (a paragraph boundary inside list items and cells).
+  `em`/`i` are italic and `strong`/`b` bold. `pre` (r2) is a code block whose
+  text is kept exactly (a leading newline is dropped); its language is the
+  `language-x` or `lang-x` class of the `pre`, or of a `code` that is its only
+  element child. Inside a list item or table cell `pre` is item/cell text with
+  its line breaks. Inline `code` is plain text.
   `a href` stays a link only for http/https/mailto. Relative references point
   into the package and become plain text, as do other schemes. Elements with
   `hidden` are skipped.
@@ -990,17 +1012,25 @@ runs, `<pre>`) is kept exactly.
   spine's `toc` attribute). The first title per target part wins (fragments
   are ignored). A spine item with **no h1-h6 of its own** gets that title as a
   level-1 heading (`report.tocHeadings`). Without a title, chapters are only
-  separated by the usual blank line: the model has **no thematic break**.
+  separated by the usual blank line; chapter boundaries are not thematic
+  breaks (only `hr` is).
   The navigation document and NCX must themselves be well-formed when present.
 
-### Model gaps found (reported, handled by adapters, model unchanged)
+### Model gaps found, and the r2 model extension
 
-- No block quote: `blockquote` is a plain paragraph.
-- No thematic break: chapters and `hr` are plain boundaries. Missing chapter
-  titles are replaced from the TOC instead.
-- No multi-paragraph list items: extra paragraphs join the item with a line
-  break.
-- No code block: `pre` is a paragraph with literal text and line breaks.
+The textdocs track found four gaps. The integration (model revision
+`arken-document-extraction-v1-r2`, textdocs `...-textdocs-r2`) closed three:
+`BlockKind::block_quote`, `BlockKind::thematic_break` and
+`BlockKind::code_block` (with `Block::language`) exist, both serializers write
+them (see Serialization above), and the EPUB extractor maps `blockquote`, `hr`
+and `pre` to them through `Flow::Quote`, `Flow::Rule` and `Flow::Code`. DOCX,
+RTF, PPTX, ODT and ODP produce none of them, so their output is unchanged.
+- Still open: no multi-paragraph list items. Extra paragraphs join the item
+  with a line break (a hard break in Markdown). Representing them needs list
+  items that own child blocks, which would change every extractor and both
+  serializers' list handling, so it was deliberately left out.
+- No nesting: a quote inside a quote, or a list inside a quote, is flattened as
+  described in the EPUB mapping.
 - The OPC helpers (`ParseRelationships`, `ParseContentTypes`, `ResolvePart`)
   live in an anonymous namespace in `docx.cpp`. They are duplicated in
   `src/text_documents_detail.hpp` with a caller-chosen error. Moving one copy

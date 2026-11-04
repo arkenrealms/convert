@@ -9,7 +9,8 @@
 // DRM-protected, macro-enabled or over-budget input is a typed error, never an
 // empty successful document. See NOTES.md, "Presentations, OpenDocument and EPUB".
 namespace arken::document::v1 {
-inline constexpr std::string_view textDocumentsRevision="arken-document-extraction-v1-textdocs-r1";
+// r2: EPUB blockquote, hr and pre become block quotes, thematic breaks and code blocks.
+inline constexpr std::string_view textDocumentsRevision="arken-document-extraction-v1-textdocs-r2";
 
 enum class TextDocumentFormat : std::uint32_t {pptx=1, odt=2, odp=3, epub=4};
 

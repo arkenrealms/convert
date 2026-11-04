@@ -94,10 +94,13 @@ public:
     void Push(Block&& block) {
         if(block.kind==BlockKind::table) {
             if(block.rows.empty())return;
+        } else if(block.kind==BlockKind::thematic_break) {
+            block.runs.clear();
         } else if(!HasText(block.runs)) {
             return;
         }
         if(++blocks_>options_.maximumBlocks)Fail(Error::text_limit);
+        Charge(block.language.size());
         document_.blocks.push_back(std::move(block));
     }
     static bool HasText(const std::vector<Run>& runs) {

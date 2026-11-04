@@ -250,6 +250,38 @@ public:
         Emit();
         meta_=savedMeta;mode_=savedMode;
     }
+    // A quotation: paragraphs inside become block_quote blocks. Headings, lists and
+    // tables inside keep their own kind (the model has no nested containers). In a list
+    // item or table cell it is ordinary paragraph text.
+    template<class F> void Quote(F&& body) {
+        if(mode_!=Mode::body) {Paragraph(body);return;}
+        Emit();
+        const auto saved=meta_;
+        meta_=Block{};meta_.kind=BlockKind::block_quote;
+        body();
+        Emit();
+        meta_=saved;
+    }
+    // Preformatted text kept exactly; body should use Literal and Break. In a list item
+    // or table cell it is ordinary paragraph text with its line breaks.
+    template<class F> void Code(std::string_view language,F&& body) {
+        if(mode_!=Mode::body) {Paragraph(body);return;}
+        Emit();
+        const auto saved=meta_;
+        meta_=Block{};meta_.kind=BlockKind::code_block;
+        if(language.size()<=32)meta_.language=std::string(language);
+        body();
+        Emit();
+        meta_=saved;
+    }
+    // A thematic break between sections; a paragraph boundary inside items and cells.
+    void Rule() {
+        if(mode_!=Mode::body) {Boundary();return;}
+        Emit();
+        Block block;
+        block.kind=BlockKind::thematic_break;
+        builder_.Push(std::move(block));
+    }
     // Runs body with a fresh pending run list and returns it; boundaries
     // inside become `separator`. Used for table cells, titles and notes.
     template<class F> Cell Capture(F&& body,char separator=' ') {
