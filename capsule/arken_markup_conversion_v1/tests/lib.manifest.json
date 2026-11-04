@@ -1,0 +1,5 @@
+{
+  "schemaVersion":1,"key":"arken_markup_conversion_tests",
+  "public_dependencies":[],"private_dependencies":["arken_markup_conversion_v1"],"test_dependencies":[],
+  "external_dependencies":[]
+}
