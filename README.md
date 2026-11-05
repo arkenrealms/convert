@@ -486,30 +486,14 @@ product-format qualification must precede advertising HEIC or AVIF support.
 
 ## Third-party notices
 
-Pinned sources are acquired from exact upstream archives by the SDK package graph
-(`sdk/arken_sdk_dev/external_packages/recipes/`), which verifies each archive digest
-and its declared licence files. Their licences apply to their code:
-
-- stb_image / stb_image_write 2.30 (MIT): PNG, JPEG and GIF decoding; PNG, JPEG,
-  BMP and TGA encoding; zlib for TIFF Deflate and DOCX, XLSX, ODS, PPTX, ODT, ODP
-  and EPUB members.
-- skcms (BSD-3-Clause): ICC colour conversion.
-- libwebp 1.6.0 (BSD-3-Clause): WebP decode and encode.
-- libFLAC 1.5.0 (BSD-3-Clause; library only, no GPL programs or LGPL helpers).
-- libogg 1.3.6, libvorbis 1.3.7 (libvorbis and libvorbisenc) and Opus 1.5.2
-  (libopus, float build) (BSD-3-Clause): Ogg Vorbis and Ogg Opus decode and encode.
-- minimp3 (CC0-1.0), vendored in `sdk/arken_sdk_dev/third_party/minimp3` from
-  upstream commit `ea99364`: MP3 decoding.
-- LAME 3.100 (libmp3lame only, LGPL-2.0-or-later): MP3 encoding. It is statically
-  linked into the server binary. Distributing that binary carries the LGPL
-  obligations (LAME's notices, its corresponding source and the ability to relink
-  with a modified LAME, for example from this repository's sources or object
-  files); this repository does not claim they are settled. MP3 patents have
-  expired.
-- nlohmann/json 3.12.0 (MIT), vendored in `sdk/arken_sdk_dev/third_party/`.
-- Development qualification only, not admitted: libheif 1.23.7
-  (LGPL-3.0-or-later), libde265 1.1.3 (LGPL-3.0-or-later) and libaom 3.15.3
-  (BSD-2-Clause with the AOM Patent License 1.0). They are linked into the root
-  build's server binary for HEIC/AVIF qualification. Distributing that binary
-  carries the LGPL obligations (notices, corresponding source, relinking); this
-  repository does not claim they are settled.
+The server binary compiles in stb, skcms, libwebp, libFLAC, libogg, libvorbis, Opus,
+minimp3, LAME, nlohmann/json, libheif, libde265 and libaom, each pinned to an exact
+upstream archive or commit by the SDK package graph
+(`sdk/arken_sdk_dev/external_packages/recipes/`), which verifies archive digests and
+declared licence files (nlohmann/json by `ArkenPinnedNlohmannJson.cmake`). Their licences apply to their code; this package grants no new
+first-party licence. [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) lists every
+component with its version, digests, modifications and verbatim licence texts.
+libheif, libde265 (LGPL-3.0-or-later) and LAME (LGPL-2.0-or-later) are statically
+linked; [`LGPL_COMPLIANCE.md`](LGPL_COMPLIANCE.md) is the checklist of what
+distributing the binary requires, what this repository already provides, and how to
+build without them. It is not legal advice and the obligations are not yet settled.
