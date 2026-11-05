@@ -457,7 +457,15 @@ private:
             if(type!="n"&&type!="s"&&type!="str"&&type!="b"&&type!="e"&&type!="d")Fail(Error::xlsx_malformed);
             return cell; // Styled or formula cell without a value.
         }
-        const auto value=sml.Text(*v);
+        auto value=sml.Text(*v);
+        if(type=="n"||type=="s"||type=="b") {
+            // xsd:double, xsd:unsignedInt and xsd:boolean collapse XML whitespace, and
+            // real writers emit `<v>2 </v>` (poi bug69769.xlsx) or an empty `<v/>`
+            // (poi 56702/64508/64667.xlsx); an empty value is a blank cell, as in Excel.
+            const auto first=value.find_first_not_of(" \t\r\n");
+            if(first==std::string::npos)return cell;
+            value=value.substr(first,value.find_last_not_of(" \t\r\n")-first+1);
+        }
         if(type=="n") {
             double number=0;
             if(!ParseDouble(value,number))Fail(Error::xlsx_malformed);

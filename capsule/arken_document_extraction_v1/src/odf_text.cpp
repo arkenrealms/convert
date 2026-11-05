@@ -120,7 +120,9 @@ public:
                     const auto* style=Attr(e,textNs,"style-name");
                     const bool ordered=style?styles_.Ordered(*style,level):true;
                     flow_.ListItem(level-1,ordered,[&] {BlockContent(e,ListContext{level-1,style?*style:std::string()});});
-                } else if(e.local=="section"||e.local=="index-body") {
+                } else if(e.local=="section"||e.local=="index-body"||e.local=="index-title") {
+                    // text:index-title (inside index-body) holds the index's displayed
+                    // heading, e.g. "Table of Contents" (LibreOffice fdo79358.odt).
                     BlockContent(e,list);
                 } else if(e.local=="table-of-content"||e.local=="illustration-index"||e.local=="table-index"
                     ||e.local=="object-index"||e.local=="user-index"||e.local=="alphabetical-index"||e.local=="bibliography") {

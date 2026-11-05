@@ -60,7 +60,9 @@ Container (`src/zip.cpp`, `src/inflate.cpp`):
   empty, `.` or `..` segments. Duplicates are compared case-insensitively, as OPC
   part names are (`zip_duplicate_name`).
 - Every local header must repeat the directory's flags, method, name, CRC and
-  sizes. Member byte ranges (header, data, descriptor) must not overlap. This
+  sizes. The one exception is flag bit 11 (UTF-8 names), which real producers set
+  in only one of the two headers (corpus: apache/poi `56957.xlsx`); the name bytes
+  must still be identical. Member byte ranges (header, data, descriptor) must not overlap. This
   rejects quine and overlap bombs.
 - Data descriptors (flag bit 3) are supported. The local header may hold zeros.
   The descriptor follows the data, with or without its signature, and must
@@ -110,7 +112,8 @@ Extracted from `word/document.xml` (the main story only):
 - `w:p` paragraphs and `w:r` runs. `w:t` honours `xml:space="preserve"`, including
   when inherited. Without it, edge whitespace is trimmed. `w:tab` becomes a tab.
   `w:br` (all types) and `w:cr` become line breaks. `w:noBreakHyphen` becomes
-  U+2011. Split runs are merged when their formatting and link match.
+  U+2011. Split runs are merged when their formatting and link match. `w:ruby`
+  keeps its `w:rubyBase` text and drops the `w:rt` guide (corpus: poi `61470.docx`).
 - Bold and italic come from direct run properties (`w:b`, `w:i` with on/off values).
 - Headings come from `w:pStyle`, resolved through `word/styles.xml` by style name
   (`heading 1`-`heading 6`, `Title` gives level 1) or by `w:outlineLvl` 0-5,
@@ -319,10 +322,10 @@ ctest --test-dir build/documents
 All groups pass under GCC 13 with `-Wall -Wextra -Wpedantic -Werror`, and under
 `-fsanitize=address,undefined`. Under the sanitizers a local
 `mutation 60000` campaign (360,000 conversions) also passes. The fixtures are
-authored by the tests themselves. **No Word-, LibreOffice- or WordPad-produced
-file has been run yet.** Before admitting the MCP methods, add a small corpus of
-real, independently created documents with known expected text. The handoff
-asks for this, and their exact output bytes should be reviewed.
+authored by the tests themselves. A corpus of real Word-, LibreOffice- and
+PowerPoint-produced files (apache/poi, LibreOffice, python-docx/python-pptx test
+data) has since been run through the MCP tools: see `CORPUS_REPORT.md`. Those
+files are not in the repository and their exact output bytes are not pinned.
 
 ## Remaining steps to expose `docx_to_txt`, `docx_to_markdown`, `rtf_to_txt`, `rtf_to_markdown`
 
@@ -567,7 +570,10 @@ Worksheet:
   - `e`: the error literal.
   - `d`: ISO text as stored.
 
-  Anything else, or a non-numeric `n`, is `xlsx_malformed`.
+  Anything else, or a non-numeric `n`, is `xlsx_malformed`. XML whitespace around
+  an `n`, `s` or `b` value is collapsed (their schema types are whitespace-collapsed)
+  and an empty `<v/>` is a blank cell (corpus: poi `bug69769.xlsx`, `56702.xlsx`,
+  `64508.xlsx`, `64667.xlsx`); whitespace inside a number is still malformed.
 - Formulas (`f`) are counted. Their cached `<v>` is used. A formula with no
   cached value is an empty cell, counted in `formulasWithoutValue`.
 - `mergeCells/mergeCell@ref` ranges are validated and reported, never expanded.
@@ -690,10 +696,10 @@ All groups pass under GCC 13 with `-Wall -Wextra -Wpedantic -Werror`, and under
 `-fsanitize=address,undefined` (plus a local `mutation 10000` campaign: 80,000
 conversions).
 
-**No Excel-, LibreOffice-, Numbers- or Google-Sheets-produced file has been run
-yet.** Before admitting the MCP methods, add a small corpus of real workbooks
-(shared strings, styles with date formats, the 1904 system, merged cells,
-LibreOffice repeat runs) with reviewed expected CSV/JSON bytes.
+Real Excel- and LibreOffice-produced workbooks (apache/poi, XlsxWriter's
+Excel-saved comparison files, LibreOffice `sc/qa`) have since been run through the
+MCP tools: see `CORPUS_REPORT.md`. Numbers and Google Sheets output has not, and no
+expected CSV/JSON bytes are pinned for real workbooks.
 
 ### Remaining steps to expose tabular conversion through the standalone MCP
 
@@ -925,7 +931,8 @@ runs, `<pre>`) is kept exactly.
   a link (only http/https/mailto are rendered by the serializers). `text:ruby`
   keeps its base text. Fields (date, page number, references and others) keep
   their displayed text. `text:section` and the `text:index-body` of TOCs and
-  indexes are walked.
+  indexes are walked, including the `text:index-title` that holds a TOC's
+  displayed heading (corpus: LibreOffice `fdo79358.odt`).
 - Tracked changes: the body already holds accepted text. Inserted text sits
   between `text:change-start`/`text:change-end` and is kept. Deleted text lives
   only in `text:tracked-changes` and is skipped (each deletion region counts
