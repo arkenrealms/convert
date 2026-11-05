@@ -1,0 +1,19 @@
+{
+  "key": "arken_markup_conversion_v1",
+  "name": "Arken Markup Conversion v1",
+  "version": "1.0.0",
+  "description": "Bounded memory-only text-markup conversion: tolerant UTF-8 HTML to escaped CommonMark/GFM Markdown, a documented CommonMark subset (plus GFM tables and strikethrough) to sanitized HTML, and SRT <-> WebVTT subtitles with typed, line-numbered errors. No file, network, script or raw-HTML pass-through; no third-party dependencies.",
+  "public_dependencies": [],
+  "private_dependencies": [],
+  "test_dependencies": [],
+  "external_dependencies": [],
+  "capabilities": [
+    "bounded_html5_tokenizer_utf8",
+    "html_to_escaped_markdown",
+    "commonmark_subset_to_sanitized_html",
+    "gfm_tables_and_strikethrough",
+    "srt_to_webvtt",
+    "webvtt_to_srt",
+    "deterministic_text_output"
+  ]
+}

@@ -94,7 +94,7 @@ if(BUILD_TESTING)
     add_test(NAME ArkenImageCodecsV1.Version COMMAND arken-image-codecs-tests --version)
     set_tests_properties(ArkenImageCodecsV1.Version PROPERTIES TIMEOUT 5 PASS_REGULAR_EXPRESSION "r4566")
 endif()
-add_library(arken_image_codecs_v1 STATIC src/codec.cpp src/pcx.cpp src/cel.cpp src/dc6.cpp src/blp.cpp src/blp_jpeg.cpp src/blp2.cpp src/block_decode.cpp src/dds.cpp src/tga.cpp src/ico.cpp src/tiff.cpp src/raster.cpp src/large_raster.cpp src/scalar.cpp src/raster_encode.cpp src/aotm_rgba.cpp src/aotm_runtime_profile.cpp)
+add_library(arken_image_codecs_v1 STATIC src/codec.cpp src/pcx.cpp src/cel.cpp src/dc6.cpp src/blp.cpp src/blp_jpeg.cpp src/blp2.cpp src/block_decode.cpp src/dds.cpp src/tga.cpp src/ico.cpp src/tiff.cpp src/tiff_jpeg.cpp src/tiff_deflate.cpp src/raster.cpp src/large_raster.cpp src/scalar.cpp src/raster_encode.cpp src/aotm_rgba.cpp src/aotm_runtime_profile.cpp)
 add_library(arken::image_codecs_v1 ALIAS arken_image_codecs_v1)
 target_sources(arken_image_codecs_v1 PRIVATE src/webp.cpp)
 target_sources(arken_image_codecs_v1 PRIVATE src/colour_profile_skcms.cpp src/colour_transform_skcms.cpp)
@@ -102,5 +102,43 @@ target_compile_features(arken_image_codecs_v1 PUBLIC cxx_std_20)
 target_include_directories(arken_image_codecs_v1 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(arken_image_codecs_v1 PUBLIC arken_image_codecs_contract_v1 PRIVATE arken::external_stb_image_v1 arken::external_skcms_v1 arken::external_webp_v1 arken::ao_core_v1 arken_digest_v1)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(arken_image_codecs_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    # JPEG DCT and skcms must round identically on native CPUs and WebAssembly: never fuse multiply-adds.
+    target_compile_options(arken_image_codecs_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror -ffp-contract=off)
+endif()
+# Memory-only HEIC/HEIF (HEVC) still-image import over the pinned libheif + libde265 recipes.
+# Off by default: the consumer that compiles it in must also resolve the combined
+# libheif-1.23.7-hevc-av1-v1 recipe (one libheif instance with libde265 and libaom; two libheif
+# instances cannot share a CMake graph) in its own manifest and handle the LGPL distribution
+# obligations. Nothing here admits HEIF to the public source catalogue or to any conversion
+# profile. tests/heif_dependencies and tests/avif_dependencies keep their single-codec recipes.
+option(ARKEN_IMAGE_CODECS_V1_HEIF "Compile the HEIC/HEIF decoder into arken_image_codecs_v1" OFF)
+if(ARKEN_IMAGE_CODECS_V1_HEIF)
+    if(NOT TARGET arken::external_heif_v1)
+        message(FATAL_ERROR "ARKEN_IMAGE_CODECS_V1_HEIF requires the libheif-1.23.7-hevc-av1-v1 recipe to be resolved by the consuming manifest")
+    endif()
+    # One libheif instance serves both wrappers: HEIC (hvc1 items) and still AVIF (av01 items,
+    # decode and encode). heif_common.cpp holds the shared container/limit/colour policy.
+    target_sources(arken_image_codecs_v1 PRIVATE src/heif_common.cpp src/heif.cpp src/avif.cpp)
+    target_compile_definitions(arken_image_codecs_v1 PRIVATE ARKEN_IMAGE_HEIF_DECODER=1)
+    target_link_libraries(arken_image_codecs_v1 PRIVATE arken::external_heif_v1)
+    if(BUILD_TESTING OR ARKEN_IMAGE_CODECS_V1_RASTER_TESTS)
+        get_target_property(heif_source arken::external_heif_v1 ARKEN_EXTERNAL_PACKAGE_SOURCE_ROOT)
+        add_executable(arken-heif-codec-tests tests/heif_tests.cpp)
+        target_link_libraries(arken-heif-codec-tests PRIVATE arken::image_codecs_v1)
+        target_compile_options(arken-heif-codec-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        add_test(NAME ArkenImageCodecsV1.Heif COMMAND arken-heif-codec-tests
+            --sample "${heif_source}/examples/example.heic" --corpus "${heif_source}/fuzzing/data/corpus"
+            --data "${heif_source}/tests/data")
+        add_test(NAME ArkenImageCodecsV1.HeifVersion COMMAND arken-heif-codec-tests --invalid --version)
+        set_tests_properties(ArkenImageCodecsV1.Heif PROPERTIES TIMEOUT 120)
+        set_tests_properties(ArkenImageCodecsV1.HeifVersion PROPERTIES TIMEOUT 5 PASS_REGULAR_EXPRESSION "heif-codec-tests")
+        add_executable(arken-avif-codec-tests tests/avif_tests.cpp)
+        target_link_libraries(arken-avif-codec-tests PRIVATE arken::image_codecs_v1)
+        target_compile_options(arken-avif-codec-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        add_test(NAME ArkenImageCodecsV1.Avif COMMAND arken-avif-codec-tests
+            --sample "${heif_source}/examples/example.avif" --data "${heif_source}/tests/data")
+        add_test(NAME ArkenImageCodecsV1.AvifVersion COMMAND arken-avif-codec-tests --invalid --version)
+        set_tests_properties(ArkenImageCodecsV1.Avif PROPERTIES TIMEOUT 300)
+        set_tests_properties(ArkenImageCodecsV1.AvifVersion PROPERTIES TIMEOUT 5 PASS_REGULAR_EXPRESSION "avif-codec-tests")
+    endif()
 endif()

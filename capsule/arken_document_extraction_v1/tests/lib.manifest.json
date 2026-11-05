@@ -1,0 +1,7 @@
+{
+  "schemaVersion":1,"key":"arken_document_extraction_tests",
+  "public_dependencies":[],"private_dependencies":[],"test_dependencies":[],
+  "external_dependencies":[
+    {"recipe":"stb-image-2.30-v1","scope":"private","components":["image"],"reason":"Qualify DOCX raw-deflate member inflation through the already pinned memory-only inflater."}
+  ]
+}

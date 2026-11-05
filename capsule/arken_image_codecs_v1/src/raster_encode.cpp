@@ -2,11 +2,16 @@
 #include "tiff.hpp"
 #include "webp.hpp"
 #include "resource_profile.hpp"
+#if defined(ARKEN_IMAGE_HEIF_DECODER)
+#include "avif.hpp"
+#endif
 #include <algorithm>
 #include <new>
 // JPEG's floating-point DCT must round the same way on native CPUs and
 // WebAssembly. Fusing multiply-adds changes coefficients near quantization ties.
+#if defined(__clang__)
 #pragma STDC FP_CONTRACT OFF
+#endif
 #define STBI_WRITE_NO_STDIO
 #define STB_IMAGE_WRITE_STATIC
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -48,12 +53,19 @@ EncodeResult encodeIcon(std::uint32_t width,std::uint32_t height,
 }
 EncodeResult EncodeImage(Format format,std::uint32_t width,std::uint32_t height,
     std::span<const std::uint8_t> rgba,const EncodeOptions& options) noexcept {
-    if(format!=Format::png&&format!=Format::bmp&&format!=Format::jpeg&&format!=Format::tga&&format!=Format::ico&&format!=Format::tiff&&format!=Format::webp)return failure(EncodeError::unsupported_format);
+#if defined(ARKEN_IMAGE_HEIF_DECODER)
+    constexpr bool avifEncoder=true;
+#else
+    constexpr bool avifEncoder=false; // AVIF needs the compiled-in libheif/libaom instance.
+#endif
+    if(format!=Format::png&&format!=Format::bmp&&format!=Format::jpeg&&format!=Format::tga&&format!=Format::ico&&format!=Format::tiff&&format!=Format::webp
+        &&!(avifEncoder&&format==Format::avif))return failure(EncodeError::unsupported_format);
     if(!detail::ValidProfile(options.resourceProfile,format)
         ||!options.maximumOutputBytes||options.maximumOutputBytes>detail::EncodeByteCeiling(options.resourceProfile)
         ||!options.maximumPixels||options.maximumPixels>detail::EncodePixelCeiling(options.resourceProfile,format)
         ||!options.maximumDimension||options.maximumDimension>8192
         ||options.jpegQuality<1||options.jpegQuality>100
+        ||options.avifQuality<1||options.avifQuality>100
         ||(options.alphaPolicy!=AlphaPolicy::preserve&&options.alphaPolicy!=AlphaPolicy::flatten_white)
         ||(format!=Format::jpeg&&options.alphaPolicy!=AlphaPolicy::preserve))return failure(EncodeError::invalid_options);
     const auto pixels=std::uint64_t(width)*height;
@@ -64,8 +76,11 @@ EncodeResult EncodeImage(Format format,std::uint32_t width,std::uint32_t height,
     if(format==Format::jpeg&&alpha&&options.alphaPolicy!=AlphaPolicy::flatten_white)return failure(EncodeError::alpha_requires_matte);
     try{
         if(format==Format::ico)return encodeIcon(width,height,rgba,options);
-        if(format==Format::tiff)return detail::EncodeTiff(width,height,rgba,options.maximumOutputBytes);
-        if(format==Format::webp)return detail::EncodeWebp(width,height,rgba,options.maximumOutputBytes);
+        if(format==Format::tiff)return detail::EncodeTiff(width,height,rgba,options.maximumOutputBytes,options.tiffDeflate);
+        if(format==Format::webp)return detail::EncodeWebp(width,height,rgba,options);
+#if defined(ARKEN_IMAGE_HEIF_DECODER)
+        if(format==Format::avif)return detail::EncodeAvif(width,height,rgba,options.avifLossless,options.avifQuality,options.maximumOutputBytes);
+#endif
         Output output{{},options.maximumOutputBytes};const auto w=int(width),h=int(height);int accepted=0;
         if(format==Format::png)accepted=stbi_write_png_to_func(append,&output,w,h,4,rgba.data(),w*4);
         else if(format==Format::bmp)accepted=stbi_write_bmp_to_func(append,&output,w,h,4,rgba.data());

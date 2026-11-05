@@ -105,7 +105,8 @@ DecodeResult DecodeCel(Bytes b,const DecodeOptions& o){
             if(code<128)for(unsigned i=0;i<n;++i){const auto logical=pixel+i;
                 const auto position=std::size_t(image.height-1-logical/image.width)*image.width+logical%image.width;
                 PalettePixel(image,position,o.palette,U8(b,cursor+i));}
-            if(code<128)cursor+=n;pixel+=n;
+            if(code<128)cursor+=n;
+            pixel+=n;
         }
     }
     return r;

@@ -12,7 +12,16 @@ inline Bytes Container(const std::vector<Entry>& entries){
     for(std::size_t i=0;i<entries.size();++i){const auto& e=entries[i];const auto p=6+i*16;
         out[p]=std::byte(e.width&255);out[p+1]=std::byte(e.height&255);Put16(out,p+4,1);Put16(out,p+6,e.bits);
         Put32(out,p+8,e.bytes.size());Put32(out,p+12,out.size());out.insert(out.end(),e.bytes.begin(),e.bytes.end());
-    }return out;
+    }
+    return out;
+}
+// CUR shares the ICO directory; entries store a hotspot in place of planes/bits.
+inline Bytes Cursor(Bytes ico,unsigned hotspotX,unsigned hotspotY){
+    Put16(ico,2,2);
+    for(unsigned i=0;i<(std::to_integer<unsigned>(ico[4])|(std::to_integer<unsigned>(ico[5])<<8));++i){
+        Put16(ico,6+i*16+4,hotspotX+i);Put16(ico,6+i*16+6,hotspotY+i);
+    }
+    return ico;
 }
 struct DibImage {Entry entry;std::vector<std::uint8_t> pixels;};
 inline DibImage Dib(unsigned bits=32,bool alpha=true,unsigned width=9,unsigned height=7){
@@ -40,7 +49,8 @@ inline DibImage Dib(unsigned bits=32,bool alpha=true,unsigned width=9,unsigned h
         if(transparent)b[maskOffset+(height-1-y)*maskStride+x/8]|=std::byte(0x80u>>(x%8));
         out.pixels[p]=red;out.pixels[p+1]=green;out.pixels[p+2]=blue;
         out.pixels[p+3]=bits==32&&alpha?((x+y)%4)*85:transparent?0:255;
-    }return out;
+    }
+    return out;
 }
 inline Entry Png(unsigned width=32,unsigned height=16){
     std::vector<std::uint8_t> pixels(width*height*4);

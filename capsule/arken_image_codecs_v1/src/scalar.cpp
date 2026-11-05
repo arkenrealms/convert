@@ -5,7 +5,8 @@ namespace {
 void require(bool value,DecodeError error){if(!value)throw error;}
 }
 ScalarDecodeResult DecodeScalarTiff16(Bytes bytes,const DecodeOptions& options){
-    const TiffDirectory f(bytes);const auto& entries=f.entries;
+    TiffWork work(bytes.size());
+    const TiffDirectory f(bytes,work);const auto& entries=f.entries;
     const bool little=f.file.little;
     require(!f.next,DecodeError::unsupported_content);
     const auto values=[&](unsigned tag){return f.values(tag);};
@@ -33,7 +34,8 @@ ScalarDecodeResult DecodeScalarTiff16(Bytes bytes,const DecodeOptions& options){
         TiffBytes pixels{data,little};
         for(std::size_t y=0;y<n;++y){std::uint16_t previous=0;
             for(std::size_t x=0;x<width;++x){auto sample=pixels.u16((y*width+x)*2);
-                if(predictor==2)sample=std::uint16_t(sample+previous);previous=sample;
+                if(predictor==2)sample=std::uint16_t(sample+previous);
+                previous=sample;
                 out.samples[(y0+y)*width+x]=sample;}}
     }
     return out;

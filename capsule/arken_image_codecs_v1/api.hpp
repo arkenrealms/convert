@@ -3,7 +3,11 @@
 #include <string_view>
 
 namespace arken::image::v1 {
-enum class Format : std::uint32_t {pcx=1, cel=2, dc6=3, blp=4, dds=5, tga=6, png=7, bmp=8, jpeg=9, gif=10, ico=11, tiff=12, webp=13};
+// heif: HEIC/HEIF still images (HEVC). Decoded only where the memory-only decoder is compiled in
+// (ARKEN_IMAGE_CODECS_V1_HEIF); otherwise the format is reported as unsupported content.
+// avif: still AVIF images (AV1), decoded and encoded by the same compiled-in libheif instance
+// (ARKEN_IMAGE_CODECS_V1_HEIF); otherwise unsupported content / unsupported_format.
+enum class Format : std::uint32_t {pcx=1, cel=2, dc6=3, blp=4, dds=5, tga=6, png=7, bmp=8, jpeg=9, gif=10, ico=11, tiff=12, webp=13, heif=14, avif=15};
 enum class RasterProfile : std::uint32_t {bounded, largeRaster};
 struct DecodeOptions {
     std::uint32_t frameIndex=0, directionIndex=0, mipIndex=0;
@@ -34,9 +38,20 @@ struct DecodeResult {
     Image image;
     explicit operator bool() const noexcept {return issue.code==DecodeError::none;}
 };
-// TIFF: one classic top-left chunky image, unsigned8 RGB/straight RGBA/gray,
-// uncompressed, PackBits or Deflate strips. Unsupported semantics reject.
-// WebP: complete still VP8/VP8L, straight RGBA8; animation, ICC and Exif reject.
+// One image per call; Image::frameCount reports how many the source holds.
+// GIF: first frame only (frameCount = image descriptors). ICO/CUR: frameIndex selects a
+// rendition in preference order, largest area first; AND masks become alpha. WebP: VP8/VP8L stills and the first
+// animation frame (frameIndex 0 only) composited on a transparent canvas; ICC applied,
+// Exif/XMP ignored.
+// TIFF: classic or BigTIFF pages (frameIndex selects one), strips or tiles, chunky or
+// planar, none/LZW/Deflate/PackBits/new-style JPEG, orientation applied; gray, palette,
+// RGB, CMYK and YCbCr with ICC applied. 16-bit TIFF/PNG decode only with
+// allowPng16BitRenderingDerivative (rounded to RGBA8, sourceBitsPerChannel=16).
+// JPEG: Exif orientation, ICC and Adobe CMYK/YCCK applied; arithmetic, lossless and
+// 12-bit JPEG reject. PNG: sRGB, iCCP, cHRM/gAMA applied.
+// BMP: OS/2 and V1-V5 headers, RLE4/RLE8, bitfields, calibrated or embedded colour.
+// HEIF and AVIF: see HEIF_NOTES.md and AVIF_NOTES.md (compiled-in qualification only).
+// Unsupported variants are typed rejections, never partial images.
 [[nodiscard]] DecodeResult DecodeImage(Format format,std::span<const std::byte> bytes,
     const DecodeOptions& options={}) noexcept;
 [[nodiscard]] std::string_view ErrorMessage(DecodeError error) noexcept;

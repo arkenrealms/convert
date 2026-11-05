@@ -12,6 +12,17 @@ struct EncodeOptions {
     std::uint32_t maximumDimension=8192,jpegQuality=95;
     AlphaPolicy alphaPolicy=AlphaPolicy::preserve;
     RasterProfile resourceProfile=RasterProfile::bounded;
+    // TIFF only: Deflate (compression 8) with horizontal predictor instead of uncompressed.
+    bool tiffDeflate=false;
+    // WebP: lossless (default) keeps exact RGBA. When false, lossy VP8 at
+    // webpQuality (1-100, like jpegQuality; validated for every WebP encode)
+    // with a losslessly coded alpha plane; transparent RGB is not preserved.
+    bool webpLossless=true;
+    std::uint32_t webpQuality=90;
+    // AVIF only (validated for every format, like jpegQuality): lossless reproduces exact RGBA;
+    // otherwise avifQuality 1-100 selects lossy 4:2:0 colour with lossless alpha.
+    bool avifLossless=true;
+    std::uint32_t avifQuality=60;
 };
 struct EncodeResult {
     EncodeError error=EncodeError::none;
@@ -20,9 +31,14 @@ struct EncodeResult {
     explicit operator bool() const noexcept {return error==EncodeError::none;}
 };
 // Top-left, tightly packed, straight-alpha RGBA8; PNG/BMP/TGA/ICO/TIFF preserve all channels.
-// ICO writes one PNG-backed rendition, at most256x256, without resizing.
-// TIFF writes one classic little-endian uncompressed chunky RGBA8 image.
-// WebP writes one lossless image preserving exact RGBA, including transparent RGB.
+// ICO writes one PNG-backed rendition, at most 256x256, without resizing.
+// TIFF writes one classic little-endian chunky RGBA8 image, uncompressed by default
+// or Deflate + horizontal predictor when tiffDeflate is set.
+// WebP writes one still image: lossless by default, preserving exact RGBA including
+// transparent RGB; or lossy (webpLossless=false) at webpQuality, method 4, exact=0,
+// alpha kept exactly via a lossless alpha plane. Single-threaded and deterministic.
+// AVIF (where compiled in) writes one still image, lossless GBR 4:4:4 or lossy 4:2:0 with
+// lossless alpha, tagged sRGB NCLX.
 // JPEG transparency requires explicit white-matte consent. No I/O or metadata copy.
 [[nodiscard]] EncodeResult EncodeImage(Format,std::uint32_t width,std::uint32_t height,
     std::span<const std::uint8_t> rgba8,const EncodeOptions& options={}) noexcept;

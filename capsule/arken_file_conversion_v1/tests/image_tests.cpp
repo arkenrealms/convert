@@ -1,8 +1,12 @@
 #include "arken_file_conversion_v1/api.hpp"
 #include "arken_image_codecs_v1/test_support/texture_fixtures.hpp"
 #include "arken_image_codecs_v1/test_support/raster_fixtures.hpp"
+#include "arken_image_codecs_v1/test_support/gif_fixtures.hpp"
+#include "arken_image_codecs_v1/test_support/ico_fixtures.hpp"
+#include "arken_image_codecs_v1/test_support/tiff_fixtures.hpp"
 #include "expansion_fixture.hpp"
 #include <nlohmann/json.hpp>
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -25,17 +29,18 @@ std::string Hex(std::span<const std::byte> bytes) {
 }
 Json Cases() {
     Json cases = Json::array();
-    const auto add = [&](std::string id, std::vector<std::byte> source, c::ImageOptions options,
-                         c::Error expected = c::Error::none) {
+    using Convert = c::ImageResult(*)(std::span<const std::byte>, const c::ImageOptions&) noexcept;
+    const auto addWith = [&](Convert convert, std::string id, std::vector<std::byte> source,
+                             c::ImageOptions options, c::Error expected = c::Error::none) {
         const auto start = std::chrono::steady_clock::now();
-        auto result = c::ConvertImage(source, options);
+        auto result = convert(source, options);
         Check(result.error == expected, id + ": expected error " + std::to_string(unsigned(expected))
             + ", observed " + std::to_string(unsigned(result.error)));
         if (result) {
             const auto decoded = image::DecodeImage(options.output, result.bytes);
             Check(bool(decoded) && decoded.image.width == result.width && decoded.image.height == result.height,
                 id + ": encoded output cannot be opened");
-            Check(c::ConvertImage(source, options).bytes == result.bytes, id + ": repeated output changed");
+            Check(convert(source, options).bytes == result.bytes, id + ": repeated output changed");
             if (options.output != image::Format::jpeg)
                 Check(decoded.image.rgba8 == image::DecodeImage(options.input, source).image.rgba8,
                     id + ": lossless conversion changed pixels");
@@ -46,6 +51,15 @@ Json Cases() {
             {"decodeError",result.decodeError},{"encodeError",result.encodeError},
             {"width",result.width},{"height",result.height},{"alphaFlattened",result.alphaFlattened},
             {"output",Hex(result.bytes)},{"nativeValidationMs",ms}});
+        return result;
+    };
+    const auto add = [&](std::string id, std::vector<std::byte> source, c::ImageOptions options,
+                         c::Error expected = c::Error::none) {
+        return addWith(c::ConvertImage, std::move(id), std::move(source), options, expected);
+    };
+    const auto standalone = [&](std::string id, std::vector<std::byte> source, c::ImageOptions options,
+                                c::Error expected = c::Error::none) {
+        return addWith(c::ConvertStandaloneImage, "standalone-" + id, std::move(source), options, expected);
     };
     for (auto input : {image::Format::png,image::Format::bmp,image::Format::jpeg,image::Format::tga}) {
         auto source = input == image::Format::tga ? texture_fixture::Tga(13,7,true)
@@ -76,12 +90,124 @@ Json Cases() {
     add("unsupported-input",png,{image::Format::blp,image::Format::png},c::Error::input_format_unavailable);
     add("unsupported-output",png,{image::Format::png,image::Format::dds},c::Error::output_format_unavailable);
     add("format-mismatch",png,{image::Format::jpeg,image::Format::png},c::Error::decode_failed);
-    add("custom-color-profile",raster_fixture::WithChromaticities(png,false),{},c::Error::decode_failed);
+    add("custom-color-profile",raster_fixture::WithChromaticities(png,false),{});
     png.back() ^= std::byte{1}; add("crc-corrupt",png,{},c::Error::decode_failed);
     add("empty",{}, {}, c::Error::input_limit);
     add("pixel-limit",raster_fixture::Encode(image::Format::png,1025,1024),{},c::Error::decode_failed);
     add("dimension-limit",raster_fixture::Encode(image::Format::png,4097,1),{},c::Error::decode_failed);
     add("compressed-expansion-limit",conversion_fixture::ExpansionBomb(),{},c::Error::decode_failed);
+    // Standalone admission: the same bounded limits with the additionally qualified still codecs.
+    const auto webp = image::EncodeImage(image::Format::webp,13,7,raster_fixture::Pixels(13,7,true));
+    Check(bool(webp),"webp fixture encode failed");
+    struct Source { const char* name; image::Format format; std::vector<std::byte> bytes; };
+    const std::vector<Source> sources{
+        {"png",image::Format::png,raster_fixture::Encode(image::Format::png,13,7,true)},
+        {"webp",image::Format::webp,webp.bytes},
+        {"tiff",image::Format::tiff,tiff_fixture::Make().bytes},
+        {"ico",image::Format::ico,ico_fixture::Container({ico_fixture::Png(32,16)})},
+        {"gif",image::Format::gif,raster_fixture::Gif2x1()}};
+    constexpr std::array standaloneOutputs{image::Format::png,image::Format::bmp,image::Format::jpeg,
+        image::Format::tga,image::Format::ico,image::Format::tiff,image::Format::webp};
+    for (const auto& source : sources) {
+        for (auto output : standaloneOutputs) {
+            c::ImageOptions options{source.format,output};
+            if (output == image::Format::jpeg) options.alphaPolicy = image::AlphaPolicy::flatten_white;
+            standalone(std::string(source.name)+"-"+std::to_string(unsigned(output)),source.bytes,options);
+        }
+        auto truncated = source.bytes; truncated.pop_back();
+        standalone("truncated-"+std::string(source.name),truncated,{source.format,image::Format::png},c::Error::decode_failed);
+        // Hosted admission is unchanged by the standalone profile.
+        if (source.format != image::Format::png) {
+            add("hosted-input-"+std::string(source.name),source.bytes,{source.format,image::Format::png},c::Error::input_format_unavailable);
+            if (c::SupportsStandaloneOutput(source.format))
+                add("hosted-output-"+std::string(source.name),sources.front().bytes,{image::Format::png,source.format},c::Error::output_format_unavailable);
+        }
+    }
+    const auto& pngSource = sources.front().bytes;
+    const auto firstFrame = standalone("animated-gif-first-frame",raster_fixture::AnimatedGif2x1(),{image::Format::gif,image::Format::png});
+    Check(firstFrame.width == 2 && firstFrame.height == 1
+        && image::DecodeImage(image::Format::png,firstFrame.bytes).image.rgba8 == std::vector<std::uint8_t>{0,0,0,255,255,0,0,255},
+        "animated GIF did not convert exactly its first frame");
+    // RIFF/WEBP with a VP8X header whose animation flag is set and no frames: rejected before decoding.
+    const std::vector<std::byte> animatedWebp{std::byte{'R'},std::byte{'I'},std::byte{'F'},std::byte{'F'},
+        std::byte{22},std::byte{0},std::byte{0},std::byte{0},std::byte{'W'},std::byte{'E'},std::byte{'B'},std::byte{'P'},
+        std::byte{'V'},std::byte{'P'},std::byte{'8'},std::byte{'X'},std::byte{10},std::byte{0},std::byte{0},std::byte{0},
+        std::byte{0x02},std::byte{0},std::byte{0},std::byte{0},std::byte{1},std::byte{0},std::byte{0},std::byte{0},std::byte{0},std::byte{0}};
+    const auto animated = standalone("animated-webp",animatedWebp,{image::Format::webp,image::Format::png},c::Error::decode_failed);
+    Check(animated.decodeError == image::DecodeError::unsupported_content,"animated WebP was not classified as unsupported content");
+    const auto icon = standalone("icon-maximum",raster_fixture::Encode(image::Format::png,256,256,true),{image::Format::png,image::Format::ico});
+    Check(icon.width == 256 && icon.height == 256,"256x256 icon rejected");
+    const auto oversizedIcon = standalone("icon-too-large",raster_fixture::Encode(image::Format::png,257,1),{image::Format::png,image::Format::ico},c::Error::encode_failed);
+    Check(oversizedIcon.encodeError == image::EncodeError::invalid_dimensions,"oversized icon was not rejected for its dimensions");
+    standalone("unsupported-input",pngSource,{image::Format::blp,image::Format::png},c::Error::input_format_unavailable);
+    standalone("unsupported-output",pngSource,{image::Format::png,image::Format::dds},c::Error::output_format_unavailable);
+    standalone("webp-matte-irrelevant",pngSource,{image::Format::png,image::Format::webp,95,image::AlphaPolicy::flatten_white},c::Error::invalid_options);
+    standalone("alpha-consent-required",webp.bytes,{image::Format::webp,image::Format::jpeg},c::Error::encode_failed);
+    std::vector<std::byte> standaloneOver(c::maximumSourceBytes+1);
+    Check(c::ConvertStandaloneImage(standaloneOver,{image::Format::webp,image::Format::png}).error==c::Error::input_limit,"standalone oversized input accepted");
+    standalone("pixel-limit",raster_fixture::Encode(image::Format::png,1025,1024),{image::Format::png,image::Format::webp},c::Error::decode_failed);
+    // Codec output options reach the encoder only for their own output.
+    Check(firstFrame.sourceFrames == 2, "animated GIF frame count not reported");
+    for (const auto& source : sources)
+        Check(c::ConvertStandaloneImage(source.bytes,{source.format,image::Format::png}).sourceFrames == 1,
+            std::string(source.name) + ": single-image source reported several frames");
+    const auto multi = c::ConvertStandaloneImage(ico_fixture::Container({ico_fixture::Dib(32,true,9,7).entry,ico_fixture::Png(32,16)}),
+        {image::Format::ico,image::Format::png});
+    Check(bool(multi) && multi.sourceFrames == 2 && multi.width == 32 && multi.height == 16, "ICO rendition count or largest rendition");
+    c::ImageOptions lossless{image::Format::png,image::Format::webp};
+    const auto exact = standalone("webp-lossless-explicit",pngSource,lossless);
+    lossless.webpLossless = false; lossless.webpQuality = 75;
+    const auto lossy = c::ConvertStandaloneImage(pngSource,lossless);
+    Check(bool(lossy) && lossy.bytes != exact.bytes && lossy.width == 13 && lossy.height == 7, "lossy WebP not produced");
+    Check(c::ConvertStandaloneImage(pngSource,lossless).bytes == lossy.bytes, "lossy WebP not deterministic");
+    {
+        image::EncodeOptions reference; reference.webpLossless = false; reference.webpQuality = 75;
+        reference.maximumOutputBytes = c::maximumOutputBytes; reference.maximumPixels = c::maximumPixels;
+        reference.maximumDimension = c::maximumDimension;
+        const auto pixels = image::DecodeImage(image::Format::png,pngSource).image.rgba8;
+        Check(image::EncodeImage(image::Format::webp,13,7,pixels,reference).bytes == lossy.bytes, "webp options not passed to the encoder");
+        const auto decoded = image::DecodeImage(image::Format::webp,lossy.bytes);
+        Check(bool(decoded) && decoded.image.width == 13, "lossy WebP cannot be decoded");
+        for (std::size_t i = 3; i < pixels.size(); i += 4)
+            Check(decoded.image.rgba8[i] == pixels[i], "lossy WebP changed alpha");
+    }
+    lossless.webpQuality = 10;
+    const auto smaller = c::ConvertStandaloneImage(pngSource,lossless);
+    Check(bool(smaller) && smaller.bytes != lossy.bytes, "webp_quality not applied");
+    c::ImageOptions deflate{image::Format::png,image::Format::tiff}; deflate.tiffDeflate = true;
+    const auto plainTiff = standalone("tiff-uncompressed",pngSource,{image::Format::png,image::Format::tiff});
+    const auto deflated = standalone("tiff-deflate",pngSource,deflate);
+    Check(deflated.bytes != plainTiff.bytes, "tiff_deflate not applied");
+    c::ImageOptions invalid{image::Format::png,image::Format::webp}; invalid.webpQuality = 50;
+    standalone("webp-quality-requires-lossy",pngSource,invalid,c::Error::invalid_options);
+    invalid.webpLossless = false; invalid.webpQuality = 0;
+    standalone("webp-quality-zero",pngSource,invalid,c::Error::invalid_options);
+    invalid.webpQuality = 101;
+    standalone("webp-quality-above-range",pngSource,invalid,c::Error::invalid_options);
+    invalid = {image::Format::png,image::Format::png}; invalid.webpLossless = false;
+    standalone("webp-option-for-png",pngSource,invalid,c::Error::invalid_options);
+    invalid = {image::Format::png,image::Format::jpeg,95,image::AlphaPolicy::flatten_white}; invalid.webpQuality = 80;
+    standalone("webp-quality-for-jpeg",pngSource,invalid,c::Error::invalid_options);
+    invalid = {image::Format::png,image::Format::webp}; invalid.tiffDeflate = true;
+    standalone("tiff-deflate-for-webp",pngSource,invalid,c::Error::invalid_options);
+    invalid = {image::Format::png,image::Format::png}; invalid.tiffDeflate = true;
+    add("hosted-tiff-deflate-irrelevant",pngSource,invalid,c::Error::invalid_options);
+    // 16-bit sources: the standalone profile rounds to 8 bits and reports it; hosted rejects.
+    tiff_fixture::Spec wideSpec; wideSpec.bits = 16; wideSpec.samples = tiff_fixture::Pattern(7,5,3,16);
+    const auto wideTiff = tiff_fixture::Encode(wideSpec);
+    const auto wide = c::ConvertStandaloneImage(wideTiff,{image::Format::tiff,image::Format::png});
+    Check(bool(wide) && wide.width == 7 && wide.height == 5 && wide.sourceBitsPerChannel == 16, "16-bit TIFF not rounded and reported");
+    Check(c::ConvertStandaloneImage(tiff_fixture::Make().bytes,{image::Format::tiff,image::Format::png}).sourceBitsPerChannel == 8,
+        "8-bit TIFF precision not reported");
+    // A multi-page TIFF converts its first page and says how many pages it holds.
+    tiff_fixture::Spec page; page.samples = tiff_fixture::Pattern(7,5,3,8);
+    tiff_fixture::Spec second = page; second.samples = tiff_fixture::Pattern(7,5,3,8,1);
+    const auto pages = c::ConvertStandaloneImage(tiff_fixture::Build({tiff_fixture::MakePage(page),tiff_fixture::MakePage(second)},true,false),
+        {image::Format::tiff,image::Format::png});
+    Check(bool(pages) && pages.sourceFrames == 2
+        && image::DecodeImage(image::Format::png,pages.bytes).image.rgba8
+            == image::DecodeImage(image::Format::png,c::ConvertStandaloneImage(tiff_fixture::Encode(page),{image::Format::tiff,image::Format::png}).bytes).image.rgba8,
+        "multi-page TIFF did not convert exactly its first page");
     // Deterministic high-entropy maximum-sized input, with no donor/user assets.
     std::vector<std::uint8_t> pixels(c::maximumPixels * 4);
     std::uint32_t seed=123456789;

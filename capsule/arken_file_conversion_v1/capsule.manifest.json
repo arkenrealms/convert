@@ -13,6 +13,11 @@
       "public_dependencies": ["arken_image_codecs_v1"],
       "private_dependencies": []
     },
+    "standalone": {
+      "cmake": "cmake/Standalone.cmake",
+      "public_dependencies": ["arken_image_codecs_v1", "arken_audio_codecs_v1", "arken_document_extraction_v1", "arken_markup_conversion_v1"],
+      "private_dependencies": []
+    },
     "contract": {
       "cmake": "cmake/Contract.cmake",
       "public_dependencies": ["arken_image_codecs_v1"],
@@ -23,5 +28,5 @@
   "public_dependencies": ["arken_image_codecs_v1", "arken_canvas_execution_v1"],
   "private_dependencies": ["arken_mcp_suggestions_v1", "arken_player_v1", "arken_pdf_v1"],
   "test_dependencies": [],
-  "capabilities": ["bounded_image_conversion", "explicit_alpha_loss", "memory_only_conversion", "bounded_encoded_image_processing", "image_processing_profile_inventory"]
+  "capabilities": ["bounded_image_conversion", "standalone_lossless_audio_conversion", "standalone_lossy_audio_conversion", "standalone_document_text_extraction", "standalone_table_conversion", "standalone_markup_conversion", "explicit_alpha_loss", "memory_only_conversion", "bounded_encoded_image_processing", "image_processing_profile_inventory"]
 }
