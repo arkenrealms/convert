@@ -440,6 +440,11 @@ void prepare(const fs::path& root){
  call("xlsx_to_csv",{{"source_path","inputs/book.xlsx"},{"output_path","outputs/nope.csv"},{"sheet_name","Nope"}},"toolError",std::string(T::ErrorMessage(T::Error::sheet_not_found)));
  write(root/"files/inputs/macro.xlsx",docx_fixture::Bytes(P::Xlsx({{"S","","<sheetData/>"}},{},"application/vnd.ms-excel.sheet.macroEnabled.main+xml")));
  call("xlsx_to_json",{{"source_path","inputs/macro.xlsx"},{"output_path","outputs/macro.json"}},"toolError",std::string(T::ErrorMessage(T::Error::package_macro_enabled)));
+ // Corpus finding: a valid source that extracts to nothing (an empty first sheet) is a typed
+ // emptyOutput rejection, not the workspace's generic output-path error.
+ write(root/"files/inputs/empty.xlsx",docx_fixture::Bytes(P::Xlsx({{"S","","<sheetData/>"}},{})));
+ send({{"method","tools/call"},{"params",{{"name","xlsx_to_csv"},{"arguments",{{"source_path","inputs/empty.xlsx"},{"output_path","outputs/empty.csv"}}}}}},
+  "toolError",{{"reason","converted to no content"},{"code","emptyOutput"}});
  write(root/"files/inputs/legacy.html",docx_fixture::Bytes("<meta charset=\"windows-1252\"><p>cafe</p>"));
  call("html_to_markdown",{{"source_path","inputs/legacy.html"},{"output_path","outputs/legacy.md"}},"toolError",std::string(M::ErrorMessage(M::Error::unsupported_charset)));
  write(root/"files/inputs/broken.srt",docx_fixture::Bytes("1\n00:00:01,000 --> nope\nx\n\n"));
@@ -543,7 +548,7 @@ void verify(const fs::path& root){
    check(result.value("isError",false),"expected operation rejection at response "+std::to_string(index));
    if(test.at("data").contains("reason")){
     const auto detail=Json::parse(result.at("content").at(0).at("text").get<std::string>());
-    check(detail.at("code")=="conversionFailed"&&detail.at("message").get<std::string>().find(test.at("data").at("reason").get<std::string>())!=std::string::npos,
+    check(detail.at("code")==test.at("data").value("code",std::string("conversionFailed"))&&detail.at("message").get<std::string>().find(test.at("data").at("reason").get<std::string>())!=std::string::npos,
      "rejection does not carry the codec owner's reason: "+detail.dump());
    }
    continue;
