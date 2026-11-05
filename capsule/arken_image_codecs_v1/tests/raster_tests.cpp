@@ -16,6 +16,73 @@ void RunIcoTests();
 void PrepareIcoFixtures(const std::filesystem::path&);
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 void RunWidenedRasterTests();
+// Corpus regressions (CORPUS_REPORT.md): synthetic fixtures for layouts that
+// real encoders write and the decoder previously rejected.
+namespace corpus {
+std::vector<std::byte> Chunk(std::uint32_t type,std::vector<std::uint8_t> data){
+    std::vector<std::byte> chunk;
+    const auto put=[&](std::uint32_t value){for(int shift=24;shift>=0;shift-=8)chunk.push_back(std::byte((value>>shift)&255));};
+    put(static_cast<std::uint32_t>(data.size()));put(type);
+    for(auto byte:data)chunk.push_back(std::byte{byte});
+    std::uint32_t crc=0xffffffff;
+    for(std::size_t i=4;i<chunk.size();++i){crc^=std::to_integer<std::uint8_t>(chunk[i]);for(unsigned bit=0;bit<8;++bit)crc=(crc>>1)^(0xedb88320u&(0u-(crc&1u)));}
+    put(~crc);return chunk;
+}
+std::vector<std::uint8_t> Be32(std::initializer_list<std::uint32_t> values){
+    std::vector<std::uint8_t> out;for(auto value:values)for(int shift=24;shift>=0;shift-=8)out.push_back(std::uint8_t((value>>shift)&255));return out;
+}
+std::vector<std::uint8_t> FrameControl(std::uint32_t sequence,std::uint32_t width,std::uint32_t height,std::uint32_t x,std::uint32_t y){
+    auto data=Be32({sequence,width,height,x,y});for(std::uint8_t byte:{0,1,0,10,0,0})data.push_back(byte);return data;
+}
+void Run(){
+    // JPEG: bytes after the primary image's EOI (Ultra HDR gain map, MPF
+    // secondary image, camera trailer, zero padding) are ignored; a stream
+    // without EOI is still truncated.
+    const auto jpeg=raster_fixture::Encode(image::Format::jpeg,32,16);const auto base=image::DecodeImage(image::Format::jpeg,jpeg);
+    require(bool(base),"JPEG fixture");
+    for(const std::vector<std::uint8_t>& trailer:{std::vector<std::uint8_t>(64,0),std::vector<std::uint8_t>{0xff,0xd8,0xff,0xe1,0,4,'M','P',0xff,0xd9,1,2,3}}){
+        auto padded=jpeg;for(auto byte:trailer)padded.push_back(std::byte{byte});
+        const auto decoded=image::DecodeImage(image::Format::jpeg,padded);
+        require(bool(decoded)&&decoded.image.rgba8==base.image.rgba8,"JPEG with data after EOI rejected or decoded differently");
+    }
+    auto cut=jpeg;cut.resize(cut.size()-2);
+    require(image::DecodeImage(image::Format::jpeg,cut).issue.code==image::DecodeError::truncated,"JPEG without EOI accepted");
+    for(auto byte:{0x00,0x11,0x22})cut.push_back(std::byte(byte));
+    require(image::DecodeImage(image::Format::jpeg,cut).issue.code==image::DecodeError::truncated,"JPEG without EOI but with trailing bytes accepted");
+    // Exif Orientation written as LONG (4) or SLONG (9) by some cameras and
+    // editors is read at its own width; other types stay rejected.
+    for(unsigned type:{4u,9u}){
+        auto tagged=raster_fixture::WithOrientation(jpeg,6);tagged[2+22]=std::byte(type);
+        const auto decoded=image::DecodeImage(image::Format::jpeg,tagged);
+        require(bool(decoded)&&decoded.image.width==16&&decoded.image.height==32,"LONG/SLONG Exif orientation rejected or ignored");
+        tagged[2+29]=std::byte{1}; // 0x106: out of range at LONG width
+        require(!image::DecodeImage(image::Format::jpeg,tagged),"Out-of-range LONG orientation accepted");
+    }
+    auto rational=raster_fixture::WithOrientation(jpeg,6);rational[2+22]=std::byte{5};
+    require(!image::DecodeImage(image::Format::jpeg,rational),"RATIONAL Exif orientation accepted");
+    // APNG whose default image is the first frame: the IDAT image is decoded
+    // exactly, fdAT frames are skipped and frameCount reports acTL.
+    const auto png=raster_fixture::Encode(image::Format::png,32,16,true);const auto still=image::DecodeImage(image::Format::png,png);
+    require(bool(still),"PNG fixture");
+    const auto animate=[&](std::vector<std::uint8_t> control,bool withControl){
+        auto out=png;auto actl=Chunk(0x6163544cu,Be32({3,0}));
+        auto fctl=Chunk(0x6663544cu,control);
+        auto fdat=Chunk(0x66644154u,Be32({1,0xdeadbeef}));
+        out.insert(out.end()-12,fdat.begin(),fdat.end());
+        if(withControl)out.insert(out.begin()+33,fctl.begin(),fctl.end());
+        out.insert(out.begin()+33,actl.begin(),actl.end());
+        return out;
+    };
+    const auto first=image::DecodeImage(image::Format::png,animate(FrameControl(0,32,16,0,0),true));
+    require(bool(first)&&first.image.rgba8==still.image.rgba8&&first.image.frameCount==3,"APNG first frame not decoded exactly");
+    require(image::DecodeImage(image::Format::png,animate(FrameControl(0,32,16,0,0),false)).issue.code==image::DecodeError::unsupported_content,
+        "APNG default image outside the animation accepted");
+    require(image::DecodeImage(image::Format::png,animate(FrameControl(0,16,16,0,0),true)).issue.code==image::DecodeError::invalid_layout,
+        "APNG first frame smaller than the canvas accepted");
+    require(image::DecodeImage(image::Format::png,animate(FrameControl(0,32,16,1,0),true)).issue.code==image::DecodeError::invalid_layout,
+        "APNG first frame offset accepted");
+}
+}
 int main(int argc,char** argv){
     if(argc>1&&std::string_view(argv[1])=="--version"){std::cout<<"arken-raster-codec-tests-r6338\n";return 0;}
     try{
@@ -120,6 +187,7 @@ int main(int argc,char** argv){
         // A calibrated V4 block with a degenerate red primary (X only) is malformed.
         require(image::DecodeImage(image::Format::bmp,calibrated).issue.code==image::DecodeError::invalid_layout,"Calibrated BMP silently treated as sRGB");
         RunWidenedRasterTests();
+        corpus::Run();
         std::cout<<"PNG/BMP/JPEG and8 EXIF orientations; exact pixels, limits, corruption and selection checks passed\n";return 0;
     }catch(std::exception const& error){std::cerr<<error.what()<<'\n';return 1;}
 }

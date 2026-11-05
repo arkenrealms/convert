@@ -48,7 +48,9 @@ struct DecodeResult {
 // RGB, CMYK and YCbCr with ICC applied. 16-bit TIFF/PNG decode only with
 // allowPng16BitRenderingDerivative (rounded to RGBA8, sourceBitsPerChannel=16).
 // JPEG: Exif orientation, ICC and Adobe CMYK/YCCK applied; arithmetic, lossless and
-// 12-bit JPEG reject. PNG: sRGB, iCCP, cHRM/gAMA applied.
+// 12-bit JPEG reject; bytes after the primary image's EOI are ignored. PNG: sRGB, iCCP,
+// cHRM/gAMA applied; APNG decodes only when the default image is the first frame
+// (frameCount = acTL frames).
 // BMP: OS/2 and V1-V5 headers, RLE4/RLE8, bitfields, calibrated or embedded colour.
 // HEIF and AVIF: see HEIF_NOTES.md and AVIF_NOTES.md (compiled-in qualification only).
 // Unsupported variants are typed rejections, never partial images.

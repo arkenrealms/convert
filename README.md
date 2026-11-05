@@ -121,7 +121,11 @@ held, so a partial conversion is never silent:
   become transparency; cursor hotspots are ignored.
 - JPEG: Exif orientation and an embedded ICC profile are applied; Adobe CMYK/YCCK
   is converted to RGB. Arithmetic-coded, lossless and 12-bit JPEG are rejected.
-- PNG: sRGB, iCCP, cHRM and gAMA colour information is applied.
+  Bytes after the primary image's end marker (an Ultra HDR gain map, an MPF
+  secondary image, a camera trailer or padding) are ignored.
+- PNG: sRGB, iCCP, cHRM and gAMA colour information is applied. APNG: the default
+  image when it is also the first frame (`source_frames` is the animation's frame
+  count); an APNG whose default image is not part of the animation is rejected.
 - BMP: OS/2 and Windows V1–V5 headers, 1–32 bit pixels, bitfields, RLE4/RLE8;
   calibrated and embedded colour spaces are applied, linked profiles are rejected.
 - TGA and supported DDS textures.

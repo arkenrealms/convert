@@ -148,10 +148,17 @@ DecodeError png_chunk_colour(bool hasGamma,std::uint32_t gamma,bool hasChromatic
     synthetic_profile(colour,toXYZD50,{curve,curve,curve});
     return DecodeError::none;
 }
-DecodeError png_profile(Bytes bytes,bool allow16,bool scalarData=false,ColourProfile* colour=nullptr){
+// APNG (when `frames` is given): the default image is decoded only when it is
+// also the first animation frame (an fcTL precedes the first IDAT). APNG 1.0
+// requires that frame to cover the whole canvas at offset 0,0, so with either
+// blend op over a transparent canvas it equals the IDAT image exactly; fcTL
+// and fdAT are ancillary chunks the decoder skips. `frames` reports acTL's
+// frame count. A default image outside the animation remains unsupported.
+DecodeError png_profile(Bytes bytes,bool allow16,bool scalarData=false,ColourProfile* colour=nullptr,std::uint32_t* frames=nullptr){
     constexpr unsigned char signature[]={137,80,78,71,13,10,26,10};
     if(bytes.size()<8||std::memcmp(bytes.data(),signature,8))return DecodeError::wrong_magic;
     bool header=false,data=false,srgb=false,palette=false,hasGamma=false,hasChromaticities=false;
+    bool animated=false,firstFrameControl=false;
     std::uint32_t gamma=0;std::array<std::uint32_t,8> chromaticities{};
     for(std::size_t at=8;at<bytes.size();){
         if(!Range(bytes,at,12))return DecodeError::truncated;
@@ -163,8 +170,22 @@ DecodeError png_profile(Bytes bytes,bool allow16,bool scalarData=false,ColourPro
             header=true;
             if(U8(bytes,at+16)==16&&!allow16)return DecodeError::unsupported_content;
         }else if(kind==0x49484452u)return DecodeError::invalid_layout;
-        // APNG animation control and cICP (coding-independent code points) remain unsupported.
-        if(kind==0x6163544cu||(!scalarData&&kind==0x63494350u))return DecodeError::unsupported_content;
+        // cICP (coding-independent code points) remains unsupported.
+        if(!scalarData&&kind==0x63494350u)return DecodeError::unsupported_content;
+        if(kind==0x6163544cu){ // acTL
+            if(!frames||scalarData)return DecodeError::unsupported_content;
+            if(count!=8||animated||data)return DecodeError::invalid_layout;
+            const auto declared=be32(bytes,at+8);
+            if(!declared)return DecodeError::invalid_layout;
+            *frames=declared;animated=true;
+        }
+        if(kind==0x6663544cu&&animated&&!data&&!firstFrameControl){ // fcTL before IDAT
+            if(count!=26)return DecodeError::invalid_layout;
+            if(be32(bytes,at+12)!=be32(bytes,16)||be32(bytes,at+16)!=be32(bytes,20)||be32(bytes,at+20)||be32(bytes,at+24))
+                return DecodeError::invalid_layout;
+            firstFrameControl=true;
+        }
+        if(kind==0x49444154u&&animated&&!firstFrameControl)return DecodeError::unsupported_content;
         if(kind==0x504c5445u)palette=true;
         if(kind==0x69434350u&&!scalarData){
             if(!colour||data||palette||srgb)return DecodeError::invalid_layout;
@@ -287,10 +308,32 @@ struct JpegInfo {
     std::uint64_t iccBytes=0;
     std::vector<Bytes> icc;
     std::vector<bool> iccSeen;
+    std::size_t end=0; // one past the primary image's EOI marker
 };
+// Walks from the first SOS to the primary image's EOI: entropy-coded data
+// (where FF is followed by a 00 stuffing byte, an RSTn marker or FF fill) and
+// any further marker segments (progressive DHT/SOS, DNL, COM, APPn). Returns
+// the offset one past EOI, or 0 when the stream ends first (truncated) or an
+// SOI appears inside the image. Bytes after EOI belong to no part of the
+// primary image: an Ultra HDR gain map, an MPF secondary image, a camera
+// trailer or padding. They are ignored and never reach the decoder.
+std::size_t jpeg_end(Bytes bytes,std::size_t at){
+    while(at+1<bytes.size()){
+        if(U8(bytes,at)!=255){++at;continue;}
+        const auto marker=U8(bytes,at+1);
+        if(marker==255){++at;continue;}
+        if(marker==0||marker==1||(marker>=0xd0&&marker<=0xd7)){at+=2;continue;}
+        if(marker==217)return at+2;
+        if(marker==216)return 0;
+        if(!Range(bytes,at+2,2))return 0;
+        const auto length=(std::uint32_t(U8(bytes,at+2))<<8)|U8(bytes,at+3);
+        if(length<2||!Range(bytes,at+2,length))return 0;
+        at+=2+length;
+    }
+    return 0;
+}
 DecodeError jpeg_profile(Bytes bytes,JpegInfo& info){
     if(bytes.size()<4||U8(bytes,0)!=255||U8(bytes,1)!=216)return DecodeError::wrong_magic;
-    if(U8(bytes,bytes.size()-2)!=255||U8(bytes,bytes.size()-1)!=217)return DecodeError::truncated;
     bool seen_orientation=false;
     for(std::size_t at=2;at+1<bytes.size();){
         if(U8(bytes,at++)!=255)return DecodeError::invalid_layout;
@@ -300,7 +343,8 @@ DecodeError jpeg_profile(Bytes bytes,JpegInfo& info){
         if(marker==218){
             if(!info.components)return DecodeError::invalid_layout;
             for(unsigned i=0;i<info.iccCount;++i)if(!info.iccSeen[i])return DecodeError::invalid_layout;
-            return DecodeError::none;
+            info.end=jpeg_end(bytes,at-2);
+            return info.end?DecodeError::none:DecodeError::truncated;
         }
         if(marker==217)return DecodeError::invalid_layout;
         if(!Range(bytes,at,2))return DecodeError::truncated;
@@ -346,8 +390,12 @@ DecodeError jpeg_profile(Bytes bytes,JpegInfo& info){
             for(unsigned i=0;i<entries;++i){
                 const auto p=std::size_t(directory)+2+i*12;
                 if(u16(p)!=0x112)continue;
-                if(seen_orientation||u16(p+2)!=3||u32(p+4)!=1)return DecodeError::invalid_layout;
-                info.orientation=u16(p+8);seen_orientation=true;
+                // Exif 2.3 types Orientation as SHORT; some cameras and editors
+                // write it as LONG (4) or SLONG (9). The single value is read at
+                // its own width; any other type or count stays ambiguous.
+                const auto type=u16(p+2);
+                if(seen_orientation||(type!=3&&type!=4&&type!=9)||u32(p+4)!=1)return DecodeError::invalid_layout;
+                info.orientation=type==3?u16(p+8):u32(p+8);seen_orientation=true;
                 if(info.orientation<1||info.orientation>8)return DecodeError::invalid_layout;
             }
         }
@@ -688,11 +736,12 @@ DecodeResult DecodeRaster(Format format,Bytes bytes,const DecodeOptions& options
     if(bytes.size()>static_cast<std::size_t>(std::numeric_limits<int>::max()))return Failure(DecodeError::input_too_large);
     if(format==Format::bmp)return DecodeBmp(bytes,options);
     JpegInfo jpeg;std::uint32_t frames=1;DecodeError profile=DecodeError::none;ColourProfile colour;bool cmyk=false;
-    if(format==Format::png)profile=png_profile(bytes,options.allowPng16BitRenderingDerivative,false,&colour);
+    if(format==Format::png)profile=png_profile(bytes,options.allowPng16BitRenderingDerivative,false,&colour,&frames);
     else if(format==Format::gif)profile=gif_profile(bytes,frames);
     else if(format==Format::jpeg){
         profile=jpeg_profile(bytes,jpeg);
         if(profile==DecodeError::none)profile=jpeg_colour(jpeg,colour,cmyk);
+        if(profile==DecodeError::none)bytes=bytes.first(jpeg.end); // trailing data never reaches stb
     }else profile=DecodeError::wrong_magic;
     if(profile!=DecodeError::none)return Failure(profile);
     int width=0,height=0,components=0;auto data=reinterpret_cast<const unsigned char*>(bytes.data());
@@ -705,7 +754,7 @@ DecodeResult DecodeRaster(Format format,Bytes bytes,const DecodeOptions& options
         std::unique_ptr<stbi_us,decltype(&stbi_image_free)> pixels(stbi_load_16_from_memory(data,static_cast<int>(bytes.size()),&width,&height,&components,4),stbi_image_free);
         if(!pixels)return Failure(DecodeError::invalid_layout);
         if(width!=expected_width||height!=expected_height)return Failure(DecodeError::invalid_dimensions);
-        DecodeResult result;result.image.width=width;result.image.height=height;result.image.sourceBitsPerChannel=16;
+        DecodeResult result;result.image.width=width;result.image.height=height;result.image.sourceBitsPerChannel=16;result.image.frameCount=frames;
         result.image.rgba8.resize(std::size_t(width)*height*4);
         if(!colour.active){
             for(std::size_t i=0;i<result.image.rgba8.size();++i)result.image.rgba8[i]=static_cast<std::uint8_t>((std::uint32_t(pixels.get()[i])+128)/257);
