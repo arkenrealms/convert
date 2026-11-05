@@ -450,7 +450,7 @@ void orient(Image& image,unsigned orientation){
 // reaches stb. Supported: OS/2 BITMAPCOREHEADER (12) and BITMAPINFOHEADER/V2/
 // V3/V4/V5 (40/52/56/108/124); 1/4/8-bit palettes, RLE8/RLE4, 16/32-bit
 // BI_RGB/BI_BITFIELDS/BI_ALPHABITFIELDS masks, 24-bit, bottom-up and top-down.
-constexpr std::uint32_t bmp_srgb=0x73524742u,bmp_windows=0x57696e20u,bmp_linked=0x4c494e4bu,bmp_embedded=0x4d424544u;
+constexpr std::uint32_t bmp_srgb=0x73524742u,bmp_windows=0x57696e20u,bmp_embedded=0x4d424544u;
 bool contiguous_mask(std::uint32_t mask){
     if(!mask)return true;
     const auto shifted=mask>>std::countr_zero(mask);

@@ -543,10 +543,8 @@ void Malformed() {
         Check(bool(reference), std::string(CodecName(c)) + ": reference");
         // Every strict prefix is rejected (Ogg: EOS/partial page; MP3: partial
         // frame or Xing frame count). Stride keeps the sweep fast.
-        std::size_t accepted = 0;
         for (std::size_t n = 0; n < good.size(); n += (n < 4096 ? 1 : 7)) {
             const auto d = Decode(c, Bytes(good.begin(), good.begin() + std::ptrdiff_t(n)));
-            if (d) ++accepted;
             if (d) Check(false, std::string(CodecName(c)) + ": prefix of " + std::to_string(n) + " bytes accepted");
             if (!d) Check(d.audio.samples.empty() && d.audio.frames == 0, std::string(CodecName(c)) + ": failure leaks samples");
         }

@@ -10,9 +10,10 @@ No account, wallet or cloud service required. Files stay on the machine running 
 ## Build
 
 Requires CMake 3.25+, a C++20 compiler and a POSIX host (Linux or macOS); Windows
-support is not included. This revision was qualified on Linux with GCC 13; earlier
-revisions were also qualified on macOS, and the audio, document, table and markup
-additions have not yet been built there.
+support is not included. The contribution was qualified on Linux with GCC 13.
+The reviewed revision also builds on macOS with LLVM 22.1.1: the standalone
+MCP, image, audio and document checks pass, including FFmpeg interoperability;
+the markup checks pass with AddressSanitizer and UndefinedBehaviorSanitizer.
 
 The first configure downloads the pinned third-party archives, verifies their
 digests and caches them in `~/Library/Caches/Arken/external-packages/v1` on macOS,
