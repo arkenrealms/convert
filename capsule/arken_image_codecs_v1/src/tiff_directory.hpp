@@ -41,6 +41,23 @@ struct TiffHeader {
         return h;
     }
 };
+// Aggregate work budget for one decode. Directory entries parsed, value
+// elements read and metadata extents checked all draw from one counter, so the
+// total directory work is bounded by the source size whatever the page chain
+// looks like (overlapping directories, shared arrays). The per-byte allowance
+// is several times what any honest layout needs (an entry is at least 12
+// bytes, an array element at least 1); the fixed allowance covers small files;
+// the ceiling sits above the most a well-formed decode can spend (4096 pages x
+// 512 entries walked twice plus 2^19 offsets and counts read twice, ~6.3M) so
+// it only clips adversarial input, keeping any decode's directory work near a
+// second at worst.
+struct TiffWork {
+    static constexpr std::uint64_t perSourceByte=4,allowance=1ull<<20,ceiling=1ull<<24;
+    std::uint64_t remaining;
+    explicit TiffWork(std::uint64_t source_bytes)
+        :remaining(source_bytes>=(ceiling-allowance)/perSourceByte?ceiling:allowance+perSourceByte*source_bytes) {}
+    void charge(std::uint64_t units){TiffRequire(units<=remaining,DecodeError::resource_limit);remaining-=units;}
+};
 struct TiffEntry {std::uint16_t type;std::uint64_t count;std::uint64_t position;};
 struct TiffRange {std::uint64_t begin,size;};
 inline unsigned TiffTypeSize(unsigned type){
@@ -55,12 +72,15 @@ struct TiffDirectory {
     std::uint64_t next=0;
     TiffRange directory{};
     std::uint64_t headerSize=8;
-    explicit TiffDirectory(Bytes bytes):TiffDirectory(bytes,TiffHeader::Parse(bytes)) {}
-    TiffDirectory(Bytes bytes,const TiffHeader& h):TiffDirectory(bytes,h,h.first) {}
-    TiffDirectory(Bytes bytes,const TiffHeader& h,std::uint64_t offset):file{bytes,h.little},big(h.big),headerSize(h.big?16:8) {
+    TiffWork* work=nullptr;
+    TiffDirectory(Bytes bytes,TiffWork& budget):TiffDirectory(bytes,TiffHeader::Parse(bytes),budget) {}
+    TiffDirectory(Bytes bytes,const TiffHeader& h,TiffWork& budget):TiffDirectory(bytes,h,h.first,budget) {}
+    TiffDirectory(Bytes bytes,const TiffHeader& h,std::uint64_t offset,TiffWork& budget)
+        :file{bytes,h.little},big(h.big),headerSize(h.big?16:8),work(&budget) {
         TiffRequire(offset>=headerSize,DecodeError::invalid_layout);
         const auto count=big?file.u64(offset):file.u16(offset);
         TiffRequire(count&&count<=maximumEntries,DecodeError::resource_limit);
+        work->charge(count);
         const unsigned entry=big?20:12,prefix=big?8:2,suffix=big?8:4;
         directory={offset,count*entry+prefix+suffix};
         TiffRequire(Range(bytes,directory.begin,directory.size),DecodeError::truncated);
@@ -72,11 +92,12 @@ struct TiffDirectory {
         }
     }
     // The page chain: every IFD offset in file order, bounded and loop-checked.
-    static std::vector<std::uint64_t> Chain(Bytes bytes,const TiffHeader& h,std::size_t limit){
+    static std::vector<std::uint64_t> Chain(Bytes bytes,const TiffHeader& h,std::size_t limit,TiffWork& work){
         std::vector<std::uint64_t> pages;std::set<std::uint64_t> seen;
         for(auto offset=h.first;offset;){
             TiffRequire(seen.insert(offset).second,DecodeError::invalid_layout);
             TiffRequire(pages.size()<limit,DecodeError::resource_limit);
+            work.charge(1);
             pages.push_back(offset);
             const TiffBytes file{bytes,h.little};
             const auto count=h.big?file.u64(offset):file.u16(offset);
@@ -101,6 +122,7 @@ struct TiffDirectory {
         const auto& e=entry(tag);
         TiffRequire(e.type==1||e.type==3||e.type==4||e.type==16,DecodeError::unsupported_content);
         TiffRequire(e.count&&e.count<=limit,DecodeError::unsupported_content);
+        work->charge(e.count);
         const unsigned size=TiffTypeSize(e.type);const auto extent=std::uint64_t(size)*e.count;
         const auto p=location(e,extent);
         TiffRequire(Range(file.bytes,p,extent),DecodeError::truncated);
@@ -118,6 +140,7 @@ struct TiffDirectory {
     std::vector<double> rationals(std::uint16_t tag,std::uint64_t count)const {
         const auto& e=entry(tag);
         TiffRequire(e.type==5&&e.count==count,DecodeError::unsupported_content);
+        work->charge(count);
         const auto p=location(e,8*count);
         std::vector<double> result;
         for(std::uint64_t i=0;i<count;++i){const auto d=file.u32(p+i*8+4);
@@ -135,6 +158,7 @@ struct TiffDirectory {
         return file.bytes.subspan(std::size_t(p),std::size_t(e.count));
     }
     std::vector<TiffRange> metadata()const {
+        work->charge(entries.size());
         std::vector<TiffRange> ranges{{0,headerSize},directory};
         for(const auto& [tag,e]:entries){
             (void)tag;

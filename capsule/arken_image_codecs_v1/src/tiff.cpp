@@ -126,13 +126,19 @@ struct Chunk {std::uint64_t offset,size;};
 
 DecodeResult decode(Bytes bytes,const DecodeOptions& options){
     if(options.directionIndex||options.mipIndex)return Failure(DecodeError::selection_out_of_range);
+    TiffWork work(bytes.size());
     const auto header=TiffHeader::Parse(bytes);
-    const auto pages=TiffDirectory::Chain(bytes,header,maximum_pages);
+    const auto pages=TiffDirectory::Chain(bytes,header,maximum_pages,work);
     TiffRequire(options.frameIndex<pages.size(),DecodeError::selection_out_of_range);
     // A truncated or overrun file rejects whole, even when the selected page
-    // is intact: every page's values and chunk extents must lie in the file.
-    for(const auto page:pages){
-        const TiffDirectory other(bytes,header,page);(void)other.metadata();
+    // is intact: every page's directory and out-of-line values must lie in the
+    // file. Chunk arrays (strip/tile offsets and byte counts) are read element
+    // by element for the selected page only: other pages may all share one
+    // 2^19-entry array, and rescanning it per page let a ~4.5 MiB file demand
+    // ~2.1e9 range checks. All of this draws on the aggregate `work` budget.
+    for(std::size_t index=0;index<pages.size();++index){
+        const TiffDirectory other(bytes,header,pages[index],work);(void)other.metadata();
+        if(index!=options.frameIndex)continue;
         for(auto [offsets_tag,sizes_tag]:{std::pair<std::uint16_t,std::uint16_t>{273,279},{324,325}}){
             if(!other.has(offsets_tag)||!other.has(sizes_tag))continue;
             for(auto tag:{offsets_tag,sizes_tag})TiffRequire(other.entry(tag).count<=maximum_chunks,DecodeError::resource_limit);
@@ -141,7 +147,7 @@ DecodeResult decode(Bytes bytes,const DecodeOptions& options){
             for(std::size_t i=0;i<o.size();++i)TiffRequire(Range(bytes,o[i],s[i]),DecodeError::truncated);
         }
     }
-    const TiffDirectory f(bytes,header,pages[options.frameIndex]);
+    const TiffDirectory f(bytes,header,pages[options.frameIndex],work);
     const TiffBytes& file=f.file;
 
     const auto width=f.scalar(256,0),height=f.scalar(257,0);

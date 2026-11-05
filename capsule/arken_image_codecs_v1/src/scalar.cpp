@@ -5,7 +5,8 @@ namespace {
 void require(bool value,DecodeError error){if(!value)throw error;}
 }
 ScalarDecodeResult DecodeScalarTiff16(Bytes bytes,const DecodeOptions& options){
-    const TiffDirectory f(bytes);const auto& entries=f.entries;
+    TiffWork work(bytes.size());
+    const TiffDirectory f(bytes,work);const auto& entries=f.entries;
     const bool little=f.file.little;
     require(!f.next,DecodeError::unsupported_content);
     const auto values=[&](unsigned tag){return f.values(tag);};
