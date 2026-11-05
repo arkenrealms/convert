@@ -1,6 +1,7 @@
 #include "arken_image_codecs_v1/encode.hpp"
 #include "../test_support/tiff_fixtures.hpp"
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -121,6 +122,51 @@ void Sweep(const tf::Bytes& seed,const char* name){
         if(result)Require(result.image.rgba8.size()==std::size_t(result.image.width)*result.image.height*4,"Mutated TIFF result extent differs");
     }
 }
+// Adversarial page walk (external review): one valid 1x1 gray first page, then
+// `pages-1` directories that all reference the same StripOffsets/StripByteCounts
+// arrays of `strips` LONG entries, each a valid 1-byte extent. With 4096 pages
+// and 2^19 strips this is ~4.5 MiB yet asked the old decoder for ~2.1 billion
+// strip range checks before it decoded page 0. `loop` links the last directory
+// back to the first.
+tf::Bytes SharedStripArrays(std::size_t pages,std::uint32_t strips,bool loop){
+    constexpr unsigned entries=9;constexpr std::size_t ifd_size=2+entries*12+4;
+    tf::Bytes b(8);b[0]=b[1]=std::byte{'I'};tf::Put(b,2,42,2);
+    const auto pixel=std::uint32_t(b.size());b.push_back(std::byte{200});b.push_back(std::byte{0});
+    const auto offsets=std::uint32_t(b.size());b.resize(offsets+std::size_t(strips)*4);
+    for(std::size_t i=0;i<strips;++i)tf::Put(b,offsets+i*4,pixel,4);
+    const auto counts=std::uint32_t(b.size());b.resize(counts+std::size_t(strips)*4);
+    for(std::size_t i=0;i<strips;++i)tf::Put(b,counts+i*4,1,4);
+    const auto first=b.size();b.resize(first+pages*ifd_size);tf::Put(b,4,first,4);
+    for(std::size_t p=0;p<pages;++p){
+        const auto at=first+p*ifd_size;const bool shared=p>0;const std::uint32_t n=shared?strips:1;
+        const std::uint32_t e[entries][4]={{256,4,1,1},{257,4,1,1},{258,3,1,8},{259,3,1,1},{262,3,1,1},
+            {273,4,n,shared?offsets:pixel},{277,3,1,1},{278,4,1,1},{279,4,n,shared?counts:1}};
+        tf::Put(b,at,entries,2);
+        for(unsigned i=0;i<entries;++i){const auto q=at+2+i*12;
+            tf::Put(b,q,e[i][0],2);tf::Put(b,q+2,e[i][1],2);tf::Put(b,q+4,e[i][2],4);tf::Put(b,q+8,e[i][3],e[i][1]==3?2:4);}
+        tf::Put(b,at+2+entries*12,p+1<pages?at+ifd_size:loop?first:0,4);
+    }
+    return b;
+}
+// Overlapping directories: IFD k starts 12*k bytes after IFD 0, so each one
+// reuses 511 of its predecessor's 512 entries. Every directory is in-file with
+// unique tags and the chain has no loop, but `pages` x 512 entries are walked
+// from a ~55 KiB file: work no honest file of that size needs, so the aggregate
+// budget must reject it with resource_limit.
+tf::Bytes OverlappingDirectories(unsigned pages){
+    constexpr unsigned c=512;constexpr std::size_t o=8;
+    Require(o+12*(std::size_t(pages)+c)<60000,"Overlapping directory fixture too large");
+    tf::Bytes b(o+2+12*(std::size_t(pages)+c));b[0]=b[1]=std::byte{'I'};tf::Put(b,2,42,2);tf::Put(b,4,o,4);
+    tf::Put(b,o,c,2);
+    for(std::size_t j=0;j<pages+c;++j){const auto at=o+2+12*j;
+        // Bytes 0-3 double as IFD (j-c)'s next link; bytes 10-11 as IFD (j+1)'s entry count.
+        const std::uint64_t head=j<c?60000+j:j+1<pages+c?o+12*(j-c+1):0;
+        tf::Put(b,at,head,4);
+        if(j+1<pages+c){tf::Put(b,at+4,1,4);tf::Put(b,at+8,std::uint64_t(j+1<pages?c:0)<<16,4);}
+    }
+    return b;
+}
+template<class F>double Seconds(F f){const auto t=std::chrono::steady_clock::now();f();return std::chrono::duration<double>(std::chrono::steady_clock::now()-t).count();}
 void Tests(){
     unsigned checked=0;
     for(bool little:{true,false})for(unsigned compression:{1u,32773u,8u,32946u})
@@ -385,6 +431,32 @@ void Tests(){
         const auto first=tf::Get(loop,4);const auto entries=tf::Get(loop,first,2);
         const auto second=tf::Get(loop,first+2+entries*12);const auto entries2=tf::Get(loop,second,2);
         tf::Put(loop,second+2+entries2*12,first,4);Expect(loop,DecodeError::invalid_layout,"TIFF IFD loop accepted");
+    }
+    // Aggregate work limit. 250 ms per decode: the fixed decoder does linear work
+    // on a <5 MiB source (a few ms here), the unfixed one ~2.1e9 range checks
+    // (many seconds), so the bound leaves >10x headroom for slow or instrumented
+    // builds while staying orders of magnitude below the vulnerable path.
+    {
+        constexpr std::size_t pages=4096;constexpr std::uint32_t strips=1u<<19;constexpr double limit=0.25;
+        double worst=0;image::DecodeResult d;
+        const auto timed=[&](const tf::Bytes& b,std::uint32_t frame){image::DecodeOptions o;o.frameIndex=frame;
+            worst=std::max(worst,Seconds([&]{d=Decode(b,o);}));return d;};
+        const auto shared=SharedStripArrays(pages,strips,false);
+        Require(shared.size()<5*1024*1024,"Shared-array fixture exceeds 5 MiB");
+        Same(timed(shared,0),1,1,{200,200,200,255},"Shared-array TIFF first page mismatch");
+        Require(d.image.frameCount==pages,"Shared-array TIFF page count wrong");
+        timed(shared,pages-1);Require(!d&&d.issue.code==DecodeError::invalid_layout,"Shared-array TIFF last page accepted");
+        const auto loop=SharedStripArrays(pages,strips,true);
+        for(std::uint32_t frame:{0u,std::uint32_t(pages-1)}){timed(loop,frame);
+            Require(!d&&d.issue.code==DecodeError::invalid_layout,"Shared-array TIFF IFD loop accepted");}
+        const auto overlapping=OverlappingDirectories(pages);
+        for(std::uint32_t frame:{0u,std::uint32_t(pages-1)}){timed(overlapping,frame);
+            if(d||d.issue.code!=DecodeError::resource_limit){std::cerr<<"overlapping walk: got "<<int(d.issue.code)<<'\n';
+                throw std::runtime_error("TIFF work budget not enforced");}}
+        // A short overlapping walk stays within the budget and rejects on content.
+        Expect(OverlappingDirectories(8),DecodeError::invalid_dimensions,"Small overlapping TIFF walk misreported");
+        std::cout<<"TIFF work limit: worst adversarial decode "<<int(worst*1000)<<" ms ("<<shared.size()<<"-byte shared-array fixture)\n";
+        Require(worst<limit,"Adversarial TIFF decode exceeded its time bound");
     }
     const auto f=tf::Make();
     auto w=image::EncodeImage(image::Format::tiff,7,3,f.rgba);
