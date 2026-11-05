@@ -124,7 +124,10 @@ ZipArchive::ZipArchive(Bytes bytes,const ZipLimits& limits):bytes_(bytes),limits
         const auto crc=U32(bytes,o+14);
         const std::uint64_t compressed=U32(bytes,o+18),expanded=U32(bytes,o+22);
         const std::uint64_t nameLength=U16(bytes,o+26),extraLength=U16(bytes,o+28);
-        if(flags!=e.flags||method!=e.method)Fail(Error::zip_malformed);
+        // Bit 11 (UTF-8 names) may differ between the two headers: some producers
+        // set it only in the directory (apache/poi test-data 56957.xlsx). The name
+        // bytes themselves must still match exactly, so nothing is reinterpreted.
+        if(((flags^e.flags)&~flagUtf8)!=0||method!=e.method)Fail(Error::zip_malformed);
         const bool descriptor=(e.flags&flagDescriptor)!=0;
         const auto agrees=[&](std::uint64_t local,std::uint64_t central) {return local==central||(descriptor&&local==0);};
         if(!agrees(crc,e.crc)||!agrees(compressed,e.compressed)||!agrees(expanded,e.expanded))Fail(Error::zip_malformed);

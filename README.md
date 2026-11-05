@@ -103,7 +103,9 @@ Markup and subtitles:
 
 Every tool takes a relative `source_path` and a new relative `output_path`. An
 option that does not apply to the tool, input or output is an invalid request,
-never ignored.
+never ignored. Empty files are never created: a valid source that converts to no
+content (an empty first sheet, a document whose only content is excluded) is
+rejected with the code `emptyOutput`.
 
 ## Image profile
 
