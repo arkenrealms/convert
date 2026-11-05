@@ -4,6 +4,9 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <locale>
+#include <limits>
+#include <sstream>
 #include <system_error>
 
 // Internals shared by the spreadsheet readers (xlsx.cpp, ods.cpp) and the
@@ -144,11 +147,26 @@ inline std::string CellName(std::uint64_t row,std::uint64_t column) {return Colu
 
 // Full-string binary64 parse (decimal, optional exponent); false on garbage, inf or nan.
 inline bool ParseDouble(std::string_view s,double& value) {
-    if(s.empty())return false;
-    const char* begin=s.data();
-    if(*begin=='+')return false;
-    const auto [end,ec]=std::from_chars(begin,s.data()+s.size(),value,std::chars_format::general);
-    return ec==std::errc()&&end==s.data()+s.size()&&std::isfinite(value);
+    if(s.empty()||s.front()=='+'||s.find_first_not_of("0123456789.eE+-")!=std::string_view::npos)return false;
+    // Floating-point from_chars is unavailable on supported macOS releases.
+    // A stream with its own classic locale preserves decimal parsing without
+    // consulting or changing the process locale (including concurrent calls).
+    std::istringstream input{std::string(s)};
+    input.imbue(std::locale::classic());
+    double parsed=0;
+    input>>std::noskipws>>parsed;
+    if(!input.eof()||!std::isfinite(parsed))return false;
+    // num_get may set failbit for a representable subnormal. Preserve it;
+    // overflow, malformed text and underflow to zero are still rejected.
+    if(input.fail()&&(parsed==0||std::abs(parsed)>=std::numeric_limits<double>::min()))return false;
+    // Some standard libraries silently round underflow to zero. Keep the
+    // previous out-of-range rejection, while retaining signed literal zero.
+    if(parsed==0) {
+        const auto mantissa=s.substr(0,s.find_first_of("eE"));
+        if(mantissa.find_first_of("123456789")!=std::string_view::npos)return false;
+    }
+    value=parsed;
+    return true;
 }
 
 // Proleptic Gregorian civil date from days since 1970-01-01.

@@ -608,6 +608,11 @@ void XlsxTests() {
     ExpectError(ReadError(TableFormat::xlsx,sheet("<c t=\"s\"><v>0</v></c>")),Error::xlsx_malformed,"shared string without table");
     ExpectError(ReadError(TableFormat::xlsx,sheet("<c t=\"zz\"><v>0</v></c>")),Error::xlsx_malformed,"unknown cell type");
     ExpectError(ReadError(TableFormat::xlsx,sheet("<c><v>12abc</v></c>")),Error::xlsx_malformed,"non-numeric number");
+    ExpectError(ReadError(TableFormat::xlsx,sheet("<c><v>1e9999</v></c>")),Error::xlsx_malformed,"numeric overflow");
+    ExpectError(ReadError(TableFormat::xlsx,sheet("<c><v>1e-9999</v></c>")),Error::xlsx_malformed,"numeric underflow");
+    ExpectError(ReadError(TableFormat::xlsx,sheet("<c><v>0x1p2</v></c>")),Error::xlsx_malformed,"hexadecimal is not decimal");
+    ExpectError(ReadError(TableFormat::xlsx,sheet("<c><v>NaN</v></c>")),Error::xlsx_malformed,"nonfinite number");
+    ExpectError(ReadError(TableFormat::xlsx,sheet("<c><v>5e-324</v></c>")),Error::none,"representable subnormal");
     ExpectError(ReadError(TableFormat::xlsx,sheet("<c t=\"b\"><v>2</v></c>")),Error::xlsx_malformed,"bad boolean");
     ExpectError(ReadError(TableFormat::xlsx,OneSheet("<sheetData/><mergeCells><mergeCell ref=\"A1:\"/></mergeCells>")),Error::xlsx_malformed,"bad merge ref");
     ExpectError(ReadError(TableFormat::xlsx,OneSheet("<sheetData><row r=\"1048577\"/></sheetData>")),Error::xlsx_malformed,"row beyond 1048576");

@@ -112,7 +112,8 @@ public:
         report_.selectedSheet=std::uint32_t(selected);
         Rows(*tables[selected]);
         auto table=cells_.Densify(Error::ods_malformed);
-        const auto height=table.rows.size(),width=table.columns;
+        const auto height=table.rows.size();
+        const auto width=table.columns;
         for(const auto& [start,count]:emptyRowRuns_)
             report_.trimmedRepeatedRows+=start+count-std::max<std::uint64_t>(start,std::min<std::uint64_t>(start+count,height));
         for(const auto& run:emptyCellRuns_) {
