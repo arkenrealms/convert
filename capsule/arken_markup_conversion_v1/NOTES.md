@@ -551,3 +551,46 @@ integrator and mirror how `arken_document_extraction_v1` was exposed
 6. **README.** Document the four tools, their limits, the supported profile
    (the CommonMark subset and the HTML mapping table above), the security
    policy and the limitations section.
+
+## Corpus validation (2026-11-05)
+
+Real files were run through the MCP tools `html_to_markdown`, `srt_to_vtt` and
+`vtt_to_srt`, and every Markdown output was rendered back with `markdown_to_html`.
+None of the files is committed. The full method, document formats and tables are
+in `capsule/arken_document_extraction_v1/CORPUS_REPORT.md`.
+
+| Input | Files | OK | Empty (`emptyOutput`) | Rejected | Crash/hang | Median / max ms |
+| --- | --: | --: | --: | --: | --: | --- |
+| HTML docs: w3c/wcag (150), mdn/learning-area (150) | 300 | 280 | 20 | 0 | 0 | 1.2 / 9.4 |
+| HTML test pages: LibreOffice htmlimport, epub.js, web-platform-tests | 124 | 77 | 45 | 2 | 0 | 0.8 / 7.5 |
+| SRT: pysrt, subsrt | 12 | 6 | 0 | 6 | 0 | 0.6 / 2.7 |
+| WebVTT: vtt.js tests, web-platform-tests, EPUB media overlays | 300 | 219 | 45 | 36 | 0 | 0.8 / 4.1 |
+
+- **Round trip.** The `markdown_to_html` check passed for every Markdown output,
+  1,476 in all, HTML and document extractions included.
+- **Spot checks.** WCAG "Understanding" and MDN pages keep headings, emphasis,
+  lists, tables, definition lists and http(s) links. Relative links become text,
+  as documented.
+- **Empty results.** All of them are correct.
+  - HTML: pages whose body is only scripts, styles, `iframe`, an image without alt
+    text, or a template. The `<title>` is not emitted.
+  - VTT: files with no cue. That covers header-only and region-only files, a
+    cue-like line inside a `NOTE` block, and text on the `WEBVTT` signature line.
+  - Before the corpus fix these failed with a misleading output-path error. They
+    now return `emptyOutput`.
+- **Rejections, all class (a).**
+  - HTML: 2 non-UTF-8 pages, one declaring a legacy charset and one UTF-16BE with
+    a BOM.
+  - SRT: 4 with a UTF-16/32 BOM, 1 in windows-1252, and 1 malformed on purpose.
+  - WebVTT: 36 conformance tests that are invalid by the grammar. Examples are
+    `-->` inside an identifier, minutes over 59 in `MM:SS.mmm`, 1-digit fields,
+    a missing or garbled `WEBVTT` signature, a negative cue duration, and NULs.
+    `empty.vtt` (0 bytes) is rejected by the file layer.
+- **Product decisions recorded.**
+  1. Subtitles are UTF-8 only. 5 of 12 real SRT files were UTF-16/32 or
+     windows-1252, and a BOM-guided UTF-16 transcode would admit most of them.
+  2. WebVTT is all-or-nothing: one bad cue rejects the file, while browsers drop
+     that cue and keep the rest.
+  3. HTML `<title>` is not carried into Markdown when the body has no heading.
+- **No code changes** were needed in this capsule. The only markup-visible
+  change is the command layer's new `emptyOutput` code.

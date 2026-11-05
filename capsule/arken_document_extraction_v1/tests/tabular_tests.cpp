@@ -593,6 +593,14 @@ void XlsxTests() {
     }
     // Worksheet-level failures.
     const auto sheet=[](std::string_view cells) {return OneSheet("<sheetData><row r=\"1\">"+std::string(cells)+"</row></sheetData>");};
+    {   // Corpus (apache/poi bug69769.xlsx, 56702.xlsx, 64508.xlsx): whitespace around a
+        // numeric, shared-string or boolean <v> is collapsed, and an empty <v/> is a blank cell.
+        Xlsx x;x.strings={"<t>zero</t>","<t>one</t>","<t>two</t>"};
+        x.sheets={{"S","","<sheetData><row r=\"1\"><c r=\"A1\" t=\"s\"><v>2 </v></c><c r=\"B1\"><v>\n 42\n</v></c>"
+            "<c r=\"C1\" t=\"b\"><v> 1</v></c><c r=\"D1\" t=\"s\"><v/></c><c r=\"E1\"><v></v></c><c r=\"F1\" t=\"s\"><v>1</v></c></row></sheetData>"}};
+        ExpectConvert(TableFormat::xlsx,TableFormat::csv,Build(x),"two,42,TRUE,,,one\n","whitespace-collapsed and empty <v>");
+        ExpectError(ReadError(TableFormat::xlsx,sheet("<c><v>4 2</v></c>")),Error::xlsx_malformed,"inner whitespace still malformed");
+    }
     ExpectError(ReadError(TableFormat::xlsx,sheet("<c r=\"A0\"><v>1</v></c>")),Error::xlsx_malformed,"row 0");
     ExpectError(ReadError(TableFormat::xlsx,sheet("<c r=\"XFE1\"><v>1</v></c>")),Error::xlsx_malformed,"column beyond XFD");
     ExpectError(ReadError(TableFormat::xlsx,sheet("<c r=\"B2\"><v>1</v></c>")),Error::xlsx_malformed,"cell outside its row");

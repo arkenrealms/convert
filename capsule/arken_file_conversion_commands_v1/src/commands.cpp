@@ -326,6 +326,12 @@ struct Session::Impl {
  // Writes the output exclusively and replies with `result`; every family shares this.
  template<class Result> Json publish(const Json& id,const std::string& output,std::span<const std::byte> bytes,
                                      Result result,bool& published) {
+  // The workspace never creates an empty file. A valid source can still extract to
+  // nothing (an empty first sheet, a document holding only images or text boxes), so
+  // say that instead of the generic output-path error the workspace would report.
+  if(bytes.empty())return error(id,"emptyOutput","The source converted to no content (for example an empty sheet, or a "
+   "document whose only content is excluded: images, text boxes, notes or drawings); empty output files are not created, "
+   "so nothing was written.");
   result.output_path.value=output;result.output_bytes.value=static_cast<std::uint32_t>(bytes.size());
   result.sha256.value=digest(bytes);
   const auto written=files->create(output,bytes);published=written.published;result.durable.value=written.durable;

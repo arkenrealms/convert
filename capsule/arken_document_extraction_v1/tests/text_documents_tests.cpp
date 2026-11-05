@@ -338,6 +338,14 @@ void OdtTests() {
     ExpectText(Convert(TextDocumentFormat::odt,OutputFormat::text,Zip(OdfMembers(odtType,OdfContent(odtAutomatic,"text",
         "<text:list text:style-name=\"Numbering_20_123\"><text:list-item><text:p>Named style item</text:p></text:list-item></text:list>")))),
         "- Named style item\n","ODT unknown list style is a bullet");
+    // Corpus (LibreOffice fdo79358.odt): a table of contents' displayed title lives in
+    // text:index-title inside text:index-body; the source template is not text.
+    ExpectText(Convert(TextDocumentFormat::odt,OutputFormat::text,Zip(OdfMembers(odtType,OdfContent("","text",
+        "<text:table-of-content text:name=\"TOC1\"><text:table-of-content-source text:outline-level=\"10\">"
+        "<text:index-title-template>Template title</text:index-title-template></text:table-of-content-source>"
+        "<text:index-body><text:index-title text:name=\"TOC1_Head\"><text:p>Table of Contents</text:p></text:index-title>"
+        "<text:p>Intro<text:tab/>1</text:p></text:index-body></text:table-of-content><text:p>Body</text:p>")))),
+        "Table of Contents\n\nIntro\t1\n\nBody\n","ODT index title");
     // A template is accepted; whitespace-only and empty documents are empty successes.
     ExpectText(Convert(TextDocumentFormat::odt,OutputFormat::text,Zip(OdfMembers("application/vnd.oasis.opendocument.text-template",
         OdfContent("","text","<text:p>T</text:p>")))),"T\n","ODT template");
