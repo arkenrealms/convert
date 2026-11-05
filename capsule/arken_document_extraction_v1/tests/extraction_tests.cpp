@@ -129,6 +129,7 @@ struct Member {
     std::uint16_t flags=0;
     bool descriptorSignature=true;
     std::optional<std::uint32_t> descriptorCrc;
+    std::optional<std::uint16_t> centralFlags; // Directory flags when they differ from the local header's.
 };
 std::string Zip(const std::vector<Member>& members) {
     std::string out,central;
@@ -146,7 +147,7 @@ std::string Zip(const std::vector<Member>& members) {
             if(m.descriptorSignature)Le32(out,0x08074b50);
             Le32(out,m.descriptorCrc?*m.descriptorCrc:crc);Le32(out,std::uint32_t(payload.size()));Le32(out,size);
         }
-        Le32(central,0x02014b50);Le16(central,20);Le16(central,20);Le16(central,m.flags);Le16(central,m.method);
+        Le32(central,0x02014b50);Le16(central,20);Le16(central,20);Le16(central,m.centralFlags?*m.centralFlags:m.flags);Le16(central,m.method);
         Le16(central,0);Le16(central,0x21);Le32(central,crc);Le32(central,std::uint32_t(payload.size()));Le32(central,size);
         Le16(central,std::uint32_t(m.name.size()));Le16(central,0);Le16(central,0);Le16(central,0);Le16(central,0);
         Le32(central,0);Le32(central,offset);
@@ -299,6 +300,14 @@ void ZipTests() {
         ExpectText(Convert(SourceFormat::docx,OutputFormat::text,Zip(members)),referenceText,"data descriptors");
         members[2].descriptorCrc=0x12345678;
         ExpectError(DocxError(Zip(members)),Error::zip_malformed,"descriptor disagreeing with directory");
+    }
+    {   // Corpus (apache/poi 56957.xlsx): the directory sets the UTF-8 name flag (bit 11)
+        // that the local headers omit, on ASCII names. Accepted; any other flag mismatch is not.
+        auto members=DocxMembers(reference);
+        for(auto& m:members) {m.flags=0x0006;m.centralFlags=0x0806;}
+        ExpectText(Convert(SourceFormat::docx,OutputFormat::text,Zip(members)),referenceText,"UTF-8 flag only in the directory");
+        members=DocxMembers(reference);members[1].centralFlags=0x0002;
+        ExpectError(DocxError(Zip(members)),Error::zip_malformed,"other flag mismatch between local header and directory");
     }
     for(const std::string name:{"../evil.xml","/abs.xml","word\\x.xml","word/./x.xml","word//x.xml","C:/x.xml","bad\x01name","a/../b.xml","\xc3\x28.xml"}) {
         auto members=DocxMembers(reference);
@@ -508,6 +517,14 @@ void DocxTests() {
                R"(<w:r><w:drawing><wp:inline xmlns:wp="urn:wp"><w:txbxContent><w:p><w:r><w:t>textbox</w:t></w:r></w:p></w:txbxContent></wp:inline></w:drawing></w:r></w:p>)"
                R"(<w:del w:id="3"><w:p><w:r><w:t>deleted paragraph</w:t></w:r></w:p></w:del>)";
         ExpectText(DocxText(d),"keep added end\n","tracked changes, notes and text boxes");
+    }
+    {   // Corpus (apache/poi 61470.docx): East Asian ruby. The base text is kept, the
+        // pronunciation guide (w:rt) is not.
+        Docx d;
+        d.body=R"(<w:p><w:r><w:t xml:space="preserve">in </w:t></w:r><w:r><w:ruby><w:rubyPr><w:hps w:val="11"/></w:rubyPr>)"
+               R"(<w:rt><w:r><w:t>とうきょう</w:t></w:r></w:rt><w:rubyBase><w:r><w:rPr><w:b/></w:rPr><w:t>東京</w:t></w:r></w:rubyBase></w:ruby></w:r>)"
+               R"(<w:r><w:t xml:space="preserve"> now</w:t></w:r></w:p>)";
+        ExpectText(DocxText(d),"in 東京 now\n","ruby base text kept, ruby guide dropped");
     }
     {   // Line breaks of every form, empty paragraphs and Unicode.
         Docx d;

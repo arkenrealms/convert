@@ -423,6 +423,9 @@ private:
                 }
                 for(auto& c:text)if(c=='\n')c=' ';
                 emit(text);
+            } else if(w_.Is(e,"ruby")) {
+                // East Asian ruby: the base text is the reading text; the guide (w:rt) is not.
+                if(const auto* base=w_.Child(e,"rubyBase"))Inline(*base,runs,link);
             } else if(w_.Is(e,"tab")) {emit("\t");}
             else if(w_.Is(e,"br")||w_.Is(e,"cr")) {emit("\n");}
             else if(w_.Is(e,"noBreakHyphen")) {emit("\u2011");}
